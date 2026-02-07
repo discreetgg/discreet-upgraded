@@ -964,10 +964,12 @@ export const raceOptions = [
 ];
 
 export const sortOptions = [
-  'Highest Price',
-  'Lowest Price',
   'Random',
   'Popular',
+];
+export const sellerSortOptions = [
+  'Rank',
+  'Random',
 ];
 export const camsOptions = ['Taking cams', 'Not Taking cams'];
 export const raceOptionsWithLabels = [

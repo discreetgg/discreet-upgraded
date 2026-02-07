@@ -755,10 +755,15 @@ export const unlikePostService = async (payload: LikePayload) => {
 	}
 };
 
-export const hasLikedService = async (targetType: string, targetId: string) => {
+export const hasLikedService = async (
+	targetType: string,
+	targetId: string,
+	signal?: AbortSignal
+) => {
 	try {
 		const response = await api.get(
-			`/post/has-liked/${targetType.toLowerCase()}/${targetId}`
+			`/post/has-liked/${targetType.toLowerCase()}/${targetId}`,
+			{ signal }
 		);
 		return response;
 	} catch (error: any) {
@@ -898,18 +903,77 @@ export const getConversationsService = async () => {
 	}
 };
 
+const DEFAULT_CONVERSATION_LIMIT = 50;
+const CONVERSATION_RESPONSE_TTL_MS = 5000;
+const conversationRequestCache = new Map<
+	string,
+	{ expiresAt: number; data: any }
+>();
+const inFlightConversationRequests = new Map<string, Promise<any>>();
+
+const pruneConversationRequestCache = (now: number) => {
+	for (const [key, value] of conversationRequestCache.entries()) {
+		if (value.expiresAt <= now) {
+			conversationRequestCache.delete(key);
+		}
+	}
+};
+
+const buildConversationRequestKey = (
+	id: string,
+	params?: { from?: string; to?: string; limit?: number }
+) => {
+	const normalizedLimit = params?.limit ?? DEFAULT_CONVERSATION_LIMIT;
+	const normalizedFrom = params?.from ?? "";
+	const normalizedTo = params?.to ?? "";
+	return `${id}|${normalizedLimit}|${normalizedFrom}|${normalizedTo}`;
+};
+
 export const getConversationByIdService = async (
 	id: string,
 	params?: { from?: string; to?: string; limit?: number }
 ) => {
 	try {
-		// Use direct axios (not the cached `api` client) to avoid browser-side caching for conversation history
-		const response = await axios.get(`${baseURL}/chat/conversations/${id}`, {
-			params,
-			withCredentials: true,
-			headers: { "Content-Type": "application/json" },
-		});
-		return response.data;
+		const requestKey = buildConversationRequestKey(id, params);
+		const now = Date.now();
+		pruneConversationRequestCache(now);
+
+		const cached = conversationRequestCache.get(requestKey);
+		if (cached && cached.expiresAt > now) {
+			return cached.data;
+		}
+
+		const existingRequest = inFlightConversationRequests.get(requestKey);
+		if (existingRequest) {
+			return await existingRequest;
+		}
+
+		const normalizedParams = {
+			limit: params?.limit ?? DEFAULT_CONVERSATION_LIMIT,
+			...(params?.from ? { from: params.from } : {}),
+			...(params?.to ? { to: params.to } : {}),
+		};
+
+		const requestPromise = axios
+			.get(`${baseURL}/chat/conversations/${id}`, {
+				params: normalizedParams,
+				withCredentials: true,
+				headers: { "Content-Type": "application/json" },
+			})
+			.then((response) => {
+				conversationRequestCache.set(requestKey, {
+					data: response.data,
+					expiresAt: Date.now() + CONVERSATION_RESPONSE_TTL_MS,
+				});
+				return response.data;
+			})
+			.finally(() => {
+				inFlightConversationRequests.delete(requestKey);
+			});
+
+		inFlightConversationRequests.set(requestKey, requestPromise);
+
+		return await requestPromise;
 	} catch (error: any) {
 		if (error.response) {
 			throw {

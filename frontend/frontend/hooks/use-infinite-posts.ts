@@ -15,49 +15,94 @@ interface PostsResponse {
   nextCursor?: string;
 }
 
+const unpaginatedPostsCache = new Map<string, PostType[]>();
+
+const buildClientPaginatedPage = ({
+  allPosts,
+  cursor,
+  limit,
+}: {
+  allPosts: PostType[];
+  cursor?: string;
+  limit: number;
+}) => {
+  let startIndex = 0;
+
+  if (cursor) {
+    const cursorIndex = allPosts.findIndex((post) => post._id === cursor);
+    startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+  }
+
+  const posts = allPosts.slice(startIndex, startIndex + limit);
+  const hasNextPage = startIndex + limit < allPosts.length;
+  const nextCursor =
+    hasNextPage && posts.length > 0 ? posts[posts.length - 1]._id : undefined;
+
+  return {
+    posts,
+    hasNextPage,
+    nextCursor,
+  };
+};
+
 export const useInfinitePosts = ({
   initialVisibility = 'general',
   limit = 10,
 }: UseInfinitePostsProps = {}) => {
+  const cacheKey = `${initialVisibility}:${limit}`;
+
   const query = useInfiniteQuery({
     queryKey: ['posts', initialVisibility, limit],
     queryFn: async ({ pageParam }) => {
+      const cursor = pageParam as string | undefined;
+
+      const cachedUnpaginatedPosts = unpaginatedPostsCache.get(cacheKey);
+      if (cachedUnpaginatedPosts && cachedUnpaginatedPosts.length > 0) {
+        return buildClientPaginatedPage({
+          allPosts: cachedUnpaginatedPosts,
+          cursor,
+          limit,
+        });
+      }
+
       const response = await getPostsService({
         visibility: initialVisibility,
-        cursor: pageParam,
+        cursor,
         limit,
       });
 
-      // Normalize response structure
-      const responseData: PostsResponse = response.data || {
-        data: response.data || [],
-        hasNextPage: false,
-      };
+      const responseData = response.data as
+        | PostsResponse
+        | PostType[]
+        | { data?: PostType[] };
 
-      const posts = Array.isArray(responseData)
-        ? responseData
-        : responseData.data || [];
-
-      // Determine next cursor and hasNextPage
-      let hasNextPage = false;
-      let nextCursor: string | undefined;
-
-      if (typeof responseData === 'object' && 'hasNextPage' in responseData) {
-        hasNextPage = Boolean(responseData.hasNextPage);
-        nextCursor = responseData.nextCursor;
-      } else {
-        // Fallback: if we get fewer posts than requested, assume no more pages
-        hasNextPage = posts.length >= limit;
-        if (posts.length > 0) {
-          nextCursor = posts[posts.length - 1]._id;
-        }
+      // Preferred shape from backend pagination
+      if (
+        responseData &&
+        typeof responseData === 'object' &&
+        !Array.isArray(responseData) &&
+        'hasNextPage' in responseData
+      ) {
+        return {
+          posts: responseData.data || [],
+          nextCursor: responseData.nextCursor,
+          hasNextPage: Boolean(responseData.hasNextPage),
+        };
       }
 
-      return {
-        posts,
-        nextCursor,
-        hasNextPage,
-      };
+      // Fallback for legacy/unpaginated backend response:
+      // cache the full list and paginate locally to avoid rendering/fetching status for every post at once.
+      const allPosts = Array.isArray(responseData)
+        ? responseData
+        : responseData?.data || [];
+
+      unpaginatedPostsCache.set(cacheKey, allPosts);
+
+      return buildClientPaginatedPage({
+        allPosts,
+        cursor,
+        limit,
+      });
     },
     getNextPageParam: (lastPage) => {
       return lastPage.hasNextPage ? lastPage.nextCursor : undefined;
@@ -78,12 +123,18 @@ export const useInfinitePosts = ({
     isLoadingMore: query.isFetchingNextPage,
     error: query.error?.message ?? null,
     hasNextPage: query.hasNextPage,
-    loadPosts: () => query.refetch(),
+    loadPosts: () => {
+      unpaginatedPostsCache.delete(cacheKey);
+      return query.refetch();
+    },
     loadMorePosts: () => {
       if (!query.isFetchingNextPage && query.hasNextPage) {
         query.fetchNextPage();
       }
     },
-    refreshPosts: () => query.refetch(),
+    refreshPosts: () => {
+      unpaginatedPostsCache.delete(cacheKey);
+      return query.refetch();
+    },
   };
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGlobal } from "@/context/global-context-provider";
 import { useBookmarkMutation } from "@/hooks/mutations/use-bookmark-mutation";
 import { toast } from "sonner";
@@ -12,42 +12,110 @@ export default function BookmarkButton({
 	postId,
 	initialBookmarked = false,
 	isBookmarkPage = false,
+	skipInitialFetch = false,
+	deferStatusFetch = true,
+	autoResolveOnVisible = true,
 }: {
 	postId: string;
 	initialBookmarked?: boolean;
 	isBookmarkPage?: boolean;
+	skipInitialFetch?: boolean;
+	deferStatusFetch?: boolean;
+	autoResolveOnVisible?: boolean;
 }) {
 	const { user } = useGlobal();
 	const discordId = user?.discordId;
 
 	const [isBookmarked, setIsBookmarked] = useState<boolean>(initialBookmarked);
+	const [isStatusEnabled, setIsStatusEnabled] = useState(
+		!deferStatusFetch || skipInitialFetch
+	);
+	const [isResolvingInitialStatus, setIsResolvingInitialStatus] =
+		useState(false);
+	const [pendingToggle, setPendingToggle] = useState(false);
+	const buttonRef = useRef<HTMLButtonElement | null>(null);
 	const queryClient = useQueryClient();
 	const mutation = useBookmarkMutation();
 
 	useEffect(() => {
 		let mounted = true;
+		const controller = new AbortController();
 		if (!discordId || !postId) return;
+		if (skipInitialFetch) return;
+		if (!isStatusEnabled) return;
+
+		setIsResolvingInitialStatus(true);
 
 		mutation
-			?.fetchIsBookmarked?.(discordId, postId)
+			?.fetchIsBookmarked?.(discordId, postId, controller.signal)
 			.then((res: boolean) => {
 				if (!mounted) return;
 				setIsBookmarked(Boolean(res));
 			})
-			.catch(() => {});
+			.catch(() => {})
+			.finally(() => {
+				if (mounted) {
+					setIsResolvingInitialStatus(false);
+				}
+			});
 
 		return () => {
 			mounted = false;
+			controller.abort();
 		};
-	}, [discordId, postId]);
+	}, [discordId, postId, skipInitialFetch, mutation, isStatusEnabled]);
 
-	const handleToggle = () => {
+	useEffect(() => {
+		if (
+			!deferStatusFetch ||
+			!autoResolveOnVisible ||
+			isStatusEnabled ||
+			skipInitialFetch
+		) {
+			return;
+		}
+
+		const target = buttonRef.current;
+		if (!target || typeof IntersectionObserver === "undefined") {
+			return;
+		}
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0];
+				if (!entry?.isIntersecting) return;
+				setIsStatusEnabled(true);
+				observer.disconnect();
+			},
+			{
+				root: null,
+				threshold: 0.2,
+				rootMargin: "240px 0px",
+			}
+		);
+
+		observer.observe(target);
+
+		return () => {
+			observer.disconnect();
+		};
+	}, [
+		deferStatusFetch,
+		autoResolveOnVisible,
+		isStatusEnabled,
+		skipInitialFetch,
+	]);
+
+	const performToggle = useCallback(() => {
 		if (!postId) return;
+		if (!discordId) return;
+
+		const currentlyBookmarked = isBookmarked;
 
 		setIsBookmarked((prev) => !prev);
 		if (isBookmarkPage) {
 			mutation.mutate(
-				{ discordId: discordId ?? "", postId, isBookmarked },
+				{ discordId, postId, isBookmarked: currentlyBookmarked },
 				{
 					onError: () => {
 						// rollback local state on error
@@ -57,7 +125,7 @@ export default function BookmarkButton({
 			);
 			return;
 		}
-		if (isBookmarked) {
+		if (currentlyBookmarked) {
 			toast.success("Removed from bookmarks");
 
 			api
@@ -81,12 +149,39 @@ export default function BookmarkButton({
 		queryClient.invalidateQueries({
 			queryKey: ["bookmarks", discordId, "has-bookmarked", postId],
 		});
+	}, [discordId, isBookmarked, isBookmarkPage, mutation, postId, queryClient]);
+
+	useEffect(() => {
+		if (!pendingToggle || isResolvingInitialStatus || !isStatusEnabled) {
+			return;
+		}
+
+		performToggle();
+		setPendingToggle(false);
+	}, [
+		pendingToggle,
+		isResolvingInitialStatus,
+		isStatusEnabled,
+		performToggle,
+	]);
+
+	const handleToggle = () => {
+		if (!postId || !discordId) return;
+
+		if (!isStatusEnabled && !skipInitialFetch) {
+			setIsStatusEnabled(true);
+			setPendingToggle(true);
+			return;
+		}
+
+		performToggle();
 	};
 
 	return (
 		<button
+			ref={buttonRef}
 			onClick={handleToggle}
-			disabled={mutation.isPending}
+			disabled={mutation.isPending || (pendingToggle && isResolvingInitialStatus)}
 			className="relative group
 					 transition-all duration-300 "
 			aria-label={isBookmarked ? "Remove bookmark" : "Add bookmark"}

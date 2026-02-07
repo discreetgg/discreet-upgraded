@@ -56,9 +56,11 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
   return (
     <div className="rounded-2xl overflow-hidden">
       <div className={cn('grid gap-1', gridClasses)}>
-        {media.map((item, index) => (
-          <motion.div
-            key={item._id ?? index}
+        {media.map((item, index) => {
+          const mediaKey = `${item._id ?? 'media'}-${item.url ?? 'no-url'}-${index}`;
+          return (
+            <motion.div
+              key={mediaKey}
             className={cn(
               'relative w-full aspect-[16/9] !overflow-hidden ',
               media.length > 1 && 'aspect-square'
@@ -70,10 +72,9 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
                 : undefined
             }
           >
-            {item.type === 'image' ? (
+              {item.type === 'image' ? (
               <>
                 <MessageMediaDialog
-                  key={item._id ?? index}
                   media={media}
                   activeMediaIndex={index}
                   activeMedia={item}
@@ -104,7 +105,7 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
                   </div>
                 )}
               </>
-            ) : item.type === 'video' ? (
+              ) : item.type === 'video' ? (
               <>
                 <AuthenticatedMedia
                   type="video"
@@ -134,9 +135,10 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
                   </div>
                 )}
               </>
-            ) : null}
-          </motion.div>
-        ))}
+              ) : null}
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );

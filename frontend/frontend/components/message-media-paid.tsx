@@ -80,9 +80,11 @@ export const MessageMediaPaid = ({
   return (
     <div className="rounded-2xl overflow-hidden">
       <div className={cn('grid gap-1', gridClasses)}>
-        {media.map((item, index) => (
-          <motion.div
-            key={item._id ?? index}
+        {media.map((item, index) => {
+          const mediaKey = `${item._id ?? 'media'}-${item.url ?? 'no-url'}-${index}`;
+          return (
+            <motion.div
+              key={mediaKey}
             className={cn(
               'relative w-full aspect-[16/9] !overflow-hidden',
               media.length > 1 && 'aspect-square'
@@ -153,8 +155,9 @@ export const MessageMediaPaid = ({
                 )}
               </>
             ) : null}
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );

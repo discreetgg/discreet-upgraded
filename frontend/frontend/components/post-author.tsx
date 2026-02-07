@@ -35,7 +35,9 @@ export const PostAuthor = ({
   isPreview?: boolean;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const { data: user, isLoading } = useUser(author?.username ?? '');
+  const { data: user, isLoading } = useUser(author?.username ?? '', {
+    enabled: isHovered,
+  });
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { user: currentUser } = useGlobal();
   const handleMouseEnter = () => {

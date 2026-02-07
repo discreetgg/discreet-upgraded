@@ -4,7 +4,7 @@ import { useAuth } from "@/context/auth-context-provider";
 import { useOptimisticLike } from "@/hooks/use-optimistic-like";
 import { hasLikedService } from "@/lib/services";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AuthPromptDialog } from "./auth-prompt-dialog";
 import { Icon } from "./ui/icons";
@@ -16,6 +16,8 @@ interface LikeButtonProps {
 	initialCount: number;
 	className?: string;
 	setShowAllLikes: (show: boolean) => void;
+	deferStatusFetch?: boolean;
+	autoResolveOnVisible?: boolean;
 }
 
 export const PostLikeButton = ({
@@ -25,11 +27,18 @@ export const PostLikeButton = ({
 	initialCount,
 	className,
 	setShowAllLikes,
+	deferStatusFetch = true,
+	autoResolveOnVisible = true,
 }: LikeButtonProps) => {
 	const [initialLikeState, setInitialLikeState] = useState({
 		liked: initialLiked,
 		count: initialCount,
 	});
+	const [isStatusEnabled, setIsStatusEnabled] = useState(!deferStatusFetch);
+	const [isResolvingInitialStatus, setIsResolvingInitialStatus] =
+		useState(false);
+	const [pendingToggle, setPendingToggle] = useState(false);
+	const likeButtonRef = useRef<HTMLButtonElement | null>(null);
 
 	const { isAuthenticated } = useAuth();
 
@@ -53,13 +62,21 @@ export const PostLikeButton = ({
 
 	// Fetch initial like status for authenticated users only once
 	useEffect(() => {
-		if (!isAuthenticated) {
+		if (!isAuthenticated || !isStatusEnabled) {
 			return;
 		}
 
+		let mounted = true;
+		const controller = new AbortController();
+		setIsResolvingInitialStatus(true);
+
 		const checkLikeStatus = async () => {
 			try {
-				const response = await hasLikedService(targetType, targetId);
+				const response = await hasLikedService(
+					targetType,
+					targetId,
+					controller.signal
+				);
 				const liked = response.data?.liked;
 
 				setInitialLikeState({
@@ -69,24 +86,113 @@ export const PostLikeButton = ({
 
 				updateFromExternal(liked, initialCount);
 			} catch (error) {
+				// Ignore cancellation errors when component unmounts/navigates away
+				const aborted = controller.signal.aborted;
+				const code = (error as any)?.code;
+				const name = (error as any)?.name;
+				const message = String((error as any)?.message || "").toLowerCase();
+				if (
+					aborted ||
+					code === "ERR_CANCELED" ||
+					name === "CanceledError" ||
+					message.includes("canceled")
+				) {
+					return;
+				}
 				console.error("Error checking like status:", error);
+			} finally {
+				if (mounted) {
+					setIsResolvingInitialStatus(false);
+				}
 			}
 		};
 
 		checkLikeStatus();
-	}, [targetId, targetType, isAuthenticated, initialCount, updateFromExternal]);
+
+		return () => {
+			mounted = false;
+			controller.abort();
+		};
+	}, [
+		targetId,
+		targetType,
+		isAuthenticated,
+		initialCount,
+		updateFromExternal,
+		isStatusEnabled,
+	]);
+
+	useEffect(() => {
+		if (!deferStatusFetch || !autoResolveOnVisible || isStatusEnabled) {
+			return;
+		}
+
+		if (!isAuthenticated) {
+			return;
+		}
+
+		const target = likeButtonRef.current;
+		if (!target || typeof IntersectionObserver === "undefined") {
+			return;
+		}
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0];
+				if (!entry?.isIntersecting) return;
+				setIsStatusEnabled(true);
+				observer.disconnect();
+			},
+			{
+				root: null,
+				threshold: 0.2,
+				rootMargin: "240px 0px",
+			}
+		);
+
+		observer.observe(target);
+
+		return () => {
+			observer.disconnect();
+		};
+	}, [
+		deferStatusFetch,
+		autoResolveOnVisible,
+		isStatusEnabled,
+		isAuthenticated,
+	]);
+
+	useEffect(() => {
+		if (!pendingToggle || isResolvingInitialStatus || !isStatusEnabled) {
+			return;
+		}
+
+		toggleLike();
+		setPendingToggle(false);
+	}, [pendingToggle, isResolvingInitialStatus, isStatusEnabled, toggleLike]);
+
+	const handleLikeClick = () => {
+		if (!isStatusEnabled) {
+			setIsStatusEnabled(true);
+			setPendingToggle(true);
+			return;
+		}
+		toggleLike();
+	};
 
 	const LikeButton = () => (
 		<button
+			ref={likeButtonRef}
 			type="button"
 			className={cn(
 				"transition-all duration-300 ease-in-out text-accent-text",
 				isAnimating && "scale-125",
 				isLiked && "text-red-500",
-				isLoading && "cursor-wait"
+				(isLoading || (pendingToggle && isResolvingInitialStatus)) &&
+					"cursor-wait"
 			)}
-			onClick={isAuthenticated ? toggleLike : undefined}
-			disabled={isLoading}
+			onClick={isAuthenticated ? handleLikeClick : undefined}
+			disabled={isLoading || (pendingToggle && isResolvingInitialStatus)}
 			aria-label={isLiked ? "Unlike" : "Like"}
 		>
 			{isLiked ? (

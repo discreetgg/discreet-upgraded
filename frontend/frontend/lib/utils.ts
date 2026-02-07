@@ -148,9 +148,20 @@ export const getUserDiscordAvatar = ({
   discordId,
   discordAvatar,
 }: {
-  discordId: string;
-  discordAvatar: string;
+  discordId?: string | null;
+  discordAvatar?: string | null;
 }) => {
+  const normalizedDiscordId = `${discordId ?? ''}`.trim();
+  const normalizedDiscordAvatar = `${discordAvatar ?? ''}`.trim();
+  const isValidDiscordSnowflake = /^\d{17,20}$/.test(normalizedDiscordId);
+  const isValidDiscordAvatarHash = /^[a-f0-9]{32}$/i.test(
+    normalizedDiscordAvatar,
+  );
+
+  if (!isValidDiscordSnowflake || !isValidDiscordAvatarHash) {
+    return '/user.svg';
+  }
+
   return `https://cdn.discordapp.com/avatars/${discordId}/${discordAvatar}.png`;
 };
 

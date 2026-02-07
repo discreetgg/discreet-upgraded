@@ -19,11 +19,20 @@ export const useIntersectionObserver = ({
 }: UseIntersectionObserverProps) => {
   const targetRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const hasTriggeredRef = useRef(false);
 
   const handleIntersect = useCallback(
     (entries: IntersectionObserverEntry[]) => {
       const [entry] = entries;
-      if (entry.isIntersecting && enabled) {
+      if (!entry) return;
+
+      if (!entry.isIntersecting) {
+        hasTriggeredRef.current = false;
+        return;
+      }
+
+      if (enabled && !hasTriggeredRef.current) {
+        hasTriggeredRef.current = true;
         onIntersect();
       }
     },
@@ -37,6 +46,7 @@ export const useIntersectionObserver = ({
     }
 
     if (!enabled) {
+      hasTriggeredRef.current = false;
       return;
     }
 

@@ -514,6 +514,9 @@ export class ChatService {
     to?: Date,
   ) {
     const query: any = { conversation: conversationId };
+    const safeLimit = Number.isFinite(limit)
+      ? Math.max(1, Math.min(limit, 200))
+      : 50;
 
     // Add date range filter if provided
     if (from && to) {
@@ -540,26 +543,32 @@ export class ChatService {
     //   .limit(limit)
     //   .exec();
 
-    const messages = await this.messageModel
+    return this.messageModel
       .find(query)
-      .populate('sender reciever media replyTo') // your actual populate calls
-      .limit(limit)
-      .exec();
-
-    const safeMessages = messages
-      .map((msg) => {
-        try {
-          return msg.toJSON(); // this is where the transform runs
-        } catch (err) {
-          // This will log the exact document causing the error
-          console.error('Error converting message to JSON:', err);
-          console.log('Problematic document:', msg); // log full doc for inspection
-          return null; // skip the problematic document
-        }
+      .sort({ createdAt: -1 })
+      .limit(safeLimit)
+      .populate({
+        path: 'sender',
+        select:
+          'id discordId username displayName discordAvatar role profileImage takingCams',
       })
-      .filter(Boolean);
-
-    return safeMessages;
+      .populate({
+        path: 'reciever',
+        select:
+          'id discordId username displayName discordAvatar role profileImage takingCams',
+      })
+      .populate({
+        path: 'media',
+        select:
+          '_id url public_id type caption price isPayable paid post owner uploadedAt createdAt updatedAt __v',
+      })
+      .populate({
+        path: 'replyTo',
+        select:
+          '_id conversation sender reciever type text media status isPayable price paid paymentTx call callStatus callStartedAt missed durationInSeconds title description createdAt updatedAt __v',
+      })
+      .lean()
+      .exec();
   }
 
   async getUsersConversationsUsingIds(discordIds: string[]): Promise<any> {

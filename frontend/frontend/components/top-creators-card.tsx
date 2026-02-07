@@ -9,8 +9,6 @@ import {
 import { useRef, useState } from 'react';
 import { useUser } from '@/hooks/queries/use-user';
 import UserHoverCardSkeleton from './skeleton/user-hover-card-skeleton';
-import FollowButton from './shared/follow-button';
-import { useGlobal } from '@/context/global-context-provider';
 import Link from 'next/link';
 import { UserAvatarWithStatus } from './user-avatar-with-status';
 
@@ -20,9 +18,10 @@ interface TopCreatorsCardProps {
 
 export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
   const [isHovered, setIsHovered] = useState(false);
-  const { data: user, isLoading } = useUser(creator?.username || '');
+  const { data: user, isLoading } = useUser(creator?.username || '', {
+    enabled: isHovered,
+  });
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { user: currentUser } = useGlobal();
 
   const handleMouseEnter = () => {
     if (timeoutRef.current) {
@@ -43,50 +42,64 @@ export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
     setIsHovered(false);
   };
 
-  const isLoggedInUser = currentUser?.discordId === creator?.discordId;
+  const cardContent = (
+    <div className="group relative w-full overflow-hidden rounded-2xl border border-[#2A2E37] bg-[#0A0A0A]">
+      <div className="relative h-auto w-full aspect-[3/1] overflow-hidden">
+        <Image
+          src={creator?.profileBanner?.url || '/post-image.png'}
+          alt="Creator banner"
+          fill
+          className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+          sizes="(max-width: 768px) 100vw, 700px"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-black/70" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-black/35" />
+      </div>
+      <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
+        <div
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className="flex items-end gap-3"
+        >
+          <div className="relative shrink-0">
+            <div className="overflow-hidden rounded-full border-2 border-white/90 shadow-[0_10px_20px_rgba(0,0,0,0.5)]">
+              <UserAvatarWithStatus
+                profileImage={creator?.profileImage?.url}
+                discordId={creator?.discordId || ''}
+                discordAvatar={creator?.discordAvatar || ''}
+                width={64}
+                height={64}
+                showOnlineStatus={false}
+                className="!h-[56px] !w-[56px] md:!h-[68px] md:!w-[68px]"
+              />
+            </div>
+          </div>
+          <div className="min-w-0 pb-0.5">
+            <p className="truncate text-[16px] md:text-[20px] font-semibold leading-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]">
+              {creator?.displayName || 'Creator'}
+            </p>
+            <span className="block truncate text-[13px] md:text-[15px] font-medium leading-tight text-white/85">
+              @{creator?.username || 'username'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="relative">
-      <div className="rounded-2xl w-[90%] mx-auto bg-[#1E1E21] h-[50px] absolute -translate-x-1/2 left-1/2 -bottom-2" />
-      <div className="rounded-2xl border-4 border-[#0A0A0A] w-full relative bg-[#0A0A0A]">
-        <div className="relative w-full h-auto aspect-[40/10] rounded-2xl overflow-hidden">
-          <Image
-            src={creator?.profileBanner?.url || '/post-image.png'}
-            alt="Creator banner"
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 100vw, 700px"
-          />
-        </div>
-        <div className="py-[15px] px-[18px] flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <UserAvatarWithStatus
-              profileImage={creator?.profileImage?.url}
-              discordId={creator?.discordId || ''}
-              discordAvatar={creator?.discordAvatar || ''}
-              width={48}
-              height={48}
-              showOnlineStatus={false}
-            />
-            <div
-              onMouseEnter={handleMouseEnter}
-              onMouseLeave={handleMouseLeave}
-            >
-              <p className="text-[15px] font-bold">
-                {creator?.displayName || 'Creator'}
-              </p>
-              <span className="text-[15px] text-accent-text font-light">
-                @{creator?.username || 'username'}
-              </span>
-            </div>
-          </div>
-
-          <FollowButton
-            discordId={user?.discordId || creator?.discordId || ''}
-            username={user?.username || creator?.username || ''}
-          />
-        </div>
-      </div>
+      {creator?.username ? (
+        <Link
+          href={`/${creator.username}`}
+          aria-label={`View ${creator.displayName || creator.username} profile`}
+          className="block cursor-pointer"
+        >
+          {cardContent}
+        </Link>
+      ) : (
+        cardContent
+      )}
       <Popover open={isHovered} onOpenChange={setIsHovered}>
         <PopoverTrigger
           asChild
@@ -128,12 +141,6 @@ export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
                     </span>
                   </Link>
                 </div>
-                {!isLoggedInUser && (user?.discordId || creator?.discordId) && (
-                  <FollowButton
-                    discordId={user?.discordId || creator?.discordId || ''}
-                    username={user?.username || creator?.username || ''}
-                  />
-                )}
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-accent-text">

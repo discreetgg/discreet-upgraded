@@ -7,7 +7,7 @@ import { PageLoader } from "@/components/ui/page-loader";
 import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useLayoutEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
@@ -28,9 +28,17 @@ const TopCreators = dynamic(
 const Layout = ({ children }: { children: React.ReactNode }) => {
 	const { isAuthenticated, loading } = useAuth();
 	const router = useRouter();
+	const pathname = usePathname();
+	const isSellersPage = pathname === "/sellers";
 
 	const { user } = useGlobal();
 	const [showBanner, setShowBanner] = useState(false);
+	const showLoginCard = !isAuthenticated;
+	const showBecomeSellerCard =
+		showBanner && isAuthenticated && user?.role === "buyer";
+	const showTopCreators = !isSellersPage;
+	const hasRightRailContent =
+		showLoginCard || showBecomeSellerCard || showTopCreators;
 
 	useEffect(() => {
 		// Add a small delay to allow cookies to be set after OAuth redirect
@@ -72,15 +80,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 						<WaysToMakeMoney />
 					</section>
 				)} */}
-				<div className="max-w-[560px] xl:max-w-full w-full space-y-6">
-					{children}
-				</div>
-				<section
+				<div
 					className={cn(
-						"w-full hidden lg:block max-w-[376px] xl:shrink-0 space-y-6 sticky top-7 h-max transition-[width] duration-300 ease-linear overflow-hidden",
-						isAuthenticated && user?.role === "seller" ? "w-0x" : "w-full"
+						"w-full space-y-6",
+						hasRightRailContent ? "max-w-[560px] xl:max-w-full" : "max-w-full"
 					)}
 				>
+					{children}
+				</div>
+				{hasRightRailContent && (
+					<section
+						className="w-full hidden lg:block max-w-[376px] xl:shrink-0 space-y-6 sticky top-7 h-max transition-[width] duration-300 ease-linear overflow-hidden"
+					>
 					{/* <Link
 						href={""}
 						className="rounded hidden items-center w-max gap-2.5 border hover:bg-neutral-100 active:bg-transparent h-auto px-10 py-2 text-[15px] font-medium whitespace-nowrap border-[#FF007F] bg-off-white shadow-[2px_2px_0_0_#FF007F] text-primary"
@@ -88,7 +99,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 						Sign in as Guest
 					</Link> */}
 
-					{!isAuthenticated && (
+					{showLoginCard && (
 						<GetFullExperienceCard
 							title="Want the full experience?"
 							description="Log in to unlock all features save content, follow creators, and view your activity."
@@ -97,7 +108,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 							setShowBanner={setShowBanner}
 						/>
 					)}
-					{showBanner && isAuthenticated && user?.role === "buyer" && (
+					{showBecomeSellerCard && (
 						<GetFullExperienceCard
 							title="Want to make more money?"
 							description="Become a seller, share your content, and start earning from your audience."
@@ -106,7 +117,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 							setShowBanner={setShowBanner}
 						/>
 					)}
-					<TopCreators />
+					{showTopCreators && <TopCreators />}
 					{/* {isAuthenticated && inDevEnvironment && <PartnerDiscordServers />} */}
 					{/* <div className="flex items-center gap-x-4 text-[#737682] text-[15px] justify-center">
             <Link href="/privacy-policy">
@@ -127,7 +138,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               </span>
             </Link>
           </div> */}
-				</section>
+					</section>
+				)}
 			</div>
 		</main>
 	);

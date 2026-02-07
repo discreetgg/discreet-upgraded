@@ -18,6 +18,9 @@ const api = setupCache(
     withCredentials: true,
   }),
   {
+    // Prevent axios-cache-interceptor from injecting cache-control request headers.
+    // Those headers trigger CORS preflight on cross-origin GETs and double request volume.
+    cacheTakeover: false,
     ttl: 1000 * 60 * 10, // 10 minutes - increased from 5 minutes
     interpretHeader: true,
     methods: ['get'],
@@ -41,7 +44,14 @@ api.interceptors.request.use(
     // Read token from localStorage (set during login)
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('auth_token');
-      if (token) {
+      const method = (config.method || 'get').toLowerCase();
+
+      // Avoid attaching Authorization on read-only requests.
+      // With cookie auth + withCredentials this prevents CORS preflight for high-volume GET calls.
+      const shouldAttachAuthorization =
+        method !== 'get' && method !== 'head' && method !== 'options';
+
+      if (token && shouldAttachAuthorization) {
         config.headers.Authorization = `Bearer ${token}`;
       }
     }

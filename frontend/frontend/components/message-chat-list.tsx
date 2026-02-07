@@ -258,12 +258,13 @@ export const MessageChatList = ({
             </p>
 
             <div className="space-y-5">
-              {dayMessages.map((message) => {
+              {dayMessages.map((message, messageIndex) => {
                 const isOwn = message.sender.discordId === currentUserId;
+                const messageKey = `${message._id}-${message.createdAt ?? 'no-time'}-${messageIndex}`;
 
                 return (
                   <MessageItem
-                    key={message._id}
+                    key={messageKey}
                     message={message}
                     isOwn={isOwn}
                     onRetryMessage={onRetryMessage}

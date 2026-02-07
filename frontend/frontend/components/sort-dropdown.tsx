@@ -21,9 +21,10 @@ export const SortDropdown = ({ sortOptions }: SortDropdownProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const initialSort = searchParams.get('sort');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedSort, setSelectedSort] = useState<string>(
-    searchParams.get('sort') || 'Sort by'
+    initialSort && sortOptions.includes(initialSort) ? initialSort : 'Sort by'
   );
 
   return (
@@ -62,6 +63,11 @@ export const SortDropdown = ({ sortOptions }: SortDropdownProps) => {
                   Array.from(searchParams.entries())
                 );
                 params.set('sort', sortOption);
+                if (sortOption.toLowerCase() === 'random') {
+                  params.set('randomSeed', Date.now().toString());
+                } else {
+                  params.delete('randomSeed');
+                }
                 const url = `${pathname}?${params.toString()}`;
                 pushUrl(url, router);
               }}

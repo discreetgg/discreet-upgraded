@@ -1,7 +1,7 @@
 'use client';
 
 import { useSocket } from '@/context/socket-context';
-import { cn } from '@/lib/utils';
+import { cn, getUserDiscordAvatar } from '@/lib/utils';
 import Image from 'next/image';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Icon } from './ui/icons';
@@ -29,6 +29,12 @@ export const UserAvatarWithStatus = ({
 }: Props) => {
   const { isUserOnline } = useSocket();
   const isOnline = isUserOnline(discordId);
+  const avatarSrc =
+    profileImage ??
+    getUserDiscordAvatar({
+      discordId,
+      discordAvatar,
+    });
 
   return (
     <div className="relative isolate w-max">
@@ -39,12 +45,7 @@ export const UserAvatarWithStatus = ({
           className
         )}
       >
-        <AvatarImage
-          src={
-            profileImage ??
-            `https://cdn.discordapp.com/avatars/${discordId}/${discordAvatar}.png`
-          }
-        />
+        <AvatarImage src={avatarSrc} />
         <AvatarFallback>
           <Image
             src="/user.svg"

@@ -114,13 +114,18 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 		},
 	});
 
-	const fetchIsBookmarked = async (discordId?: string, postId?: string) => {
+	const fetchIsBookmarked = async (
+		discordId?: string,
+		postId?: string,
+		signal?: AbortSignal
+	) => {
 		const id = discordId || opts?.discordId;
 		if (!id || !postId) return false;
 
 		try {
 			const res = await api.get(
-				`/post/bookmark/${id}/${postId}/has-bookmarked`
+				`/post/bookmark/${id}/${postId}/has-bookmarked`,
+				{ signal }
 			);
 
 			if (res.data && typeof res.data.bookmarked === "boolean")
@@ -136,12 +141,18 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 		fetchIsBookmarked,
 	};
 };
-const fetchIsBookmarked = async (discordId?: string, postId?: string) => {
+const fetchIsBookmarked = async (
+	discordId?: string,
+	postId?: string,
+	signal?: AbortSignal
+) => {
 	const id = discordId;
 	if (!id || !postId) return false;
 
 	try {
-		const res = await api.get(`/post/bookmark/${id}/${postId}/has-bookmarked`);
+		const res = await api.get(`/post/bookmark/${id}/${postId}/has-bookmarked`, {
+			signal,
+		});
 
 		if (res.data && typeof res.data.bookmarked === "boolean")
 			return res.data.bookmarked;
@@ -159,8 +170,11 @@ export const useIsBookmarked = ({
 }) => {
 	return useQuery({
 		queryKey: ["bookmarks", discordId, "has-bookmarked", postId],
-		queryFn: () => fetchIsBookmarked(discordId, postId),
-		refetchOnMount: "always",
+		queryFn: ({ signal }) => fetchIsBookmarked(discordId, postId, signal),
+		staleTime: 5 * 60 * 1000,
+		gcTime: 10 * 60 * 1000,
+		refetchOnMount: false,
+		refetchOnWindowFocus: false,
 		enabled: !!discordId && !!postId,
 	});
 };

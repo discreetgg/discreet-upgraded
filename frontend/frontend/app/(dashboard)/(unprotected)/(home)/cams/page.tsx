@@ -6,58 +6,9 @@ import { UserType } from '@/types/global';
 import { Suspense, useEffect, useState, useMemo } from 'react';
 import { useMessage } from '@/context/message-context';
 import { useGlobal } from '@/context/global-context-provider';
-import { camsOptions, raceOptions, sortOptions } from '@/lib/data';
+import { camsOptions, sortOptions } from '@/lib/data';
 import { CamsFilterBar, CamsGrid } from '@/components/cams';
 import { useSearchParams } from 'next/navigation';
-
-const getRaceMatches = (raceParam: string): string[] => {
-  const normalized = raceParam.toLowerCase().trim();
-
-  const raceMap: Record<string, string[]> = {
-    asian: ['asian'],
-    black: ['black', 'african_black', 'african'],
-    latino: ['latino', 'hispanic_latino', 'hispanic'],
-    arab: ['arab', 'arabic', 'middle_eastern'],
-    indian: ['indian', 'indigenous_native', 'indigenous', 'native'],
-    pacific: ['pacific', 'pacific_islander'],
-    white: ['white', 'white_caucasian', 'caucasian'],
-    mixed: ['mixed', 'mixed_race'],
-  };
-
-  return raceMap[normalized] || [normalized];
-};
-
-const matchesRace = (
-  userRace: string | null,
-  selectedRace: string
-): boolean => {
-  if (!userRace) return false;
-
-  const userRaceLower = userRace.toLowerCase().trim();
-  const selectedRaceLower = selectedRace.toLowerCase().trim();
-  const possibleMatches = getRaceMatches(selectedRace);
-  if (userRaceLower === selectedRaceLower) {
-    return true;
-  }
-  return possibleMatches.some((match) => {
-    const matchLower = match.toLowerCase();
-    if (userRaceLower === matchLower) {
-      return true;
-    }
-    if (
-      userRaceLower.replace(/[_-]/g, '') === matchLower.replace(/[_-]/g, '')
-    ) {
-      return true;
-    }
-    if (
-      userRaceLower.includes(matchLower) ||
-      matchLower.includes(userRaceLower)
-    ) {
-      return true;
-    }
-    return false;
-  });
-};
 
 const shuffleArray = <T,>(array: T[]): T[] => {
   const shuffled = [...array];
@@ -76,20 +27,14 @@ const CamsContent = ({
   currentUserId?: string;
 }) => {
   const searchParams = useSearchParams();
-  const selectedRace = searchParams.get('race');
   const selectedCams = searchParams.get('cams');
   const selectedSort = searchParams.get('sort');
+  const randomSeed = searchParams.get('randomSeed');
 
   const filteredCreators = useMemo(() => {
     if (!creators) return null;
 
     let filtered = creators;
-
-    if (selectedRace) {
-      filtered = filtered.filter((creator) =>
-        matchesRace(creator.race, selectedRace)
-      );
-    }
 
     if (selectedCams) {
       const normalizedCams = selectedCams.toLowerCase();
@@ -103,15 +48,7 @@ const CamsContent = ({
     // Apply sorting
     if (selectedSort) {
       const normalizedSort = selectedSort.toLowerCase();
-      if (normalizedSort === 'highest price') {
-        filtered = [...filtered].sort(
-          (a, b) => (b.callRate || 0) - (a.callRate || 0)
-        );
-      } else if (normalizedSort === 'lowest price') {
-        filtered = [...filtered].sort(
-          (a, b) => (a.callRate || 0) - (b.callRate || 0)
-        );
-      } else if (normalizedSort === 'random') {
+      if (normalizedSort === 'random') {
         filtered = shuffleArray(filtered);
       } else if (normalizedSort === 'popular') {
         filtered = [...filtered].sort(
@@ -121,7 +58,7 @@ const CamsContent = ({
     }
 
     return filtered;
-  }, [creators, selectedRace, selectedCams, selectedSort]);
+  }, [creators, selectedCams, selectedSort, randomSeed]);
 
   return <CamsGrid creators={filteredCreators} currentUserId={currentUserId} />;
 };
@@ -171,7 +108,6 @@ const Page = () => {
     <div>
       <Suspense>
         <CamsFilterBar
-          raceOptions={raceOptions}
           camsOptions={camsOptions}
           sortOptions={sortOptions}
         />

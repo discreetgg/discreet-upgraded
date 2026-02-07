@@ -5,7 +5,7 @@ import { toast } from "sonner";
 interface FollowStatus {
 	isFollowing: boolean;
 }
-export const useIsFollowing = (discordId: string) => {
+export const useIsFollowing = (discordId: string, enabled = true) => {
 	return useQuery({
 		queryKey: ["user", discordId, "is-following"],
 		queryFn: async (): Promise<FollowStatus> => {
@@ -22,7 +22,7 @@ export const useIsFollowing = (discordId: string) => {
 				return { isFollowing: false };
 			}
 		},
-		enabled: !!discordId,
+		enabled: enabled && !!discordId,
 		staleTime: 3 * 60 * 1000, // 3 minutes - frequently checked query
 		gcTime: 5 * 60 * 1000, // 5 minutes
 		retry: 1, // Only retry once for follow status

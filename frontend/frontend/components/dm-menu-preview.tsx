@@ -155,6 +155,7 @@ export const DMMenuPreview = ({
             style={{ transform: `translateX(-${currentIndex * 100}%)` }}
           >
             {mediaArray.map((media, index) => {
+              const mediaKey = `${media._id ?? 'media'}-${media.url ?? 'no-url'}-${index}`;
               const isPaidContent =
                 media.caption === 'content image' ||
                 media.caption === 'content video' ||
@@ -164,10 +165,9 @@ export const DMMenuPreview = ({
                 isReceiver && isPaidContent && !mediaIsPaid;
 
               return (
-                <div key={media._id ?? index} className="min-w-full">
+                <div key={mediaKey} className="min-w-full">
                   {media.type === 'image' ? (
                     <MessageMediaDialog
-                      key={media._id ?? index}
                       media={mediaArray}
                       activeMediaIndex={index}
                       activeMedia={media}
@@ -236,7 +236,6 @@ export const DMMenuPreview = ({
                         </>
                       ) : (
                         <VideoPlayer
-                          key={media._id ?? index}
                           src={getProxiedMediaUrl(media._id, media.url)}
                           className="w-full h-[226px] object-contain rounded-[12px]"
                         />

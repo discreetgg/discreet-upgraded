@@ -10,8 +10,7 @@ import {
 import { DotButton, useDotButton } from "@/hooks/use-dot-button";
 import { useCreators } from "@/hooks/queries/use-creators";
 import { cn } from "@/lib/utils";
-import Autoplay from "embla-carousel-autoplay";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { TopCreatorsCard } from "./top-creators-card";
 import { Icon } from "./ui/icons";
 
@@ -19,16 +18,6 @@ export const TopCreators = () => {
 	const [api, setApi] = useState<CarouselApi>();
 	const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(api);
 	const { data: creators, isLoading } = useCreators();
-	const autoplayRef = useRef<ReturnType<typeof Autoplay> | null>(null);
-
-	// Initialize autoplay plugin
-	const autoplayPlugin = useMemo(() => {
-		const plugin = Autoplay({
-			delay: 3000,
-		});
-		autoplayRef.current = plugin;
-		return plugin;
-	}, []);
 
 	useEffect(() => {
 		if (!api) {
@@ -51,39 +40,16 @@ export const TopCreators = () => {
 		  }, [])
 		: [];
 
-	const handleMouseEnter = () => {
-		if (autoplayRef.current && api && typeof autoplayRef.current.stop === 'function') {
-			try {
-				autoplayRef.current.stop();
-			} catch (error) {
-				// Silently handle errors if plugin is in invalid state
-				console.warn('Failed to stop autoplay:', error);
-			}
-		}
-	};
-
-	const handleMouseLeave = () => {
-		if (autoplayRef.current && api && typeof autoplayRef.current.play === 'function') {
-			try {
-				autoplayRef.current.play();
-			} catch (error) {
-				// Silently handle errors if plugin is in invalid state
-				console.warn('Failed to play autoplay:', error);
-			}
-		}
-	};
-
 	return (
 		<div className="space-y-6 w-full">
 			<div className="sticky lg:top-6 z-10 bg-inherit flex items-center justify-between py-2">
 				<h3 className="text-lg font-semibold"> Creators</h3>
 				<Icon.creatorsMenu />
 			</div>
-			<div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+			<div>
 				<Carousel
 					data-horizontal-mask
 					className="space-y-10"
-					plugins={[autoplayPlugin]}
 					setApi={setApi}
 				>
 					<CarouselContent>

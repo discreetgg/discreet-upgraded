@@ -6,67 +6,46 @@ import { getCreatorsService } from "@/lib/services";
 import type { UserType } from "@/types/global";
 import { SellersFilterBar, SellersGrid } from "@/components/sellers";
 import { useEffect, useState } from "react";
-import { raceOptions, sortOptions } from "@/lib/data";
+import { sellerSortOptions } from "@/lib/data";
 import { useSearchParams } from "next/navigation";
 
-const getRaceMatches = (raceParam: string): string[] => {
-	const normalized = raceParam.toLowerCase().trim();
-	
-	const raceMap: Record<string, string[]> = {
-		asian: ["asian"],
-		black: ["black", "african_black", "african"],
-		latino: ["latino", "hispanic_latino", "hispanic"],
-		arab: ["arab", "arabic", "middle_eastern"],
-		indian: ["indian", "indigenous_native", "indigenous", "native"],
-		pacific: ["pacific", "pacific_islander"],
-		white: ["white", "white_caucasian", "caucasian"],
-		mixed: ["mixed", "mixed_race"],
-	};
-
-	return raceMap[normalized] || [normalized];
-};
-
-const matchesRace = (userRace: string | null, selectedRace: string): boolean => {
-	if (!userRace) return false;
-	
-	const userRaceLower = userRace.toLowerCase().trim();
-	const selectedRaceLower = selectedRace.toLowerCase().trim();
-	const possibleMatches = getRaceMatches(selectedRace);
-	if (userRaceLower === selectedRaceLower) {
-		return true;
+const shuffleArray = <T,>(array: T[]): T[] => {
+	const shuffled = [...array];
+	for (let i = shuffled.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
 	}
-	return possibleMatches.some(match => {
-		const matchLower = match.toLowerCase();
-		if (userRaceLower === matchLower) {
-			return true;
-		}
-		if (userRaceLower.replace(/[_-]/g, '') === matchLower.replace(/[_-]/g, '')) {
-			return true;
-		}
-		if (userRaceLower.includes(matchLower) || matchLower.includes(userRaceLower)) {
-			return true;
-		}
-		return false;
-	});
+	return shuffled;
 };
 
 const SellersContent = ({ creators }: { creators: UserType[] | null }) => {
 	const searchParams = useSearchParams();
-	const selectedRace = searchParams.get("race");
+	const selectedSort = searchParams.get("sort");
+	const randomSeed = searchParams.get("randomSeed");
 
-	const filteredCreators = useMemo(() => {
+	const sortedCreators = useMemo(() => {
 		if (!creators) return null;
-		
-		if (!selectedRace) {
-			return creators;
+
+		const sortMode = selectedSort?.toLowerCase();
+		const sorted = [...creators];
+
+		if (sortMode === "random") {
+			return shuffleArray(sorted);
 		}
 
-		return creators.filter((creator) => 
-			matchesRace(creator.race, selectedRace)
-		);
-	}, [creators, selectedRace]);
+		if (sortMode === "rank") {
+			sorted.sort((a, b) => {
+				const rankDelta = (b.followerCount || 0) - (a.followerCount || 0);
+				if (rankDelta !== 0) return rankDelta;
+				return a.username.localeCompare(b.username);
+			});
+			return sorted;
+		}
 
-	return <SellersGrid creators={filteredCreators} />;
+		return sorted;
+	}, [creators, selectedSort, randomSeed]);
+
+	return <SellersGrid creators={sortedCreators} />;
 };
 
 const Page = () => {
@@ -100,7 +79,7 @@ const Page = () => {
 	return (
 		<div>
 			<Suspense>
-				<SellersFilterBar raceOptions={raceOptions} sortOptions={sortOptions} />
+				<SellersFilterBar sortOptions={sellerSortOptions} />
 			</Suspense>
 			<Suspense fallback={<ComponentLoader />}>
 				<SellersContent creators={creators} />

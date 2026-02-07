@@ -14,8 +14,6 @@ import { Icon } from './ui/icons';
 import TipDialog from './tip-modal';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
-import { useQueryClient } from '@tanstack/react-query';
-import { useIsBookmarked } from '@/hooks/mutations/use-bookmark-mutation';
 import { PublicPostViewMore } from './public-post-view-more';
 
 export const FeedPost = ({ post }: { post: PostType }) => {
@@ -33,12 +31,6 @@ export const FeedPost = ({ post }: { post: PostType }) => {
 
   const { isAuthenticated } = useAuth();
   const { user: currentUser } = useGlobal();
-  const { data: initialBookmark, isLoading: bookmarkLoading } = useIsBookmarked(
-    {
-      discordId: currentUser?.discordId ?? '',
-      postId: post._id,
-    }
-  );
 
   const isAuthor = post?.author?.discordId === currentUser?.discordId;
 
@@ -116,7 +108,6 @@ export const FeedPost = ({ post }: { post: PostType }) => {
             {isAuthenticated && post?._id && (
               <BookmarkButton
                 postId={post?._id}
-                initialBookmarked={bookmarkLoading ? false : initialBookmark}
               />
             )}
           </div>

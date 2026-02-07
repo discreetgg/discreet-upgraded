@@ -16,7 +16,6 @@ import TipDialog from './tip-modal';
 import { usePathname } from 'next/navigation';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
-import { useIsBookmarked } from '@/hooks/mutations/use-bookmark-mutation';
 import { PublicPostViewMore } from './public-post-view-more';
 
 export const Post = ({
@@ -38,12 +37,6 @@ export const Post = ({
 
   const { user: currentUser } = useGlobal();
   const { isAuthenticated } = useAuth();
-  const { data: initialBookmark, isLoading: bookmarkLoading } = useIsBookmarked(
-    {
-      discordId: currentUser?.discordId ?? '',
-      postId: post._id,
-    },
-  );
   const router = useRouter();
   const pathname = usePathname();
 
@@ -189,7 +182,6 @@ export const Post = ({
             <BookmarkButton
               postId={post?._id}
               isBookmarkPage={isBookmarkPage}
-              initialBookmarked={bookmarkLoading ? false : initialBookmark}
             />
           )}
         </div>

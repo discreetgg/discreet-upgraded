@@ -1,53 +1,37 @@
 "use client";
 
+import { pushUrl } from "@/lib/utils";
 import { useRouter } from "@bprogress/next/app";
 import { usePathname, useSearchParams } from "next/navigation";
-import { pushUrl } from "@/lib/utils";
-import { RaceTab } from "../race-tab";
 import { SortDropdown } from "../sort-dropdown";
 
 interface SellersFilterBarProps {
-	raceOptions: string[];
 	sortOptions: string[];
 }
 
-export const SellersFilterBar = ({
-	raceOptions,
-	sortOptions,
-}: SellersFilterBarProps) => {
+export const SellersFilterBar = ({ sortOptions }: SellersFilterBarProps) => {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
-	const selectedRace = searchParams.get("race");
+	const selectedSort = searchParams.get("sort")?.toLowerCase();
+	const showRandomRefresh = selectedSort === "random";
 
 	return (
-		<div className="flex items-start justify-between">
-			<div className="flex gap-2 max-w-full overflow-x-auto hidden_scrollbar mb-[19px]">
-				{raceOptions.length > 0 &&
-					raceOptions.map((raceItem) => (
-						<RaceTab
-							key={raceItem}
-							race={raceItem}
-							selectedRace={selectedRace}
-							onClick={() => {
-								const params = new URLSearchParams(
-									Array.from(searchParams.entries())
-								);
-								const raceValue = raceItem.toLowerCase();
-								if (selectedRace === raceValue) {
-									// If clicking the same race, remove the filter
-									params.delete("race");
-								} else {
-									params.set("race", raceValue);
-								}
-								const url = `${pathname}?${params.toString()}`;
-								pushUrl(url, router);
-							}}
-						/>
-					))}
-			</div>
-			{/* {sortOptions.length > 0 && <SortDropdown sortOptions={sortOptions} />} */}
+		<div className="mb-[19px] flex items-start justify-end gap-2">
+			{showRandomRefresh && (
+				<button
+					className="md:py-[11px] md:px-[16.5px] px-3 py-2 border border-[#1E2227] cursor-pointer rounded-[7px] text-[#8A8C95] md:text-[14px] text-[10px] hover:text-[#F8F8F8] transition-all duration-200"
+					onClick={() => {
+						const params = new URLSearchParams(Array.from(searchParams.entries()));
+						params.set("randomSeed", Date.now().toString());
+						const url = `${pathname}?${params.toString()}`;
+						pushUrl(url, router);
+					}}
+				>
+					Refresh Random
+				</button>
+			)}
+			{sortOptions.length > 0 && <SortDropdown sortOptions={sortOptions} />}
 		</div>
 	);
 };
-
