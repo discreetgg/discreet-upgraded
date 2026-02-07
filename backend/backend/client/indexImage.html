@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Media Proxy Tester</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        :root {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+
+        body {
+            margin: 2rem;
+        }
+
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        label {
+            font-size: 0.9rem;
+            color: #444;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        button {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid #222;
+            background: #111;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: #fff;
+            color: #111;
+        }
+
+        .hint {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .preview {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-top: 12px;
+        }
+
+        img,
+        video {
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid #eee;
+        }
+
+        code {
+            background: #f6f6f6;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+
+        .urls {
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            background: #fafafa;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px dashed #ddd;
+        }
+
+        .ok {
+            color: #0a7a24;
+        }
+
+        .bad {
+            color: #b11616;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Media Proxy Tester</h1>
+    <p class="hint">
+        This page requests media through <code>/media/:id</code> on the same origin.
+        Your NestJS controller will only allow requests from this site (by Referer/Origin).
+    </p>
+
+    <div class="card">
+        <h2>Settings</h2>
+        <div class="row">
+            <div style="flex:1 1 320px">
+                <label for="base">Base URL (same origin recommended)</label>
+                <input id="base" type="text" placeholder="http://localhost:3000" />
+            </div>
+            <div style="flex:1 1 320px">
+                <label for="imageId">Image Media ID</label>
+                <input id="imageId" type="text" placeholder="MongoDB _id for an image" />
+            </div>
+            <div style="flex:1 1 320px">
+                <label for="videoId">Video Media ID</label>
+                <input id="videoId" type="text" placeholder="MongoDB _id for a video (optional)" />
+            </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+            <button id="apply">Apply Sources</button>
+            <button id="copyImg" class="secondary">Copy Image URL</button>
+            <button id="copyVid" class="secondary">Copy Video URL</button>
+            <button id="openImgNew" class="secondary">Open Image in New Tab</button>
+            <button id="openVidNew" class="secondary">Open Video in New Tab</button>
+        </div>
+        <p class="hint" id="status"></p>
+    </div>
+
+    <div class="card">
+        <h2>Current Proxy URLs</h2>
+        <div class="urls">
+            <div><strong>Image:</strong> <span id="imgUrl">(none)</span></div>
+            <div><strong>Video:</strong> <span id="vidUrl">(none)</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Preview</h2>
+        <div class="preview">
+            <div>
+                <h3>Image</h3>
+                <img id="img" alt="Image preview via /media/:id" />
+            </div>
+            <div>
+                <h3>Video</h3>
+                <video id="vid" controls></video>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const baseEl = document.getElementById('base');
+        const imgIdEl = document.getElementById('imageId');
+        const vidIdEl = document.getElementById('videoId');
+        const applyBtn = document.getElementById('apply');
+        const copyImgBtn = document.getElementById('copyImg');
+        const copyVidBtn = document.getElementById('copyVid');
+        const openImgNewBtn = document.getElementById('openImgNew');
+        const openVidNewBtn = document.getElementById('openVidNew');
+
+        const imgEl = document.getElementById('img');
+        const vidEl = document.getElementById('vid');
+        const imgUrlEl = document.getElementById('imgUrl');
+        const vidUrlEl = document.getElementById('vidUrl');
+        const statusEl = document.getElementById('status');
+
+        // Default base to current origin
+        baseEl.value = location.origin;
+
+        function buildUrl(base, id) {
+            if (!id) return '';
+            const cleanBase = base.replace(/\/+$/, '');
+            return `${cleanBase}/media/${encodeURIComponent(id)}`;
+        }
+
+        async function check(url) {
+            if (!url) return { ok: false, status: 0 };
+            try {
+                // Use HEAD if your controller supports it; otherwise fallback to GET with no-cors fetch
+                const resp = await fetch(url, { method: 'GET' });
+                return { ok: resp.ok, status: resp.status };
+            } catch (e) {
+                return { ok: false, status: 0 };
+            }
+        }
+
+        async function apply() {
+            const base = baseEl.value.trim();
+            const imgId = imgIdEl.value.trim();
+            const vidId = vidIdEl.value.trim();
+
+            const imgUrl = buildUrl(base, imgId);
+            const vidUrl = buildUrl(base, vidId);
+
+            imgUrlEl.textContent = imgUrl || '(none)';
+            vidUrlEl.textContent = vidUrl || '(none)';
+
+            imgEl.src = imgUrl || '';
+            vidEl.src = vidUrl || '';
+
+            const imgCheck = await check(imgUrl);
+            const vidCheck = await check(vidUrl);
+
+            const parts = [];
+            if (imgUrl) parts.push(`Image: ${imgCheck.ok ? '✅ OK' : '❌'} (HTTP ${imgCheck.status || 'n/a'})`);
+            if (vidUrl) parts.push(`Video: ${vidCheck.ok ? '✅ OK' : '❌'} (HTTP ${vidCheck.status || 'n/a'})`);
+            statusEl.innerHTML = parts.join(' &nbsp;|&nbsp; ');
+            statusEl.className = (imgCheck.ok && (!vidUrl || vidCheck.ok)) ? 'ok' : 'bad';
+        }
+
+        applyBtn.addEventListener('click', apply);
+
+        copyImgBtn.addEventListener('click', async () => {
+            const url = imgUrlEl.textContent;
+            if (url && url !== '(none)') {
+                await navigator.clipboard.writeText(url);
+                alert('Image URL copied! Paste it into a new tab or curl to verify it fails off-site.');
+            }
+        });
+
+        copyVidBtn.addEventListener('click', async () => {
+            const url = vidUrlEl.textContent;
+            if (url && url !== '(none)') {
+                await navigator.clipboard.writeText(url);
+                alert('Video URL copied! Paste it into a new tab or curl to verify it fails off-site.');
+            }
+        });
+
+        openImgNewBtn.addEventListener('click', () => {
+            const url = imgUrlEl.textContent;
+            if (url && url !== '(none)') window.open(url, '_blank');
+        });
+
+        openVidNewBtn.addEventListener('click', () => {
+            const url = vidUrlEl.textContent;
+            if (url && url !== '(none)') window.open(url, '_blank');
+        });
+    </script>
+</body>
+
+</html>

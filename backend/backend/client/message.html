@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Mini Chat + Call</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 1rem;
+        }
+
+        #chat {
+            border: 1px solid #ccc;
+            height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+
+        video {
+            width: 200px;
+            border: 1px solid #000;
+            margin: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Chat</h2>
+    <div id="chat"></div>
+    <input id="messageInput" placeholder="Type message..." />
+    <button id="sendBtn">Send</button>
+
+    <h2>Video Call</h2>
+    <button id="startCallBtn">Start Call</button>
+    <div>
+        <video id="localVideo" autoplay playsinline muted></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <!-- socket.io client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- your custom logic -->
+    <script src="message.js"></script>
+</body>
+
+</html>

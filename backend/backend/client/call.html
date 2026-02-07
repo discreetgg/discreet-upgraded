@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video / Voice Call Test</title>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px
+        }
+
+        video {
+            width: 45%;
+            background: #000;
+            border-radius: 8px
+        }
+
+        .video-container {
+            display: flex;
+            gap: 20px
+        }
+
+        .controls {
+            margin-top: 15px
+        }
+
+        button {
+            padding: 8px 12px
+        }
+
+        .logs {
+            background: #eee;
+            height: 160px;
+            overflow: auto;
+            padding: 10px
+        }
+
+        .incoming-call-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .incoming-call-content {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>WebRTC Call Test</h2>
+
+    <input id="myId" placeholder="Your ID">
+    <button id="connectBtn">Connect</button>
+    <span id="status">Disconnected</span>
+
+    <br><br>
+
+    <input id="targetId" placeholder="Target ID">
+    <button id="btnVideo" disabled>Video Call</button>
+    <button id="btnAudio" disabled>Voice Call</button>
+    <button id="btnEnd" disabled>End</button>
+    <button id="btnStartBilling" disabled style="display:none; background: #28a745; color: white;">Start
+        Billing</button>
+
+    <div class="video-container">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <div class="logs" id="logs"></div>
+
+    <div id="incomingCallModal" class="incoming-call-modal">
+        <div class="incoming-call-content">
+            <h3 id="callerName"></h3>
+            <button id="acceptBtn">Accept</button>
+            <button id="rejectBtn">Reject</button>
+        </div>
+    </div>
+
+    <script>
+
+        const myIdInput = document.getElementById("myId");
+        const targetIdInput = document.getElementById("targetId");
+        const connectBtn = document.getElementById("connectBtn");
+        const btnVideo = document.getElementById("btnVideo");
+        const btnAudio = document.getElementById("btnAudio");
+        const btnEnd = document.getElementById("btnEnd");
+        const logsBox = document.getElementById("logs");
+
+        const localVideo = document.getElementById("localVideo");
+        const remoteVideo = document.getElementById("remoteVideo");
+
+        const modal = document.getElementById("incomingCallModal");
+        const callerName = document.getElementById("callerName");
+        const acceptBtn = document.getElementById("acceptBtn");
+        const rejectBtn = document.getElementById("rejectBtn");
+        const statusSpan = document.getElementById("status");
+        const btnStartBilling = document.getElementById("btnStartBilling");
+
+        let currentCallId = null;
+        let isCaller = false;
+
+        let socket;
+        let localStream;
+        let pc;
+        let pendingCandidates = [];
+
+        let pendingOffer = null;
+        let pendingCaller = null;
+        let pendingType = null;
+
+        /* ---------------- ICE CONFIG ---------------- */
+
+        const rtcConfig = {
+            iceServers: [
+                {
+                    urls: [
+                        "turn:212.28.187.85:6005?transport=udp",
+                        "turn:212.28.187.85:6005?transport=tcp",
+                        "turns:212.28.187.85:5349?transport=tcp"
+                    ],
+                    username: "webrtc",
+                    credential: "password123111"
+                },
+                { urls: "stun:stun.l.google.com:19302" }
+            ]
+        };
+
+        /* ---------------- LOGGING ---------------- */
+
+        function log(msg) {
+            logsBox.innerHTML += msg + "<br>";
+            logsBox.scrollTop = logsBox.scrollHeight;
+            console.log(msg);
+        }
+
+        /* ---------------- SOCKET ---------------- */
+
+        connectBtn.onclick = () => {
+
+            const myId = myIdInput.value.trim();
+            if (!myId) return alert("Enter your ID");
+
+            socket = io("https://api.discreet.fans", {
+                query: { discordId: myId },
+                transports: ["websocket"]
+            });
+
+            socket.on("connect", () => {
+                statusSpan.innerText = "Connected";
+                statusSpan.style.color = "green";
+                btnVideo.disabled = false;
+                btnAudio.disabled = false;
+                log("Socket connected");
+            });
+
+            socket.on("connect_error", e => {
+                statusSpan.innerText = "Error";
+                log("Socket error: " + e.message);
+            });
+
+            socket.on("call:offer", handleOffer);
+            socket.on("call:answer", handleAnswer);
+            socket.on("call:ice", handleCandidate);
+            socket.on("call:end", handleRemoteEnd);
+            socket.on("call:initiated", handleCallInitiated);
+            socket.on("call:ongoing", handleCallOngoing);
+            socket.on("call:error", handleCallError);
+        };
+
+        /* ---------------- CALLER ---------------- */
+
+        btnVideo.onclick = () => startCall("video");
+        btnAudio.onclick = () => startCall("audio");
+
+        async function startCall(type) {
+
+            const target = targetIdInput.value.trim();
+            if (!target) return alert("Enter target ID");
+
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: type === "video"
+            });
+
+            localVideo.srcObject = localStream;
+
+            createPC(target);
+
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            socket.emit("call:offer", { to: target, offer, callType: type });
+            btnEnd.disabled = false;
+            isCaller = true;
+        }
+
+        function handleCallInitiated(data) {
+            log("Call initiated on server. ID: " + data.callId);
+            currentCallId = data.callId;
+        }
+
+        function handleCallError(data) {
+            log("CALL ERROR: " + data.message);
+            alert("Call Error: " + data.message);
+            closeCall();
+        }
+
+        /* ---------------- RECEIVER ---------------- */
+
+        function handleOffer(data) {
+            pendingOffer = data.offer;
+            pendingCaller = data.from;
+            pendingType = data.callType;
+            currentCallId = data.callId;
+
+            callerName.innerText = `Incoming ${pendingType} call from ${pendingCaller}`;
+            modal.style.display = "flex";
+        }
+
+        acceptBtn.onclick = async () => {
+
+            modal.style.display = "none";
+
+            localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: pendingType === "video"
+            });
+
+            localVideo.srcObject = localStream;
+            targetIdInput.value = pendingCaller;
+
+            createPC(pendingCaller);
+            localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+            await pc.setRemoteDescription(pendingOffer);
+            flushCandidates();
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            socket.emit("call:answer", { to: pendingCaller, answer, callId: currentCallId });
+            btnEnd.disabled = false;
+            isCaller = false;
+
+            // Show start billing button for callee
+            btnStartBilling.style.display = "inline-block";
+            btnStartBilling.disabled = false;
+        };
+
+        btnStartBilling.onclick = () => {
+            log("Initiating billing...");
+            socket.emit("call:start-billing", {
+                callId: currentCallId,
+                callerId: pendingCaller, // The person who called me
+                calleeId: myIdInput.value.trim() // Me
+            });
+            btnStartBilling.disabled = true;
+            btnStartBilling.innerText = "Billing Starting...";
+        };
+
+        function handleCallOngoing(data) {
+            log("Call is now ONGOING. Billing has started.");
+            btnStartBilling.style.display = "none";
+            statusSpan.innerText = "Connected (Ongoing/Billing)";
+        }
+
+        rejectBtn.onclick = () => modal.style.display = "none";
+
+        /* ---------------- SIGNALING ---------------- */
+
+        async function handleAnswer(data) {
+            await pc.setRemoteDescription(data.answer);
+            flushCandidates();
+        }
+
+        async function handleCandidate(data) {
+            if (pc && pc.remoteDescription) {
+                await pc.addIceCandidate(data.candidate);
+            } else {
+                pendingCandidates.push(data.candidate);
+            }
+        }
+
+        function flushCandidates() {
+            pendingCandidates.forEach(c => pc.addIceCandidate(c));
+            pendingCandidates = [];
+        }
+
+        /* ---------------- PC ---------------- */
+
+        function createPC(target) {
+
+            pc = new RTCPeerConnection(rtcConfig);
+
+            pc.onicecandidate = e => {
+                if (e.candidate) {
+                    socket.emit("call:ice", { to: target, candidate: e.candidate });
+                }
+            };
+
+            pc.ontrack = e => {
+                remoteVideo.srcObject = e.streams[0];
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                log("ICE: " + pc.iceConnectionState);
+                if (pc.iceConnectionState === "failed") {
+                    pc.restartIce();
+                }
+            };
+        }
+
+        /* ---------------- END ---------------- */
+
+        btnEnd.onclick = () => {
+            socket.emit("call:end", {
+                to: targetIdInput.value,
+                callId: currentCallId,
+                callerId: isCaller ? myIdInput.value.trim() : targetIdInput.value,
+                calleeId: isCaller ? targetIdInput.value : myIdInput.value.trim()
+            });
+            closeCall();
+        };
+
+        function handleRemoteEnd() {
+            closeCall();
+        }
+
+        function closeCall() {
+
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                localStream = null;
+            }
+
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+
+            localVideo.srcObject = null;
+            remoteVideo.srcObject = null;
+            btnEnd.disabled = true;
+            btnStartBilling.style.display = "none";
+            btnStartBilling.disabled = true;
+            btnStartBilling.innerText = "Start Billing";
+            currentCallId = null;
+
+            log("Call closed");
+        }
+
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Mini Chat + Call</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 1rem;
+        }
+
+        #chat {
+            border: 1px solid #ccc;
+            height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+
+        video {
+            width: 200px;
+            border: 1px solid #000;
+            margin: 0.5rem;
+        }
+
+        #login {
+            margin-bottom: 1rem;
+        }
+
+        input {
+            margin: 0.2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Login</h2>
+    <div id="login">
+        <input id="senderIdInput" placeholder="Enter your Discord ID (sender)..." />
+        <input id="receiverIdInput" placeholder="Enter receiver Discord ID..." />
+        <button id="connectBtn">Connect</button>
+    </div>
+
+    <h2>Chat</h2>
+    <div id="chat"></div>
+    <input id="messageInput" placeholder="Type message..." disabled />
+    <button id="sendBtn" disabled>Send</button>
+
+    <h2>Video Call</h2>
+    <button id="startCallBtn" disabled>Start Call</button>
+    <div>
+        <video id="localVideo" autoplay playsinline muted></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <!-- socket.io client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        let socket;
+        let senderId;
+        let receiverId;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const senderIdInput = document.getElementById('senderIdInput');
+        const receiverIdInput = document.getElementById('receiverIdInput');
+        const chatDiv = document.getElementById('chat');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const startCallBtn = document.getElementById('startCallBtn');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+
+        let pc;
+        let localStream;
+
+        // --- Connect to socket using entered IDs ---
+        connectBtn.onclick = () => {
+            senderId = senderIdInput.value.trim();
+            receiverId = receiverIdInput.value.trim();
+
+            if (!senderId || !receiverId) {
+                alert("Please enter both Sender and Receiver Discord IDs.");
+                return;
+            }
+
+            socket = io('https://api.discreet.fans', {
+                query: { discordId: senderId },
+            });
+
+            // Enable chat/call inputs
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            startCallBtn.disabled = false;
+            senderIdInput.disabled = true;
+            receiverIdInput.disabled = true;
+            connectBtn.disabled = true;
+
+            // Chat events
+            sendBtn.onclick = () => {
+                const text = messageInput.value;
+                if (!text) return;
+                // socket.emit('message:send-with-media', { messageId: msg._id });
+                socket.emit('message:send', {
+                    sender: senderId,
+                    reciever: receiverId,
+                    text: text,
+                    status: 'sent',
+                });
+
+                addChat('Me: ' + text);
+                messageInput.value = '';
+            };
+
+            socket.on('message:new', (msg) => {
+                console.log('new Message :', msg)
+                addChat(msg.sender.username + ': ' + msg.text);
+                //send delivered acknowlegdment
+                socket.emit('message:delivered', { messageId: msg._id });
+            });
+
+            // listen for sent message acknowledgement
+            socket.on('message:ack', (msg) => {
+                console.log('message sent :', msg)
+                if (msg.success) {
+                    console.log("Message sent successfully ✅");
+                }
+            });
+
+            // listen for sent message delivered
+            socket.on('message:status', (msg) => {
+                console.log('message delivered :', msg)
+
+                if (msg.status === 'delivered') {
+                    console.log("Message delivered ✅✅");
+                    //mark chat as read here
+                    markAsRead(msg.messageId)
+                }
+                if (msg.status === 'read') {
+                    console.log("Message read ✅✅✅");
+                }
+            });
+
+            // WebRTC handlers
+            socket.on('call:offer', async (data) => {
+                await initPeerConnection();
+                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.emit('webrtc_answer', { to: data.from, sdp: answer });
+            });
+
+            socket.on('webrtc_answer', async (data) => {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            });
+
+            socket.on('webrtc_ice_candidate', async (data) => {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                } catch (err) {
+                    console.error('Error adding ICE candidate', err);
+                }
+            });
+        };
+
+        function markAsRead(messageId) {
+            socket.emit('message:read', { messageId });
+        }
+
+        function addChat(text) {
+            const p = document.createElement('p');
+            p.textContent = text;
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        // ---- WebRTC Part ----
+        async function initPeerConnection() {
+            pc = new RTCPeerConnection();
+            pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                    socket.emit('webrtc_ice_candidate', {
+                        to: receiverId,
+                        candidate: e.candidate,
+                    });
+                }
+            };
+            pc.ontrack = (e) => {
+                remoteVideo.srcObject = e.streams[0];
+            };
+            localStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true,
+            });
+            localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+            localVideo.srcObject = localStream;
+        }
+
+        startCallBtn.onclick = async () => {
+            await initPeerConnection();
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('webrtc_offer', { to: receiverId, sdp: offer });
+        };
+    </script>
+</body>
+
+</html>

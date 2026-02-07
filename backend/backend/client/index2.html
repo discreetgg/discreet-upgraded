@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>POST Request Sender</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 2rem;
+        }
+
+        input,
+        button {
+            padding: 0.5rem;
+            font-size: 1rem;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Send a POST Request</h1>
+
+    <label for="message">Message:</label><br>
+    <input type="text" id="message" placeholder="Enter message here" /><br>
+
+    <button onclick="sendPost()">Send POST Request</button>
+
+    <p id="response"></p>
+
+    <script>
+        async function sendPost() {
+            // const url = 'https://api.discreet.fans/api/auth/2fa/generate'; // 🔁 Replace with your actual endpoint
+            const url = 'http://localhost:4835/api/auth/2fa/generate'
+            const message = document.getElementById('message').value;
+
+            const payload = {
+                discordId: "1370487803648934080"
+            }
+
+            try {
+                const response = await fetch(url, {
+                    credentials: "include",
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                document.getElementById('response').innerText = 'Response: ' + JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('response').innerText = 'Error: ' + error.message;
+            }
+        }
+    </script>
+
+</body>
+
+</html>

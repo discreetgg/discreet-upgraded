@@ -1,0 +1,79 @@
+{
+	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+	"vcs": {
+		"enabled": false,
+		"clientKind": "git",
+		"useIgnoreFile": false
+	},
+	"files": {
+		"ignore": ["dist", "node_modules", "bun.lock", ".next", "output"]
+	},
+	"formatter": {
+		"enabled": true,
+		"formatWithErrors": false,
+		"indentStyle": "space",
+		"indentWidth": 2,
+		"lineEnding": "lf",
+		"lineWidth": 80,
+		"attributePosition": "auto"
+	},
+	"organizeImports": {
+		"enabled": true
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"complexity": {
+				"useArrowFunction": "error",
+				"noForEach": "error",
+				"noBannedTypes": "error",
+				"noStaticOnlyClass": "error",
+				"noUselessConstructor": "error",
+				"useSimplifiedLogicExpression": "off",
+				"noUselessFragments": "off"
+			},
+			"correctness": {
+				"noUnsafeFinally": "error",
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"useExhaustiveDependencies": "warn"
+			},
+			"security": { "noGlobalEval": "error" },
+			"style": {
+				"noVar": "error",
+				"noUselessElse": "off",
+				"useConst": "error",
+				"useImportType": "off",
+				"useFilenamingConvention": {
+					"level": "error",
+					"options": {
+						"strictCase": true,
+						"filenameCases": ["kebab-case", "export"]
+					}
+				}
+			},
+			"suspicious": {
+				"noDoubleEquals": "error",
+				"noExplicitAny": "off",
+				"useNamespaceKeyword": "error",
+				"noConsoleLog": "warn",
+				"noArrayIndexKey": "off"
+			},
+			"a11y": { "noSvgWithoutTitle": "off" }
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"jsxQuoteStyle": "single",
+			"quoteProperties": "asNeeded",
+			"trailingCommas": "es5",
+			"semicolons": "always",
+			"arrowParentheses": "always",
+			"bracketSpacing": true,
+			"bracketSameLine": false,
+			"quoteStyle": "single",
+			"attributePosition": "auto"
+		}
+	}
+}
