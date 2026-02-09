@@ -95,7 +95,7 @@ export const Post = ({
 
   return (
     <article
-      className="border-[#1E1E21] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200 delay-75  p-4 rounded-[8px] space-y-4 relative cursor-pointer"
+      className="border-[#1E1E21] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200  p-4 rounded-[8px] space-y-4 relative cursor-pointer"
       aria-label={`Post by ${
         post?.author?.displayName
       }: ${post?.content?.substring(0, 100)}${
@@ -182,6 +182,8 @@ export const Post = ({
             <BookmarkButton
               postId={post?._id}
               isBookmarkPage={isBookmarkPage}
+              initialBookmarked={Boolean(isBookmarkPage)}
+              skipInitialFetch={Boolean(isBookmarkPage)}
             />
           )}
         </div>
@@ -249,7 +251,12 @@ export const Post = ({
 
       {/* Old Add Comment Form - keeping for backward compatibility */}
 
-      {showAllLikes && <PostAllLikes />}
+      {showAllLikes && (
+        <PostAllLikes
+          likeCount={post?.likesCount ?? 0}
+          onClose={() => setShowAllLikes(false)}
+        />
+      )}
     </article>
   );
 };

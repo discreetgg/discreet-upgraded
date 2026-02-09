@@ -9,17 +9,17 @@ import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Switch } from "./ui/switch";
 import { GlobalSearch } from "./search/global-search";
 import Image from "next/image";
-import router from "next/router";
 
 export const HomePostsNavHeader = () => {
 	const { isAuthenticated } = useAuth();
 	const { showExplicitContent, setShowExplicitContent } = useGlobal();
 
-	const pathname = usePathname(); // 👈 detect current route
+	const router = useRouter();
+	const pathname = usePathname();
 
 	return (
 		<header className="flex md:flex-row flex-col shrink-0 transition-[width,height] z-50 gap-6 ease-linear sticky top-0 md:py-5 py-2  bg-background mt-2 lg:mt-2">
@@ -41,7 +41,7 @@ export const HomePostsNavHeader = () => {
 						className={cn(
 							"rounded-[54px] border hover:bg-transparent active:bg-transparent text-[#F8F8F8] h-auto px-4 py-2.5 text-[15px] font-medium whitespace-nowrap md:w-max w-full flex items-center justify-center",
 							pathname === "/" ? "bg-[#2E2E32]" : "border-[#1E2227]",
-							"hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+							"hover:-translate-y-1 transition-transform duration-150 ease-out"
 						)}
 					>
 						Feed
@@ -51,7 +51,7 @@ export const HomePostsNavHeader = () => {
 						className={cn(
 							"rounded-[54px] border hover:bg-transparent active:bg-transparent text-[#F8F8F8] h-auto px-4 py-2.5 text-[15px] font-medium whitespace-nowrap md:w-max w-full flex items-center justify-center",
 							pathname === "/sellers" ? "bg-[#2E2E32]" : "border-[#1E2227]",
-							"hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+							"hover:-translate-y-1 transition-transform duration-150 ease-out"
 						)}
 					>
 						Sellers
@@ -61,7 +61,7 @@ export const HomePostsNavHeader = () => {
 						className={cn(
 							"rounded-[54px] relative border hover:bg-transparent active:bg-transparent text-[#F8F8F8] h-auto px-4 py-2.5 text-[15px] font-medium whitespace-nowrap md:w-max w-full flex items-center justify-center",
 							pathname === "/cams" ? "bg-[#2E2E32]" : "border-[#1E2227]",
-							"hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+							"hover:-translate-y-1 transition-transform duration-150 ease-out"
 						)}
 					>
 						<span className="flex items-center gap-1">
@@ -74,7 +74,7 @@ export const HomePostsNavHeader = () => {
 						className={cn(
 							"rounded-[54px] border hover:bg-transparent active:bg-transparent text-[#F8F8F8] h-auto px-4 py-2.5 text-[15px] font-medium whitespace-nowrap md:w-max w-full md:block flex items-center justify-center",
 							pathname === "/servers" ? "bg-[#2E2E32]" : "border-[#1E2227]",
-							"hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+							"hover:-translate-y-1 transition-transform duration-150 ease-out"
 						)}
 					>
 						Servers
@@ -128,3 +128,4 @@ export const HomePostsNavHeader = () => {
 		</header>
 	);
 };
+

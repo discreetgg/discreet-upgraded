@@ -9,6 +9,8 @@ type BookmarksQueryData = {
 	pageParams: unknown[];
 };
 
+const getErrorStatus = (error: any) => error?.status || error?.response?.status;
+
 const fetchIsBookmarkedStatus = async (
 	discordId?: string,
 	postId?: string,
@@ -55,12 +57,32 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 		}) => {
 			if (isBookmarked) {
 				toast.success("Removed from bookmarks");
-				const res = await api.delete(`/post/bookmark/${discordId}/${postId}`);
-				return res.data;
+				try {
+					const res = await api.delete(`/post/bookmark/${discordId}/${postId}`);
+					return res.data;
+				} catch (error: any) {
+					const status = getErrorStatus(error);
+					if (status === 404 || status === 409) {
+						return {
+							message: "Bookmark already removed",
+						};
+					}
+					throw error;
+				}
 			}
 			toast.success("Added to bookmarks");
-			const res = await api.post(`/post/bookmark/${discordId}`, { postId });
-			return res.data;
+			try {
+				const res = await api.post(`/post/bookmark/${discordId}`, { postId });
+				return res.data;
+			} catch (error: any) {
+				const status = getErrorStatus(error);
+				if (status === 409) {
+					return {
+						message: "Bookmark already exists",
+					};
+				}
+				throw error;
+			}
 		},
 
 		onMutate: async ({ discordId, postId, isBookmarked }) => {
@@ -122,15 +144,29 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 				queryClient.setQueryData(hasKey, context.previousHas);
 			}
 
-			if (err?.status === 401 || err?.response?.status === 401) {
+			const status = getErrorStatus(err);
+
+			if (status === 401) {
 				localStorage.clear();
 				toast.error("You must be logged in to bookmark posts.");
 				router.push("/auth");
 				return;
 			}
 			toast.error(
-				err?.message || "Failed to update bookmark. Please try again."
+				err?.response?.data?.message ||
+					err?.message ||
+					"Failed to update bookmark. Please try again."
 			);
+		},
+		onSettled: (_, __, variables) => {
+			const discordId = variables?.discordId || opts?.discordId;
+			if (!discordId || !variables?.postId) return;
+
+			const bookmarksKey = ["bookmarks", discordId];
+			const hasKey = ["bookmarks", discordId, "has-bookmarked", variables.postId];
+
+			queryClient.invalidateQueries({ queryKey: bookmarksKey });
+			queryClient.invalidateQueries({ queryKey: hasKey });
 		},
 	});
 

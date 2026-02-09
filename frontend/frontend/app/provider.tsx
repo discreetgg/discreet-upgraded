@@ -44,7 +44,7 @@ export const Providers = ({
               <CallContextProvider>
                 <WalletContextProvider>
                   <ProgressProvider
-                    style="style"
+                    disableStyle
                     options={{ showSpinner: false }}
                     shallowRouting
                   >

@@ -1,13 +1,13 @@
 "use client";
 
 import { Suspense } from "react";
-import { ComponentLoader } from "@/components/ui/component-loader";
 import { BuyerProfilePostsSection } from "@/components/buyer-profile-posts-section";
 import { SellerProfilePostsSection } from "@/components/seller-profile-posts-section";
 import { PublicProfileHeaderSection } from "@/components/public-profile-header-section";
 import { GlobalSearch } from "@/components/search/global-search";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icons";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import { useGlobal } from "@/context/global-context-provider";
 import type { UserType } from "@/types/global";
 import { useRouter } from "@bprogress/next/app";
@@ -36,10 +36,10 @@ export default function UserProfileView({ data }: UserProfileViewProps) {
 						className="p-0 group hover:!bg-transparent"
 					>
 						<Icon.arrrowLeft
-							className="group-hover:-translate-x-3 duration-300 ease-in-out delay-100 size-6 md:size-4"
-							strokeclassName="group-hover:stroke-white transition-colors duration-300 ease-in-out"
+							className="group-hover:-translate-x-3 duration-150 ease-out size-6 md:size-4"
+							strokeclassName="group-hover:stroke-white transition-colors duration-150 ease-out"
 						/>
-						<span className="font-inter text-lg text-accent-text group-hover:text-neutral-300 transition-colors duration-300 ease-in-out">
+						<span className="font-inter text-lg text-accent-text group-hover:text-neutral-300 transition-colors duration-150 ease-out">
 							{data.displayName}
 						</span>
 					</Button>
@@ -58,9 +58,7 @@ export default function UserProfileView({ data }: UserProfileViewProps) {
 					/>
 					<Suspense
 						fallback={
-							<div className="w-full flex justify-center py-10">
-								<ComponentLoader />
-							</div>
+							<TabLoadingSkeleton className="pt-4 md:pt-6" variant="posts" />
 						}
 					>
 						{isSeller ? (

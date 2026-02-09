@@ -63,25 +63,37 @@ export const CallSheet = () => {
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const callTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize audio elements
+  const ensureCallAudioElements = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!callerRingAudioRef.current) {
+      const callerRingAudio = new Audio('/caller-ring.mp3');
+      callerRingAudio.loop = true;
+      callerRingAudio.preload = 'none';
+      callerRingAudioRef.current = callerRingAudio;
+    }
+
+    if (!calleeRingAudioRef.current) {
+      const calleeRingAudio = new Audio('/callee-ring.mp3');
+      calleeRingAudio.loop = true;
+      calleeRingAudio.preload = 'none';
+      calleeRingAudioRef.current = calleeRingAudio;
+    }
+
+    if (!calleeUnavailableAudioRef.current) {
+      const calleeUnavailableAudio = new Audio('/callee-unavailable.mp3');
+      calleeUnavailableAudio.preload = 'none';
+      calleeUnavailableAudioRef.current = calleeUnavailableAudio;
+    }
+  }, []);
+
+  // Initialize lightweight audio settings and clean up on unmount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      callerRingAudioRef.current = new Audio('/caller-ring.mp3');
-      calleeRingAudioRef.current = new Audio('/callee-ring.mp3');
-      calleeUnavailableAudioRef.current = new Audio('/callee-unavailable.mp3');
-
-      // Loop the ringing audio
-      if (callerRingAudioRef.current) {
-        callerRingAudioRef.current.loop = true;
-      }
-      if (calleeRingAudioRef.current) {
-        calleeRingAudioRef.current.loop = true;
-      }
-
-      // Set remote audio volume to maximum
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.volume = 1.0;
-      }
+    // Set remote audio volume to maximum
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.volume = 1.0;
     }
 
     return () => {
@@ -106,7 +118,13 @@ export const CallSheet = () => {
 
   // Handle ringing audio for incoming calls (callee side) with 30-second timeout
   useEffect(() => {
-    if (ringing && authenticated && calleeRingAudioRef.current) {
+    if (ringing && authenticated) {
+      ensureCallAudioElements();
+
+      if (!calleeRingAudioRef.current) {
+        return;
+      }
+
       calleeRingAudioRef.current.play().catch((error) => {
         console.error('Error playing callee ring tone:', error);
       });
@@ -158,11 +176,17 @@ export const CallSheet = () => {
         callTimeoutRef.current = null;
       }
     };
-  }, [ringing, authenticated, endCall]);
+  }, [ringing, authenticated, endCall, ensureCallAudioElements]);
 
   // Handle connecting audio for outgoing calls (caller side) with 30-second timeout
   useEffect(() => {
-    if (connecting && authenticated && callerRingAudioRef.current) {
+    if (connecting && authenticated) {
+      ensureCallAudioElements();
+
+      if (!callerRingAudioRef.current) {
+        return;
+      }
+
       callerRingAudioRef.current.play().catch((error) => {
         console.error('Error playing caller ring tone:', error);
       });
@@ -214,7 +238,7 @@ export const CallSheet = () => {
         callTimeoutRef.current = null;
       }
     };
-  }, [connecting, authenticated, endCall]);
+  }, [connecting, authenticated, endCall, ensureCallAudioElements]);
 
   // Stop all ringing audio when call is connected
   useEffect(() => {

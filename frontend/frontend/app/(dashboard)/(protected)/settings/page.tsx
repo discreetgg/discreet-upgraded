@@ -1,5 +1,5 @@
 import { SettingsPageContent } from "@/components/settings-page-content";
-import { PageLoader } from "@/components/ui/page-loader";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import Image from "next/image";
 import { Suspense } from "react";
 
@@ -22,7 +22,9 @@ const Page = () => {
 						<div className="md:hidden" />
 					</div>
 				</div>
-				<Suspense fallback={<PageLoader />}>
+				<Suspense
+					fallback={<TabLoadingSkeleton className="pt-4 md:pt-6" variant="list" />}
+				>
 					<SettingsPageContent />
 				</Suspense>
 			</div>

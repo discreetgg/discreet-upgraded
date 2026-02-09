@@ -19,10 +19,10 @@ export const ProfileNavHeader = () => {
 					className="p-0 group hover:!bg-transparent"
 				>
 					<Icon.arrrowLeft
-						className="group-hover:-translate-x-3 duration-300 ease-in-out delay-100"
-						strokeclassName="group-hover:stroke-white transition-colors duration-300 ease-in-out"
+						className="group-hover:-translate-x-3 duration-150 ease-out"
+						strokeclassName="group-hover:stroke-white transition-colors duration-150 ease-out"
 					/>
-					<span className="font-inter text-lg text-accent-text group-hover:text-neutral-300 transition-colors duration-300 ease-in-out">
+					<span className="font-inter text-lg text-accent-text group-hover:text-neutral-300 transition-colors duration-150 ease-out">
 						{user?.displayName}
 					</span>
 				</Button>

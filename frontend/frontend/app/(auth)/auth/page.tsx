@@ -74,14 +74,14 @@ const Page = () => {
               <Button
                 type="submit"
                 onClick={onSubmit}
-                className="rounded w-full h-auto py-3.5 px-4 text-lg font-medium text-[#D4D4D8] bg-transparent hover:bg-transparent border-2 border-[#8A8C95] shadow-[1px_2px_0_2px_#8A8C95] hover:shadow-[4px_4px_0_2px_#FF007F] transition-all duration-300 delay-100 ease-in-out"
+                className="rounded w-full h-auto py-3.5 px-4 text-lg font-medium text-[#D4D4D8] bg-transparent hover:bg-transparent border-2 border-[#8A8C95] shadow-[1px_2px_0_2px_#8A8C95] hover:shadow-[4px_4px_0_2px_#FF007F] transition-all duration-300 ease-in-out"
               >
                 Sign in
               </Button>
               <Button
                 type="submit"
                 onClick={onSubmit}
-                className="rounded w-full h-auto py-3.5 px-4 text-lg font-medium text-[#D4D4D8] bg-transparent hover:bg-transparent border-2 border-[#FF007F] shadow-[1px_2px_0_2px_#FF007F] hover:shadow-[4px_4px_0_2px_#FF007F] transition-all duration-300 delay-100 ease-in-out"
+                className="rounded w-full h-auto py-3.5 px-4 text-lg font-medium text-[#D4D4D8] bg-transparent hover:bg-transparent border-2 border-[#FF007F] shadow-[1px_2px_0_2px_#FF007F] hover:shadow-[4px_4px_0_2px_#FF007F] transition-all duration-300 ease-in-out"
               >
                 Create account
               </Button>

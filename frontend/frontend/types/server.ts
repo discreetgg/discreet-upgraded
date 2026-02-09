@@ -3,11 +3,14 @@ export type ServerType = {
     name: string;
     link: string;
     bio: string;
-    totalMemberCount: number;
-    activeMemberCount: number;
+    totalMemberCount?: number;
+    activeMemberCount?: number;
     username: string;
     members?: ServerMemberType[];
     creatorId: string;
+    creatorDiscordAvatar?: string;
+    creatorDisplayName?: string;
+    creatorProfileImage?: string;
     tags: string[];
     likesCount?: number;
     createdAt?: string;
@@ -44,6 +47,9 @@ export interface Creator {
   displayName: string;
   discordAvatar: string;
   id: string;
+  profileImage?: {
+    url?: string;
+  } | null;
 }
 
 export interface CreateServerResponse {
@@ -65,6 +71,8 @@ export interface Server {
   bio: string;
   tags: string[];
   likesCount: number;
+  totalMemberCount?: number;
+  activeMemberCount?: number;
   createdAt: string;
   updatedAt: string;
   id: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { PageLoader } from "@/components/ui/page-loader";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
 import { inDevEnvironment } from "@/lib/utils";
@@ -22,7 +22,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 	}, [loading, user, router]);
 
 	if (loading || (user?.role !== "seller" && !inDevEnvironment)) {
-		return <PageLoader />;
+		return <TabLoadingSkeleton className="pt-4 md:pt-6" variant="list" />;
 	}
 
 	return children;

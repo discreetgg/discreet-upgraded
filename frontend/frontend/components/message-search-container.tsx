@@ -18,6 +18,7 @@ export const MessageSearchContainer = () => {
     navigateToPreviousMatch,
     hasMatches,
   } = useMessageSearch();
+  const currentMatchDisplay = currentMatchIndex >= 0 ? currentMatchIndex + 1 : 1;
 
   const handleSearchSubmit = () => {
     if (searchValue.trim()) {
@@ -65,7 +66,7 @@ export const MessageSearchContainer = () => {
       {/* Search results counter */}
       {isSearchActive && hasMatches && (
         <div className='absolute top-1/2 -translate-y-1/2 right-4 text-[10px] text-muted-foreground'>
-          {currentMatchIndex + 1} / {matchingMessageIds.length}
+          {currentMatchDisplay} / {matchingMessageIds.length}
         </div>
       )}
 

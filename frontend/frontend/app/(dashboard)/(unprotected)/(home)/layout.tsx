@@ -3,12 +3,12 @@
 import { GetFullExperienceCard } from "@/components/get-full-experience-card";
 import { HomePostsNavHeader } from "@/components/home-posts-nav-header";
 import { HomePostsNavHeaderLoader } from "@/components/home-posts-nav-header-loader";
-import { PageLoader } from "@/components/ui/page-loader";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
-import { Suspense, useLayoutEffect, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
 // Lazy load heavy components to improve initial page load
@@ -32,12 +32,28 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
 	const { user } = useGlobal();
 	const [showBanner, setShowBanner] = useState(false);
-	const showLoginCard = !isAuthenticated;
+	const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+	const showLoginCard = !loading && !isAuthenticated;
 	const showBecomeSellerCard =
-		showBanner && isAuthenticated && user?.role === "buyer";
+		!loading && showBanner && isAuthenticated && user?.role === "buyer";
 	const showTopCreators = !isSellersPage;
+	const showRightRailLoading = loading && !isSellersPage;
 	const hasRightRailContent =
-		showLoginCard || showBecomeSellerCard || showTopCreators;
+		showRightRailLoading || showLoginCard || showBecomeSellerCard || showTopCreators;
+	const shouldRenderRightRail = hasRightRailContent && isDesktopViewport;
+
+	useEffect(() => {
+		const updateViewport = () => {
+			setIsDesktopViewport(window.innerWidth >= 1024);
+		};
+
+		updateViewport();
+		window.addEventListener("resize", updateViewport);
+
+		return () => {
+			window.removeEventListener("resize", updateViewport);
+		};
+	}, []);
 
 	useLayoutEffect(() => {
 		const savedBanner = localStorage.getItem("showBanner");
@@ -46,9 +62,6 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 		}
 	}, []);
 
-	if (loading) {
-		return <PageLoader />;
-	}
 	return (
 		<main className="px-2 ">
 			<Suspense fallback={<HomePostsNavHeaderLoader />}>
@@ -68,14 +81,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 				<div
 					className={cn(
 						"w-full space-y-6",
-						hasRightRailContent ? "max-w-[560px] xl:max-w-full" : "max-w-full"
+						shouldRenderRightRail ? "max-w-[560px] xl:max-w-full" : "max-w-full"
 					)}
 				>
 					{children}
 				</div>
-				{hasRightRailContent && (
+				{shouldRenderRightRail && (
 					<section
-						className="w-full hidden lg:block max-w-[376px] xl:shrink-0 space-y-6 sticky top-7 h-max transition-[width] duration-300 ease-linear overflow-hidden"
+						className="w-full max-w-[376px] xl:shrink-0 space-y-6 sticky top-7 h-max transition-[width] duration-300 ease-linear overflow-hidden"
 					>
 					{/* <Link
 						href={""}
@@ -102,7 +115,14 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 							setShowBanner={setShowBanner}
 						/>
 					)}
-					{showTopCreators && <TopCreators />}
+					{showRightRailLoading ? (
+						<>
+							<Skeleton className="h-[72px] w-full rounded-lg" />
+							<Skeleton className="h-[400px] w-full rounded-lg" />
+						</>
+					) : (
+						showTopCreators && <TopCreators />
+					)}
 					{/* {isAuthenticated && inDevEnvironment && <PartnerDiscordServers />} */}
 					{/* <div className="flex items-center gap-x-4 text-[#737682] text-[15px] justify-center">
             <Link href="/privacy-policy">

@@ -14,6 +14,7 @@ interface LikeButtonProps {
   targetType: "Server";
   initialLiked?: boolean;
   initialCount: number;
+  checkLikedOnMount?: boolean;
   className?: string;
   setShowAllLikes: (show: boolean) => void;
 }
@@ -23,6 +24,7 @@ export const ServerLikeButton = ({
   targetType,
   initialLiked = false,
   initialCount,
+  checkLikedOnMount = true,
   className,
   setShowAllLikes,
 }: LikeButtonProps) => {
@@ -44,6 +46,7 @@ export const ServerLikeButton = ({
     serverId: targetId,
     initialLiked: initialLikeState.liked,
     initialCount: initialLikeState.count,
+    fetchInitialLikedOnMount: checkLikedOnMount,
     onError: (error) => {
       toast.error("Failed to update like. Please try again.");
       console.error("Like error:", error);

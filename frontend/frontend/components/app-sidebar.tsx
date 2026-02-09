@@ -79,13 +79,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
 	const getButtonClasses = (active: boolean) =>
 		active
-			? "hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+			? "hover:-translate-y-1 transition-transform duration-150 ease-out"
 			: "text-[#A1A1AA] group/nav";
 
 	const getIconClasses = (active: boolean) =>
 		active
 			? "border-[#FF0065]  bg-[#0A0A0B] shadow-[2px_2px_0_0_#FF0065]"
-			: "border-transparent bg-transparent text-[#A1A1AA] group-hover/nav:border-[#A1A1AA] group-hover/nav:bg-[#0A0A0A] group-hover/nav:shadow-[2px_2px_0_0_#A1A1AA] transition duration-300 delay-150";
+			: "border-transparent bg-transparent text-[#A1A1AA] group-hover/nav:border-[#A1A1AA] group-hover/nav:bg-[#0A0A0A] group-hover/nav:shadow-[2px_2px_0_0_#A1A1AA] transition duration-150";
 
 	const getTextClasses = (active: boolean) =>
 		active
@@ -323,7 +323,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 											href="#"
 											className={cn(
 												"h-auto flex items-center gap-4 hover:bg-transparent active:bg-transparent group cursor-pointer",
-												"hover:-translate-y-1 transition-transform duration-500 delay-150 ease-in-out"
+												"hover:-translate-y-1 transition-transform duration-150 ease-out"
 											)}
 										>
 											<div

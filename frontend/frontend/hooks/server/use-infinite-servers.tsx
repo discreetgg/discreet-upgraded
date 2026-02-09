@@ -24,11 +24,16 @@ export const useInfiniteServers = ({
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState<number>(initialPage);
   const [hasNextPage, setHasNextPage] = useState(true);
-  const [newUpdate, setNewUpdate] = useState(false);
 
   const loadServers = useCallback(
-    async (nextPage?: number, isLoadMore = false) => {
-      if (isLoadMore) {
+    async ({
+      nextPage = 1,
+      append = false,
+    }: {
+      nextPage?: number;
+      append?: boolean;
+    } = {}) => {
+      if (append) {
         setIsLoadingMore(true);
       } else {
         setIsLoading(true);
@@ -37,45 +42,42 @@ export const useInfiniteServers = ({
 
       try {
         const response = await serverService.getAllServers({
-          page: nextPage ?? page,
+          page: nextPage,
           limit,
           search,
           tags,
         });
-        if (isLoadMore) {
+
+        if (append) {
           setServers((prev) => [...prev, ...(response ?? [])]);
         } else {
           setServers(response ?? []);
         }
+
         const fetchedCount = response?.length ?? 0;
         setHasNextPage(fetchedCount >= limit);
-        if (isLoadMore && fetchedCount > 0) {
-          setPage((p) => (nextPage ?? p) + 1);
-        } else if (!isLoadMore) {
-          setPage(nextPage ?? page);
-        }
+        setPage(nextPage);
       } catch (e) {
         const message = 'Failed to fetch servers';
         setError(message);
         toast.error(message);
-        if (!isLoadMore) setServers([]);
+        if (!append) setServers([]);
       } finally {
         setIsLoading(false);
         setIsLoadingMore(false);
-        setNewUpdate(false);
       }
     },
-    [page, limit, search, tags, newUpdate]
+    [limit, search, tags]
   );
 
   const loadMoreServers = useCallback(() => {
     if (isLoadingMore || isLoading) return;
     if (!hasNextPage) return;
-    loadServers(page + 1, true);
+    loadServers({ nextPage: page + 1, append: true });
   }, [isLoadingMore, isLoading, hasNextPage, loadServers, page]);
 
   const refreshServers = useCallback(() => {
-    loadServers();
+    loadServers({ nextPage: 1, append: false });
   }, [loadServers]);
 
   return {
@@ -90,5 +92,4 @@ export const useInfiniteServers = ({
     refreshServers,
   };
 };
-
 

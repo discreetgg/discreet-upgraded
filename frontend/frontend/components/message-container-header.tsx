@@ -125,6 +125,9 @@ export const MessageContainerHeader = ({
             side="right"
             className="w-full sm:max-w-md p-0 overflow-y-auto"
           >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Conversation details</SheetTitle>
+            </SheetHeader>
             <MessageDetailsSheet />
           </SheetContent>
         </Sheet>

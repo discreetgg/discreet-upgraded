@@ -5,13 +5,16 @@ import { ComponentLoader } from "@/components/ui/component-loader";
 import { EmptyStates } from "@/components/ui/empty-states";
 import { Icon } from "@/components/ui/icons";
 import { useInfiniteServers } from "@/hooks/server/use-infinite-servers";
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer";
 import { ServerType } from "@/types/server";
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 
 const Page = () => {
   const {
     servers,
     isLoading,
+    isLoadingMore,
     hasNextPage,
     loadServers,
     loadMoreServers,
@@ -22,18 +25,26 @@ const Page = () => {
 
   const [editOpen, setEditOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<ServerType | null>(null);
-  const [shouldRefresh, setShouldRefresh] = useState(false);
+  const hasLoadedInitialServersRef = useRef(false);
 
   useEffect(() => {
-    loadServers();
-  }, [loadServers, shouldRefresh]);
+    if (hasLoadedInitialServersRef.current) {
+      return;
+    }
+
+    hasLoadedInitialServersRef.current = true;
+    loadServers({ nextPage: 1, append: false });
+  }, [loadServers]);
+
+  const loadMoreTriggerRef = useIntersectionObserver({
+    onIntersect: loadMoreServers,
+    threshold: 0.1,
+    rootMargin: "240px",
+    enabled: hasNextPage && !isLoadingMore && !isLoading,
+  });
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center py-8">
-        <ComponentLoader />
-      </div>
-    );
+    return <TabLoadingSkeleton variant="list" />;
   }
   return (
     <div className="space-y-4.5 w-full">
@@ -62,33 +73,39 @@ const Page = () => {
         </div>
       )}
       {servers?.map((srv) => (
-        <Suspense key={srv.id}>
-          <ServerDetails
-            className="!w-full"
-            server={
-              {
-                id: srv.id,
-                name: srv.name,
-                bio: srv.bio,
-                members: [],
-                creatorId: srv.creator.discordId ?? "",
-                link: srv.link,
-                tags: srv.tags,
-                username: srv.creator.username,
-                likesCount: srv.likesCount,
-              } as ServerType
-            }
-            onEdit={(server) => {
-              setEditingServer(server);
-              setEditOpen(true);
-            }}
-            onDelete={() => {
-              setShouldRefresh(true);
-              setTimeout(() => setShouldRefresh(false), 100);
-            }}
-          />
-        </Suspense>
+        <ServerDetails
+          key={srv.id}
+          className="!w-full"
+          server={
+            {
+              id: srv.id,
+              name: srv.name,
+              bio: srv.bio,
+              members: [],
+              creatorId: srv.creator.discordId ?? "",
+              creatorDiscordAvatar: srv.creator.discordAvatar,
+              creatorDisplayName: srv.creator.displayName,
+              creatorProfileImage: srv.creator.profileImage?.url,
+              link: srv.link,
+              tags: srv.tags,
+              username: srv.creator.username,
+              likesCount: srv.likesCount,
+            } as ServerType
+          }
+          onEdit={(server) => {
+            setEditingServer(server);
+            setEditOpen(true);
+          }}
+          onDelete={() => {
+            refreshServers();
+          }}
+        />
       ))}
+      {hasNextPage && (
+        <div ref={loadMoreTriggerRef} className="flex justify-center py-4">
+          {isLoadingMore && <ComponentLoader />}
+        </div>
+      )}
     </div>
   );
 };

@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -38,6 +39,22 @@ export const MessageSearchProvider = ({
   const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
   const hasMatches = matchingMessageIds.length > 0;
+
+  useEffect(() => {
+    if (matchingMessageIds.length === 0) {
+      if (currentMatchIndex !== -1) {
+        setCurrentMatchIndex(-1);
+      }
+      return;
+    }
+
+    if (
+      currentMatchIndex < 0 ||
+      currentMatchIndex >= matchingMessageIds.length
+    ) {
+      setCurrentMatchIndex(0);
+    }
+  }, [matchingMessageIds.length, currentMatchIndex]);
 
   const navigateToNextMatch = useCallback(() => {
     if (matchingMessageIds.length === 0) return;

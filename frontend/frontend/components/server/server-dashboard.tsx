@@ -1,7 +1,6 @@
 "use client";
-import { useMemo, Suspense } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ServerDetails } from "./";
-import { useEffect, useState } from "react";
 import type { ServerType } from "@/types/server";
 import { SubmitServerDialog } from "./submit-sever-dialog";
 import { ComponentLoader } from "../ui/component-loader";
@@ -9,6 +8,7 @@ import { EmptyStates } from "../ui/empty-states";
 import { Icon } from "../ui/icons";
 import { useSearchParams } from "next/navigation";
 import { useInfiniteServers } from "@/hooks/server/use-infinite-servers";
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer";
 
 function ServerDashboard() {
   const searchParams = useSearchParams();
@@ -27,6 +27,7 @@ function ServerDashboard() {
   const {
     servers,
     isLoading,
+    isLoadingMore,
     hasNextPage,
     loadServers,
     loadMoreServers,
@@ -38,11 +39,17 @@ function ServerDashboard() {
   });
   const [editOpen, setEditOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<ServerType | null>(null);
-  const [shouldRefresh, setShouldRefresh] = useState(false);
 
   useEffect(() => {
-    loadServers();
-  }, [loadServers, tags, searchParam, shouldRefresh]);
+    loadServers({ nextPage: 1, append: false });
+  }, [loadServers, tags, searchParam]);
+
+  const loadMoreTriggerRef = useIntersectionObserver({
+    onIntersect: loadMoreServers,
+    threshold: 0.1,
+    rootMargin: "240px",
+    enabled: hasNextPage && !isLoadingMore && !isLoading,
+  });
 
   // Apply period and language filtering on the client side
   const filteredServers = useMemo(() => {
@@ -147,6 +154,9 @@ function ServerDashboard() {
                   link: srv.link,
                   tags: srv.tags,
                   username: srv.creator.username,
+                  creatorDiscordAvatar: srv.creator.discordAvatar,
+                  creatorDisplayName: srv.creator.displayName,
+                  creatorProfileImage: srv.creator.profileImage?.url,
                   likesCount: srv.likesCount,
                   totalMemberCount: srv.totalMemberCount,
                   activeMemberCount: srv.activeMemberCount,
@@ -157,16 +167,15 @@ function ServerDashboard() {
                 setEditOpen(true);
               }}
               onDelete={() => {
-                setShouldRefresh(true);
-                setTimeout(() => setShouldRefresh(false), 100);
+                refreshServers();
               }}
             />
           ))}
         </div>
       )}
       {hasNextPage && (
-        <div className="fixed bottom-0 left-0 right-0 top-0 flex justify-center items-center">
-          <ComponentLoader />
+        <div ref={loadMoreTriggerRef} className="flex justify-center py-4">
+          {isLoadingMore && <ComponentLoader />}
         </div>
       )}
     </div>

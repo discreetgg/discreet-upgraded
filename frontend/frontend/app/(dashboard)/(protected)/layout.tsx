@@ -2,8 +2,8 @@
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileNav } from "@/components/mobile-nav";
-import { PageLoader } from "@/components/ui/page-loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import { useAuth } from "@/context/auth-context-provider";
 import WalletContextProvider from "@/context/wallet-context-provider";
 import { useRouter } from "@bprogress/next/app";
@@ -28,28 +28,36 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 		}
 	}, [isAuthenticated, router, loading]);
 
-	if (loading) {
-		return <PageLoader />;
-	}
-
-	if (!isAuthenticated) {
-		// Don't show toast here as it's already shown in useEffect
-		// Just return null to prevent flash of content
-		return null;
-	}
-
 	const isMessagePage =
 		pathname.startsWith("/messages/") && pathname !== "/messages";
+	const showRouteSkeleton = loading || !isAuthenticated;
+	const skeletonVariant = isMessagePage ? "list" : "posts";
 
 	return (
 		<SidebarProvider className="max-w-360 md:px-4 mx-auto relative ">
 			<WalletContextProvider>
 				<AppSidebar />
 				<SidebarInset className={cn(!isMessagePage && "pb-24 md:pb-0")}>
-					<Suspense fallback={<PageLoader />}>{children}</Suspense>
+					{showRouteSkeleton ? (
+						<TabLoadingSkeleton
+							className="pt-4 md:pt-6"
+							variant={skeletonVariant}
+						/>
+					) : (
+						<Suspense
+							fallback={
+								<TabLoadingSkeleton
+									className="pt-4 md:pt-6"
+									variant={skeletonVariant}
+								/>
+							}
+						>
+							{children}
+						</Suspense>
+					)}
 				</SidebarInset>
 				<MobileNav />
-				<FundWalletDialog />
+				{isAuthenticated && <FundWalletDialog />}
 			</WalletContextProvider>
 		</SidebarProvider>
 	);

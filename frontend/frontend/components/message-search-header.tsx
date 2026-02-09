@@ -28,6 +28,7 @@ export const MessageSearchHeader = ({
 
   const [internalExpanded, setInternalExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const currentMatchDisplay = currentMatchIndex >= 0 ? currentMatchIndex + 1 : 1;
   
   // Use controlled isExpanded if provided, otherwise use internal state
   const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
@@ -109,7 +110,7 @@ export const MessageSearchHeader = ({
           {/* Search results counter - shown when search is active and has matches */}
           {isSearchActive && hasMatches && (
             <div className="absolute top-1/2 -translate-y-1/2 right-16 text-[10px] text-muted-foreground whitespace-nowrap">
-              {currentMatchIndex + 1} / {matchingMessageIds.length}
+              {currentMatchDisplay} / {matchingMessageIds.length}
             </div>
           )}
 

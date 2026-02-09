@@ -184,7 +184,12 @@ export const FeedPost = ({ post }: { post: PostType }) => {
           />
         </div>
       </div>
-      {showAllLikes && <PostAllLikes />}
+      {showAllLikes && (
+        <PostAllLikes
+          likeCount={post?.likesCount ?? 0}
+          onClose={() => setShowAllLikes(false)}
+        />
+      )}
     </section>
   );
 };

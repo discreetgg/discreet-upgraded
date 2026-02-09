@@ -12,6 +12,7 @@ import { MessageSearchContainer } from '@/components/message-search-container';
 import { useEffect, useMemo } from 'react';
 import { NotesContainer } from '@/components/notes-container';
 import type { AuthorType } from '@/types/global';
+import { TabLoadingSkeleton } from '@/components/tab-loading-skeleton';
 
 const ConversationPage = () => {
   const { user } = useGlobal();
@@ -19,6 +20,7 @@ const ConversationPage = () => {
 
   const params = useParams();
   const conversationId = params.id as string;
+  const isConversationListLoading = conversations === null;
   const inferredReceiver = useMemo(() => {
     if (!conversations?.length || !conversationId) return null;
 
@@ -45,6 +47,10 @@ const ConversationPage = () => {
       clearUnreadCount(conversationId);
     }
   }, [conversationId, clearUnreadCount]);
+
+  if (isConversationListLoading && !activeReceiver) {
+    return <TabLoadingSkeleton className="pt-4 md:pt-6" variant="list" />;
+  }
 
   if (!activeReceiver) {
     return (

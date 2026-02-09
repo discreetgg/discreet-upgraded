@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface Props {
 	title: string;
@@ -20,6 +21,7 @@ export default function LoadingState({
 	onRefresh,
 	disabled = false,
 }: Props) {
+	const router = useRouter();
 	const [loadingState, setLoadingState] = useState<
 		"initial" | "extended" | "auto-refresh"
 	>("initial");
@@ -55,14 +57,15 @@ export default function LoadingState({
 			if (onRefresh) {
 				await onRefresh();
 			} else {
-				window.location.reload();
+				router.refresh();
 			}
 		} catch (error) {
 			console.error("Refresh failed:", error);
-
+		} finally {
 			resetState();
+			setIsRefreshing(false);
 		}
-	}, [disabled, isRefreshing, onRefresh, clearAllTimers, resetState]);
+	}, [disabled, isRefreshing, onRefresh, clearAllTimers, resetState, router]);
 
 	const handleAutoRefresh = useCallback(() => {
 		if (disabled) return;

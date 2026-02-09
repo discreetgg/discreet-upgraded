@@ -161,6 +161,17 @@
   [role='button']:not(:disabled) {
     cursor: pointer;
   }
+
+  /* Hover feedback should feel immediate on desktop pointer devices */
+  @media (hover: hover) and (pointer: fine) {
+    a,
+    button,
+    [role='button'],
+    [class*='cursor-pointer'] {
+      transition-delay: 0ms !important;
+    }
+  }
+
   /* Disable right-click on all images */
   img {
     -webkit-user-select: none;
@@ -177,17 +188,6 @@
 }
 
 @layer components {
-}
-
-.bprogress .bar {
-  background: linear-gradient(90deg, #b30059, #ff007f);
-
-  position: fixed !important;
-  z-index: 99999999 !important;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px !important;
 }
 
 .container {

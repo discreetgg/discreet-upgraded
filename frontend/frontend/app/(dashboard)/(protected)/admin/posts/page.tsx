@@ -212,7 +212,7 @@ export default function ManagePostsPage() {
               return (
                 <article
                   key={post._id}
-                  className={`border border-[#1E1E21] bg-background shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200 delay-75 p-4 rounded-[8px] space-y-4 relative ${isReported ? 'ring-2 ring-red-500/50' : ''}`}
+                  className={`border border-[#1E1E21] bg-background shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200 p-4 rounded-[8px] space-y-4 relative ${isReported ? 'ring-2 ring-red-500/50' : ''}`}
                 >
                   {/* Post Header - same as Post/FeedPost */}
                   <div className="flex items-center justify-between gap-3">

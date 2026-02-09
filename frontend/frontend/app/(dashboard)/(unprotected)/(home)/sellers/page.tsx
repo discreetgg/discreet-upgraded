@@ -8,6 +8,7 @@ import { SellersFilterBar, SellersGrid } from "@/components/sellers";
 import { useEffect, useState } from "react";
 import { sellerSortOptions } from "@/lib/data";
 import { useSearchParams } from "next/navigation";
+import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 
 const shuffleArray = <T,>(array: T[]): T[] => {
 	const shuffled = [...array];
@@ -69,11 +70,7 @@ const Page = () => {
 	}, []);
 
 	if (loading) {
-		return (
-			<div className="flex justify-center py-8">
-				<ComponentLoader />
-			</div>
-		);
+		return <TabLoadingSkeleton showFilterRow variant="grid" />;
 	}
 
 	return (

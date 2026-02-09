@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGlobal } from "@/context/global-context-provider";
 import { useBookmarkMutation } from "@/hooks/mutations/use-bookmark-mutation";
-import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/axios";
-import { inDevEnvironment } from "@/lib/utils";
 
 export default function BookmarkButton({
 	postId,
@@ -25,10 +23,13 @@ export default function BookmarkButton({
 }) {
 	const { user } = useGlobal();
 	const discordId = user?.discordId;
+	const shouldSkipInitialFetch = skipInitialFetch || isBookmarkPage;
 
-	const [isBookmarked, setIsBookmarked] = useState<boolean>(initialBookmarked);
+	const [isBookmarked, setIsBookmarked] = useState<boolean>(
+		isBookmarkPage ? true : initialBookmarked
+	);
 	const [isStatusEnabled, setIsStatusEnabled] = useState(
-		!deferStatusFetch || skipInitialFetch
+		!deferStatusFetch || shouldSkipInitialFetch
 	);
 	const [isResolvingInitialStatus, setIsResolvingInitialStatus] =
 		useState(false);
@@ -38,9 +39,13 @@ export default function BookmarkButton({
 	const mutation = useBookmarkMutation();
 
 	useEffect(() => {
+		setIsBookmarked(isBookmarkPage ? true : initialBookmarked);
+	}, [isBookmarkPage, initialBookmarked, postId]);
+
+	useEffect(() => {
 		let mounted = true;
 		if (!discordId || !postId) return;
-		if (skipInitialFetch) return;
+		if (shouldSkipInitialFetch) return;
 		if (!isStatusEnabled) return;
 
 		setIsResolvingInitialStatus(true);
@@ -75,14 +80,14 @@ export default function BookmarkButton({
 		return () => {
 			mounted = false;
 		};
-	}, [discordId, postId, skipInitialFetch, isStatusEnabled, queryClient]);
+	}, [discordId, postId, shouldSkipInitialFetch, isStatusEnabled, queryClient]);
 
 	useEffect(() => {
 		if (
 			!deferStatusFetch ||
 			!autoResolveOnVisible ||
 			isStatusEnabled ||
-			skipInitialFetch
+			shouldSkipInitialFetch
 		) {
 			return;
 		}
@@ -115,7 +120,7 @@ export default function BookmarkButton({
 		deferStatusFetch,
 		autoResolveOnVisible,
 		isStatusEnabled,
-		skipInitialFetch,
+		shouldSkipInitialFetch,
 	]);
 
 	const performToggle = useCallback(() => {
@@ -125,43 +130,16 @@ export default function BookmarkButton({
 		const currentlyBookmarked = isBookmarked;
 
 		setIsBookmarked((prev) => !prev);
-		if (isBookmarkPage) {
-			mutation.mutate(
-				{ discordId, postId, isBookmarked: currentlyBookmarked },
-				{
-					onError: () => {
-						// rollback local state on error
-						setIsBookmarked((prev) => !prev);
-					},
-				}
-			);
-			return;
-		}
-		if (currentlyBookmarked) {
-			toast.success("Removed from bookmarks");
-
-			api
-				.delete(`/post/bookmark/${discordId}/${postId}`)
-				.then((res) => {
-					inDevEnvironment && console.log("DELETE BM", res.data);
-					if (!res.data.message.includes("Bookmark removed")) {
-						setIsBookmarked((prev) => !prev);
-					}
-				})
-				.catch(() => {
-					setIsBookmarked((prev) => !prev);
-				});
-		} else {
-			toast.success("Added to bookmarks");
-			api.post(`/post/bookmark/${discordId}`, { postId }).catch(() => {
-				setIsBookmarked((prev) => !prev);
-			});
-		}
-
-		queryClient.invalidateQueries({
-			queryKey: ["bookmarks", discordId, "has-bookmarked", postId],
-		});
-	}, [discordId, isBookmarked, isBookmarkPage, mutation, postId, queryClient]);
+		mutation.mutate(
+			{ discordId, postId, isBookmarked: currentlyBookmarked },
+			{
+				onError: () => {
+					// rollback local state on error
+					setIsBookmarked(currentlyBookmarked);
+				},
+			}
+		);
+	}, [discordId, isBookmarked, mutation, postId]);
 
 	useEffect(() => {
 		if (!pendingToggle || isResolvingInitialStatus || !isStatusEnabled) {
@@ -180,7 +158,7 @@ export default function BookmarkButton({
 	const handleToggle = () => {
 		if (!postId || !discordId) return;
 
-		if (!isStatusEnabled && !skipInitialFetch) {
+		if (!isStatusEnabled && !shouldSkipInitialFetch) {
 			setIsStatusEnabled(true);
 			setPendingToggle(true);
 			return;

@@ -11,6 +11,7 @@ import { Post } from '@/components/post';
 import { Icon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { TabLoadingSkeleton } from '@/components/tab-loading-skeleton';
 
 interface Props {
   discordId: string;
@@ -20,7 +21,6 @@ export const BookmarkPosts = ({ discordId }: Props) => {
   const [query, setQuery] = useState<string>('');
   const queryClient = useQueryClient();
   const handleInputChange = (value: string) => {
-    if (!value.trim().length) return;
     setQuery(value);
   };
 
@@ -84,7 +84,6 @@ export const BookmarkPosts = ({ discordId }: Props) => {
   }, [handleIntersection]);
 
   const filteredPosts = useMemo(() => {
-    console.log('INFINITE DATA', data);
     if (!data) return [];
     const normalizedSearchTerm = query?.trim().toLowerCase() || '';
     const searchWords = normalizedSearchTerm
@@ -124,7 +123,7 @@ export const BookmarkPosts = ({ discordId }: Props) => {
   }
 
   if (isLoading) {
-    return <PostsLoadingIndicator />;
+    return <TabLoadingSkeleton showSearch variant="posts" />;
   }
 
   if (filteredPosts.length === 0) {

@@ -10,6 +10,7 @@ interface UseServerOptimisticLikeProps {
   serverId: string;
   initialLiked: boolean;
   initialCount: number;
+  fetchInitialLikedOnMount?: boolean;
   onError?: (error: Error) => void;
 }
 
@@ -24,6 +25,7 @@ export const useServerOptimisticLike = ({
   serverId,
   initialLiked,
   initialCount,
+  fetchInitialLikedOnMount = true,
   onError,
 }: UseServerOptimisticLikeProps) => {
   const [state, setState] = useState<OptimisticLikeState>({
@@ -48,7 +50,7 @@ export const useServerOptimisticLike = ({
   stateRef.current = state;
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !fetchInitialLikedOnMount) {
       return;
     }
 
@@ -73,7 +75,7 @@ export const useServerOptimisticLike = ({
     };
 
     fetchHasLiked();
-  }, [isAuthenticated, serverId, initialCount, likesContext]);
+  }, [isAuthenticated, serverId, initialCount, likesContext, fetchInitialLikedOnMount]);
 
   useEffect(() => {
     if (!likesContext) return;
@@ -173,5 +175,4 @@ export const useServerOptimisticLike = ({
     updateFromExternal,
   };
 };
-
 

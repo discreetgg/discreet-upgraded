@@ -134,10 +134,8 @@ const GlobalContextProvider = ({
       // Only fetch if we don't have user data from server or localStorage
       if (!user && !initialUser) {
         try {
-          console.log('Fetching user data from API...');
           const response = await getUserService();
           if (response?.data) {
-            console.log('User data fetched successfully');
             setUser(response.data);
             setIsAuthenticated(true);
             // Save Discord ID to cookie
@@ -146,25 +144,24 @@ const GlobalContextProvider = ({
             }
           }
         } catch (error: any) {
-          console.error('Failed to fetch user on mount:', error);
-
-          // Only clear auth state if it's an authentication error (401/403)
-          // Network errors or other issues shouldn't log the user out
-          if (error?.response?.status === 401 || error?.response?.status === 403) {
-            console.warn('Session expired or invalid, logging out...');
+          const status = error?.response?.status;
+          if (status === 401 || status === 403) {
             localStorage.removeItem('auth_token');
             localStorage.removeItem('root:auth');
             setIsAuthenticated(false);
-            // Redirect to auth page
-            router.push('/auth');
+            return;
           }
-          // For other errors, keep user logged in - they can try again
+
+          // Keep production console clean for guest/offline sessions.
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Failed to fetch user on mount:', error);
+          }
         }
       }
     };
 
     fetchUserOnMount();
-  }, [user, initialUser, setIsAuthenticated, setDiscordIdCookie, router]);
+  }, [user, initialUser, setIsAuthenticated, setDiscordIdCookie]);
 
   // Save Discord ID to cookie whenever user changes
   useEffect(() => {

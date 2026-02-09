@@ -9,6 +9,7 @@ import { useGlobal } from '@/context/global-context-provider';
 import { camsOptions, sortOptions } from '@/lib/data';
 import { CamsFilterBar, CamsGrid } from '@/components/cams';
 import { useSearchParams } from 'next/navigation';
+import { TabLoadingSkeleton } from '@/components/tab-loading-skeleton';
 
 const shuffleArray = <T,>(array: T[]): T[] => {
   const shuffled = [...array];
@@ -97,11 +98,7 @@ const Page = () => {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-8">
-        <ComponentLoader />
-      </div>
-    );
+    return <TabLoadingSkeleton showFilterRow variant="grid" />;
   }
 
   return (

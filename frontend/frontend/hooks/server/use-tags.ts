@@ -42,10 +42,9 @@ export const useTags = () => {
           }
         }
 
-        // pagination       
-        const totalPages = limit ? Math.ceil((response?.length ?? 0) / limit) : 0;
-        hasNext = page < totalPages;
-        page = page + 1;
+        const fetchedCount = response?.length ?? 0;
+        hasNext = fetchedCount >= limit;
+        page += 1;
       }
 
       const result: TagCount[] = Object.entries(tagToCount)
@@ -69,5 +68,4 @@ export const useTags = () => {
 
   return { tags, isLoading, error, loadTags, refresh };
 };
-
 

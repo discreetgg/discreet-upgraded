@@ -57,7 +57,7 @@ export const Post = ({
 
   return (
     <article
-      className="border-[#1E1E21] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200 delay-75  p-4 rounded-[8px] space-y-4 relative cursor-pointer"
+      className="border-[#1E1E21] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200  p-4 rounded-[8px] space-y-4 relative cursor-pointer"
       onClick={handlePostClick}
       onKeyDown={handleKeyDown}
       aria-label={`Post by ${

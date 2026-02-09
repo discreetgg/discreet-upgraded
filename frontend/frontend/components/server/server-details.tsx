@@ -1,25 +1,18 @@
 "use client";
-import { cn, formatTwitterDate } from "@/lib/utils";
-import type { AuthorType } from "@/types/global";
-import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { UserAvatar } from "../user-avatar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { useRef, useState } from "react";
-import { useGlobal } from "@/context/global-context-provider";
+import { useState } from "react";
 import { ServerType } from "@/types/server";
-import { useUser } from "@/hooks/queries/use-user";
 import JoinServerButton from "./join-server-button";
 import { Icon } from "../ui/icons";
 import { ServerLikeButton } from "./server-like-button";
 import { useAuth } from "@/context/auth-context-provider";
 import { AuthPromptDialog } from "../auth-prompt-dialog";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { serverService } from "@/lib/server-service";
 import { toast } from "sonner";
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer";
+
 export const ServerDetails = ({
   server,
   className,
@@ -35,32 +28,14 @@ export const ServerDetails = ({
   onEdit?: (server: ServerType) => void;
   onDelete?: () => void;
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
+  const [shouldFetchLikeState, setShouldFetchLikeState] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { data: creator, isLoading } = useUser(server.username);
-  const { user: currentUser } = useGlobal();
   const { isAuthenticated } = useAuth();
-  const handleMouseEnter = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    timeoutRef.current = setTimeout(() => {
-      setIsHovered(true);
-    }, 700);
-  };
-
-  const handleMouseLeave = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-
-    setIsHovered(false);
-  };
-
-  const isLoggedInUser = currentUser?.discordId === server.creatorId;
+  const visibilityRef = useIntersectionObserver({
+    onIntersect: () => setShouldFetchLikeState(true),
+    rootMargin: "200px",
+    enabled: !shouldFetchLikeState,
+  });
 
   const handleShare = (link: string) => {
     navigator.share({
@@ -118,19 +93,18 @@ export const ServerDetails = ({
 
   return (
     <div
+      ref={visibilityRef}
       className={cn(
-        "border-[#1E1E21] font-inter 2xl:w-[515px] sm:w-[300px] w-full lg:w-[350px] min-h-[193px] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200 delay-75  p-4 rounded-[8px] gap-y-[12.9px] justify-between flex flex-col relative cursor-pointer",
+        "border-[#1E1E21] font-inter 2xl:w-[515px] sm:w-[300px] w-full lg:w-[350px] min-h-[193px] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200  p-4 rounded-[8px] gap-y-[12.9px] justify-between flex flex-col relative cursor-pointer",
         className
       )}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
     >
       <div className="flex items-center justify-between">
         <button className={cn("flex items-center gap-4  ")}>
           <UserAvatar
-            profileImage={creator?.profileImage?.url}
-            discordId={creator?.discordId ?? ""}
-            discordAvatar={creator?.discordAvatar ?? ""}
+            profileImage={server.creatorProfileImage}
+            discordId={server.creatorId ?? ""}
+            discordAvatar={server.creatorDiscordAvatar ?? ""}
             className={cn("", avatarClassName)}
           />
           <div className={cn("", usernameClassName)}>
@@ -190,6 +164,7 @@ export const ServerDetails = ({
             targetId={server.id}
             targetType="Server"
             initialCount={server.likesCount ?? 0}
+            checkLikedOnMount={shouldFetchLikeState}
             setShowAllLikes={() => {}}
           />
         ) : (
@@ -198,6 +173,7 @@ export const ServerDetails = ({
               targetId={server.id}
               targetType="Server"
               initialCount={server.likesCount ?? 0}
+              checkLikedOnMount={false}
               setShowAllLikes={() => {}}
             />
           </AuthPromptDialog>

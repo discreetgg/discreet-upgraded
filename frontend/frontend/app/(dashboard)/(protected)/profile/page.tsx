@@ -8,8 +8,6 @@ const Page = async () => {
 	// Fetch user on server
 	const user = await getServerUser();
 
-	console.log(user);
-
 	// Redirect if not authenticated
 	if (!user) {
 		redirect('/auth');

@@ -2,7 +2,7 @@
 
 import { Search, Loader2, X, TrendingUp, Clock } from "lucide-react";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,6 +94,25 @@ export function ServerSearch({
     localStorage.setItem("discreet-recent-searches", JSON.stringify(updated));
   };
 
+  const syncQueryToUrl = useCallback(
+    (value: string) => {
+      if (!syncQueryParam) return;
+
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      params.delete("tab");
+
+      if (value && value.trim().length > 0) {
+        params.set("q", value.trim());
+      } else {
+        params.delete("q");
+      }
+
+      const url = `${pathname}?${params.toString()}`;
+      pushUrl(url, router);
+    },
+    [pathname, router, searchParams, syncQueryParam]
+  );
+
   // Debounced search function
   const performSearch = async (searchQuery: string) => {
     if (!results.length && searchQuery.length < 2) {
@@ -128,20 +147,8 @@ export function ServerSearch({
     // Set new timeout
     debounceTimeoutRef.current = setTimeout(() => {
       performSearch(value);
-    }, 300);
-
-    if (syncQueryParam) {
-      const params = new URLSearchParams(Array.from(searchParams.entries()));
-      // only one query allowed; keep q, clear tab
-      params.delete("tab");
-      if (value && value.trim().length > 0) {
-        params.set("q", value.trim());
-      } else {
-        params.delete("q");
-      }
-      const url = `${pathname}?${params.toString()}`;
-      pushUrl(url, router);
-    }
+      syncQueryToUrl(value);
+    }, 400);
   };
 
   // Handle result selection
@@ -163,12 +170,14 @@ export function ServerSearch({
   const handleSuggestionSelect = (suggestion: string) => {
     setQuery(suggestion);
     performSearch(suggestion);
+    syncQueryToUrl(suggestion);
   };
 
   // Handle recent search selection
   const handleRecentSearchSelect = (recentQuery: string) => {
     setQuery(recentQuery);
     performSearch(recentQuery);
+    syncQueryToUrl(recentQuery);
   };
 
   // Clear recent searches
@@ -202,14 +211,7 @@ export function ServerSearch({
           className="absolute right-0 hidden data-[clear=true]:flex top-1/2 -translate-y-1/2 text-accent-text"
           onClick={() => {
             setQuery("");
-            if (syncQueryParam) {
-              const params = new URLSearchParams(
-                Array.from(searchParams.entries())
-              );
-              params.delete("q");
-              const url = `${pathname}?${params.toString()}`;
-              pushUrl(url, router);
-            }
+            syncQueryToUrl("");
           }}
           variant="ghost"
         >

@@ -43,8 +43,6 @@ export const MessageFanInsightsContainer = () => {
     })();
   }, [user?.discordId, receiver?.discordId]);
 
-  console.log(fanInsights);
-
   if (loading) {
     return <ComponentLoader />;
   }

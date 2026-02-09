@@ -1,0 +1,41 @@
+Frontend update summary (Feb 9, 2026)
+
+I reviewed the frontend with mobile-focused testing in Chrome DevTools MCP and shipped targeted production fixes:
+
+- Fixed router misuse in home nav (`next/router` -> `next/navigation`) to remove client router errors.
+- Replaced `PostAllLikes` placeholder with a real closeable modal and wired it in post/feed cards.
+- Fixed message search match indexing so single-result searches show `1/1` (not `0/1`).
+- Added a hidden `SheetTitle` in message details sheet to resolve dialog accessibility/runtime issues.
+- Fixed bookmark behavior on `/bookmarks` by using mutation flow, idempotent handling for 404/409, and cache invalidation.
+- Reduced noisy guest auth mount behavior by avoiding forced redirects/log spam on expected 401/403.
+- Minor UX cleanup: bookmark search field now clears correctly.
+
+Validation:
+- `npm run build` passed.
+- Re-tested key mobile button flows in DevTools MCP (likes dialog, bookmark add/remove, message search, details sheet).
+
+Loading/SPA UX pass (Feb 9, 2026)
+
+- Added a shared `TabLoadingSkeleton` component with centered animated logo and layout-matching skeletons (`posts`, `grid`, `list`).
+- Replaced spinner-only loading states in tab pages:
+  - `/` route-group loading
+  - `/bookmarks` loading + bookmark list initial load
+  - `/cams` initial load
+  - `/sellers` initial load
+  - `/servers` initial load
+- Removed blocking full-screen auth loaders in core dashboard layouts:
+  - `(dashboard)/(unprotected)/(home)/layout.tsx`
+  - `(dashboard)/(protected)/layout.tsx`
+  - `(dashboard)/(protected)/(creators-only)/layout.tsx`
+  and replaced them with immediate shell + in-layout skeleton rendering.
+- Improved message UX on `/messages/[id]` by showing skeleton while conversations are still resolving instead of early “No participant found”.
+- Removed hard reload behavior:
+  - `window.location.reload()` -> `router.refresh()` in shared loading state.
+  - Internal `window.location.href = "/"` -> `router.replace("/")` in delete-account flow.
+- Removed production log noise:
+  - Deleted `console.log` in fan insights container.
+  - Reduced guest-session auth fetch error logging in global context provider.
+
+Validation:
+- `npm run build` passed after refactor.
+- DevTools mobile + slow-network spot checks confirmed tab controls still function and loading feedback remains visible during pending route/data states.

@@ -1,3 +1,5 @@
+"use client";
+
 import {
 	SubscribeDialog,
 	SubscribeDialogContent,
@@ -13,6 +15,7 @@ import { formatBalance } from "@/lib/utils";
 import { useMutation } from "@tanstack/react-query";
 import api from "@/lib/axios";
 import { Button } from "../ui/button";
+import { useRouter } from "next/navigation";
 
 interface Props {
 	isOpen: boolean;
@@ -25,6 +28,7 @@ export default function DeleteAccountModal({
 	setIsOpen,
 	userWalletBalance,
 }: Props) {
+	const router = useRouter();
 	const [confirmations, setConfirmations] = useState({
 		dataLoss: false,
 		walletLoss: false,
@@ -45,7 +49,7 @@ export default function DeleteAccountModal({
 			);
 
 			setTimeout(() => {
-				window.location.href = "/";
+				router.replace("/");
 			}, 2000);
 		},
 		onError: () => {
