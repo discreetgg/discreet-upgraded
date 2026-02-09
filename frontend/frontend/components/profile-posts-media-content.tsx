@@ -109,7 +109,7 @@ export const ProfilePostsMediaContent = ({ media }: Props) => {
 					>
 						<div
 							className={cn(
-								"relative w-full h-[200px] aspect-square !overflow-hidden rounded-xl flex items-center justify-center"
+								"relative w-full h-[200px] aspect-square !overflow-hidden rounded-xl flex items-center justify-center bg-black"
 							)}
 						>
 							{item.type === "image" ? (
@@ -123,7 +123,7 @@ export const ProfilePostsMediaContent = ({ media }: Props) => {
 									width={700}
 									height={700}
 									data-error={failedImages.has(item.mediaUrl)}
-									className="object-cover hover:scale-105 aspect-square5 duration-150 size-full data-[error=true]:opacity-50"
+									className="object-contain duration-150 size-full data-[error=true]:opacity-50"
 									onContextMenu={(e) => e.preventDefault()}
 									draggable={false}
 									onError={() => handleImageError(item.mediaUrl)}
@@ -136,7 +136,7 @@ export const ProfilePostsMediaContent = ({ media }: Props) => {
 							) : item.type === "video" ? (
 								<video
 									controls
-									className="w-full h-full object-cover"
+									className="w-full h-full object-contain"
 									preload="metadata"
 									onError={() => handleImageError(item.mediaUrl)}
 									onLoad={(result) => {

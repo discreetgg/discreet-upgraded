@@ -3,7 +3,7 @@
 import ProfileSideAdCard from "../cards/profile-side-ad-card";
 import { Button } from "../ui/button";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import EmptySkeletonCard from "../ui/empty-skeleton-card";
 import { useMenuItemFilters } from "@/hooks/filters/menu-item-filters";
 import { useGlobal } from "@/context/global-context-provider";
@@ -33,9 +33,6 @@ export default function ProfileSideAdCards({ isLoading, menuItems }: Props) {
 			(item) => item.category.category.toLowerCase() === activeTag.hashtag,
 		);
 	}, [activeTag, menuItems]);
-	useEffect(() => {
-		console.log("FILTER CARD", menuItems[0]);
-	}, [menuItems]);
 
 	if (isLoading) {
 		return (

@@ -4,6 +4,7 @@ import { useAuth } from "@/context/auth-context-provider";
 import { useOptimisticLike } from "@/hooks/use-optimistic-like";
 import { hasLikedService } from "@/lib/services";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AuthPromptDialog } from "./auth-prompt-dialog";
@@ -39,6 +40,7 @@ export const PostLikeButton = ({
 		useState(false);
 	const [pendingToggle, setPendingToggle] = useState(false);
 	const likeButtonRef = useRef<HTMLButtonElement | null>(null);
+	const queryClient = useQueryClient();
 
 	const { isAuthenticated } = useAuth();
 
@@ -60,58 +62,55 @@ export const PostLikeButton = ({
 		},
 	});
 
-	// Fetch initial like status for authenticated users only once
+	// Fetch initial like status and cache it to avoid repeated status storms.
 	useEffect(() => {
 		if (!isAuthenticated || !isStatusEnabled) {
 			return;
 		}
 
 		let mounted = true;
-		const controller = new AbortController();
 		setIsResolvingInitialStatus(true);
 
-		const checkLikeStatus = async () => {
-			try {
-				const response = await hasLikedService(
-					targetType,
-					targetId,
-					controller.signal
-				);
-				const liked = response.data?.liked;
-
+		queryClient
+			.fetchQuery({
+				queryKey: ["likes", "has-liked", targetType, targetId],
+				queryFn: async ({ signal }) => {
+					const response = await hasLikedService(targetType, targetId, signal);
+					return Boolean(response.data?.liked);
+				},
+				staleTime: 5 * 60 * 1000,
+				gcTime: 10 * 60 * 1000,
+			})
+			.then((liked) => {
+				if (!mounted) return;
 				setInitialLikeState({
 					liked,
 					count: initialCount,
 				});
-
 				updateFromExternal(liked, initialCount);
-			} catch (error) {
-				// Ignore cancellation errors when component unmounts/navigates away
-				const aborted = controller.signal.aborted;
+			})
+			.catch((error) => {
 				const code = (error as any)?.code;
 				const name = (error as any)?.name;
 				const message = String((error as any)?.message || "").toLowerCase();
 				if (
-					aborted ||
 					code === "ERR_CANCELED" ||
 					name === "CanceledError" ||
-					message.includes("canceled")
+					message.includes("canceled") ||
+					message.includes("aborted")
 				) {
 					return;
 				}
 				console.error("Error checking like status:", error);
-			} finally {
+			})
+			.finally(() => {
 				if (mounted) {
 					setIsResolvingInitialStatus(false);
 				}
-			}
-		};
-
-		checkLikeStatus();
+			});
 
 		return () => {
 			mounted = false;
-			controller.abort();
 		};
 	}, [
 		targetId,
@@ -120,6 +119,7 @@ export const PostLikeButton = ({
 		initialCount,
 		updateFromExternal,
 		isStatusEnabled,
+		queryClient,
 	]);
 
 	useEffect(() => {
@@ -143,12 +143,12 @@ export const PostLikeButton = ({
 				setIsStatusEnabled(true);
 				observer.disconnect();
 			},
-			{
-				root: null,
-				threshold: 0.2,
-				rootMargin: "240px 0px",
-			}
-		);
+				{
+					root: null,
+					threshold: 0.2,
+					rootMargin: "120px 0px",
+				}
+			);
 
 		observer.observe(target);
 

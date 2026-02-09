@@ -1,0 +1,62 @@
+Chat Thread Loading: Done vs Optional
+
+1) What we DID (frontend only)
+- Added per-conversation in-memory thread cache in the chat hook.
+- Restores cached messages/pagination state when switching back to a previously opened thread.
+- Keeps cache updated as messages change (including socket `message:new` updates).
+- Marks cached unread messages as read on hydrate and emits read receipts.
+- Added per-conversation scroll position cache/restore so returning to a thread keeps prior position.
+
+Why this was done
+- Prevent reloading the same DM thread every time the user switches away and back.
+- Improve perceived speed and reduce unnecessary network calls.
+
+Where this was changed
+- `frontend/frontend/hooks/use-chat.ts`
+- `frontend/frontend/components/message-container.tsx`
+
+2) Optional backend follow-ups (not implemented in this task)
+
+2.1) Short-lived server cache for conversation windows
+Why
+- Reduce repeated DB work during rapid tab switches.
+- Improve p95/p99 thread open latency.
+Where
+- `backend/backend/src/chat/chat.service.ts` (`fetchConversation`)
+- `backend/backend/src/chat/chat.gateway.ts` (cache invalidation on new messages/status updates)
+- optional shared cache provider (Redis/in-memory abstraction)
+
+2.2) Add/verify compound indexes for hot paths
+Why
+- Faster unread count aggregation and conversation list retrieval.
+Where
+- `backend/backend/src/database/schemas/message.schema.ts`
+  - add/verify index like `{ reciever: 1, status: 1, conversation: 1 }`
+- `backend/backend/src/database/schemas/conversation.schema.ts`
+  - add/verify index like `{ participants: 1, updatedAt: -1 }`
+
+2.3) Lightweight thread payload mode (`compact`)
+Why
+- Smaller response payloads and less populate overhead.
+- Better serialization/network performance.
+Where
+- `backend/backend/src/chat/chat.controller.ts` (add query option, e.g. `view=compact`)
+- `backend/backend/src/chat/chat.service.ts` (`fetchConversation` projection/populate shape)
+
+2.4) Stronger cursor contract for pagination
+Why
+- Prevent overlap/duplicates during high write concurrency.
+- Make infinite scroll behavior more deterministic.
+Where
+- `backend/backend/src/chat/chat.controller.ts`
+- `backend/backend/src/chat/chat.service.ts`
+
+2.5) Chat endpoint performance instrumentation
+Why
+- Measure real impact of backend optimizations and catch regressions.
+Where
+- `backend/backend/src/chat/chat.service.ts` (timings and payload-size logging for `fetchConversation` / `getUserConversations`)
+
+Expected outcome
+- Frontend changes already improve UX for chat switching.
+- Optional backend work reduces server cost and keeps performance stable as traffic grows.

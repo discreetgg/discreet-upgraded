@@ -2,7 +2,34 @@ import api from "@/lib/axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useRouter } from "@bprogress/next/app";
-import type { BookmarkPostType, PostType } from "@/types/global";
+import type { BookmarkPostType } from "@/types/global";
+
+type BookmarksQueryData = {
+	pages: BookmarkPostType[][];
+	pageParams: unknown[];
+};
+
+const fetchIsBookmarkedStatus = async (
+	discordId?: string,
+	postId?: string,
+	signal?: AbortSignal
+) => {
+	if (!discordId || !postId) return false;
+
+	try {
+		const res = await api.get(
+			`/post/bookmark/${discordId}/${postId}/has-bookmarked`,
+			{ signal }
+		);
+
+		if (res.data && typeof res.data.bookmarked === "boolean") {
+			return res.data.bookmarked;
+		}
+		return !!res.data;
+	} catch {
+		return false;
+	}
+};
 
 /**
  * Hook to add/remove bookmarks with optimistic updates.
@@ -47,30 +74,21 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 				queryClient.cancelQueries({ queryKey: hasKey }),
 			]);
 
-			const rawBookmarks = queryClient.getQueryData<{
-				pages: BookmarkPostType[];
-				pageParams: any[];
-			}>(bookmarksKey);
-			console.log("QUERY", rawBookmarks?.pages);
-			const previousBookmarks = rawBookmarks || {
-				pages: [
-					{
-						pages: [],
-					},
-				],
-				pageParams: [],
-			};
+			const previousBookmarks =
+				queryClient.getQueryData<BookmarksQueryData>(bookmarksKey) || {
+					pages: [],
+					pageParams: [],
+				};
+
 			if (isBookmarked) {
-				const allPages = (previousBookmarks?.pages?.flatMap(
-					(page) => page || []
-				) || []) as BookmarkPostType[];
+				const allPages = previousBookmarks.pages.flatMap((page) => page || []);
 				const filteredPages = allPages.filter(
 					(page) => page.post._id !== postId
 				);
 
-				queryClient.setQueryData(bookmarksKey, {
+				queryClient.setQueryData<BookmarksQueryData>(bookmarksKey, {
 					pages: [filteredPages],
-					pageParams: [],
+					pageParams: previousBookmarks.pageParams,
 				});
 			}
 
@@ -97,17 +115,19 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 			if (context?.previousBookmarks) {
 				queryClient.setQueryData(bookmarksKey, context.previousBookmarks);
 			}
-			if (context?.previousHas) {
+			if (
+				context &&
+				Object.prototype.hasOwnProperty.call(context, "previousHas")
+			) {
 				queryClient.setQueryData(hasKey, context.previousHas);
 			}
 
-			if (err?.status === 401) {
+			if (err?.status === 401 || err?.response?.status === 401) {
 				localStorage.clear();
 				toast.error("You must be logged in to bookmark posts.");
 				router.push("/auth");
 				return;
 			}
-			console.log("ERROR:", err?.message);
 			toast.error(
 				err?.message || "Failed to update bookmark. Please try again."
 			);
@@ -119,21 +139,7 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 		postId?: string,
 		signal?: AbortSignal
 	) => {
-		const id = discordId || opts?.discordId;
-		if (!id || !postId) return false;
-
-		try {
-			const res = await api.get(
-				`/post/bookmark/${id}/${postId}/has-bookmarked`,
-				{ signal }
-			);
-
-			if (res.data && typeof res.data.bookmarked === "boolean")
-				return res.data.bookmarked;
-			return !!res.data;
-		} catch (err) {
-			return false;
-		}
+		return fetchIsBookmarkedStatus(discordId || opts?.discordId, postId, signal);
 	};
 
 	return {
@@ -141,26 +147,7 @@ export const useBookmarkMutation = (opts?: { discordId?: string }) => {
 		fetchIsBookmarked,
 	};
 };
-const fetchIsBookmarked = async (
-	discordId?: string,
-	postId?: string,
-	signal?: AbortSignal
-) => {
-	const id = discordId;
-	if (!id || !postId) return false;
 
-	try {
-		const res = await api.get(`/post/bookmark/${id}/${postId}/has-bookmarked`, {
-			signal,
-		});
-
-		if (res.data && typeof res.data.bookmarked === "boolean")
-			return res.data.bookmarked;
-		return !!res.data;
-	} catch (err) {
-		return false;
-	}
-};
 export const useIsBookmarked = ({
 	discordId,
 	postId,
@@ -170,7 +157,8 @@ export const useIsBookmarked = ({
 }) => {
 	return useQuery({
 		queryKey: ["bookmarks", discordId, "has-bookmarked", postId],
-		queryFn: ({ signal }) => fetchIsBookmarked(discordId, postId, signal),
+		queryFn: ({ signal }) =>
+			fetchIsBookmarkedStatus(discordId, postId, signal),
 		staleTime: 5 * 60 * 1000,
 		gcTime: 10 * 60 * 1000,
 		refetchOnMount: false,

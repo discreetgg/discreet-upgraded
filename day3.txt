@@ -1,0 +1,66 @@
+Day 3 - Frontend Freeze + Performance Investigation Summary
+
+What we investigated
+- Users reported that localhost sometimes freezes, pages feel stuck on "rendering", and profile/servers navigation can feel slow.
+- We checked runtime logs, dev server behavior, API response timing, and frontend warnings/errors.
+
+Key findings
+1) Not all slowness was a code bug.
+- Local frontend was running in Next.js dev mode (extra overhead).
+- Backend/API was remote (api.discreet.fans), so each uncached call includes network latency.
+- First-time image optimization requests can be slow (cold cache), then become fast once cached.
+
+2) There were real code/runtime issues that needed cleanup.
+- Missing dependency caused compile failures.
+- React key warning on servers list.
+- Next image layout warnings due to `fill` usage with a non-positioned parent.
+- Bookmark mutation cache logic needed cleanup/stabilization.
+
+What was changed (and where)
+
+1) Installed missing package required at runtime
+- File(s): `frontend/frontend/package.json`, `frontend/frontend/package-lock.json`
+- Change: Added `@tabler/icons-react`
+- Why: Fixed module resolution error that could break pages at runtime.
+
+2) Bookmark mutation/cache stability improvements
+- File: `frontend/frontend/hooks/mutations/use-bookmark-mutation.ts`
+- Changes:
+  - Normalized bookmark query cache shape handling.
+  - Removed duplicated `fetchIsBookmarked` logic and centralized it.
+  - Safer rollback condition for `previousHas`.
+  - Removed noisy debug logs.
+- Why: Improve correctness and reduce request/cache churn behavior around bookmarks.
+
+3) Fixed missing React key warning in servers list
+- File: `frontend/frontend/app/(dashboard)/(unprotected)/(home)/servers/page.tsx`
+- Change: Moved key to top mapped element (`<Suspense key={srv.id}>`).
+- Why: Prevent React reconciliation warning and potential unnecessary re-renders.
+
+4) Fixed Next image `fill` parent positioning warning
+- File: `frontend/frontend/components/post-media-dialog.tsx`
+- Change: Wrapper class updated to include positioning (`relative block size-full cursor-pointer`).
+- Why: `next/image` with `fill` requires a positioned parent; this removed warning spam and improves layout behavior.
+
+5) Cleaned sidebar logo image sizing warning (safe cleanup)
+- File: `frontend/frontend/components/app-sidebar.tsx`
+- Change: Added `style={{ width: "auto", height: "auto" }}` for `/logo.png`.
+- Why: Removes aspect ratio warning from Next image diagnostics.
+
+What this means for the team
+- These changes are safe to keep and should not make UX slower.
+- Most edits are correctness/warning cleanups plus minor runtime stability improvements.
+- Current perceived slowness in local testing is mostly from:
+  - dev mode overhead,
+  - remote backend latency,
+  - cold image optimization on first load.
+
+Validation performed
+- Verified app routes returned 200 after fixes (including `/`, `/servers`, profile route).
+- Production build completed successfully after code changes.
+- Timings confirmed that production-mode serving is faster than dev mode.
+
+Notes
+- There is still a Next config warning about `swcMinify` in `next.config.ts` (warning-level, not a blocker).
+- Some external image URLs can still fail independently (404/500) based on source availability.
+

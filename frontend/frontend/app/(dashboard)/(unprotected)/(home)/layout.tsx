@@ -7,8 +7,8 @@ import { PageLoader } from "@/components/ui/page-loader";
 import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
 import { cn } from "@/lib/utils";
-import { usePathname, useRouter } from "next/navigation";
-import { Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Suspense, useLayoutEffect, useState } from "react";
 import dynamic from "next/dynamic";
 
 // Lazy load heavy components to improve initial page load
@@ -27,7 +27,6 @@ const TopCreators = dynamic(
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
 	const { isAuthenticated, loading } = useAuth();
-	const router = useRouter();
 	const pathname = usePathname();
 	const isSellersPage = pathname === "/sellers";
 
@@ -39,20 +38,6 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 	const showTopCreators = !isSellersPage;
 	const hasRightRailContent =
 		showLoginCard || showBecomeSellerCard || showTopCreators;
-
-	useEffect(() => {
-		// Add a small delay to allow cookies to be set after OAuth redirect
-		// This prevents race condition where redirect happens before cookies are readable
-		if (!loading) {
-			const timeoutId = setTimeout(() => {
-				if (!isAuthenticated) {
-					router.push("/auth");
-				}
-			}, 100); // Small delay to ensure cookies are checked
-
-			return () => clearTimeout(timeoutId);
-		}
-	}, [isAuthenticated, loading, router]);
 
 	useLayoutEffect(() => {
 		const savedBanner = localStorage.getItem("showBanner");

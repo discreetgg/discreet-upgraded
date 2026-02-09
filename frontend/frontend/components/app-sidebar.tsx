@@ -118,7 +118,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 							data-home={pathname === "/"}
 							className="flex gap-[6px] items-center w-full data-[home=false]:cursor-pointer"
 						>
-							<Image src="/logo.png" height={41} width={41} alt="logo" />
+							<Image
+								src="/logo.png"
+								height={41}
+								width={41}
+								alt="logo"
+								style={{ width: "auto", height: "auto" }}
+							/>
 
 							<p className="truncate font-medium text-[15px] w-full">
 								DISCREET

@@ -62,10 +62,8 @@ const Page = () => {
         </div>
       )}
       {servers?.map((srv) => (
-        <Suspense>
-          {" "}
+        <Suspense key={srv.id}>
           <ServerDetails
-            key={srv.id}
             className="!w-full"
             server={
               {

@@ -39,15 +39,28 @@ export default function BookmarkButton({
 
 	useEffect(() => {
 		let mounted = true;
-		const controller = new AbortController();
 		if (!discordId || !postId) return;
 		if (skipInitialFetch) return;
 		if (!isStatusEnabled) return;
 
 		setIsResolvingInitialStatus(true);
 
-		mutation
-			?.fetchIsBookmarked?.(discordId, postId, controller.signal)
+		queryClient
+			.fetchQuery({
+				queryKey: ["bookmarks", discordId, "has-bookmarked", postId],
+				queryFn: async ({ signal }) => {
+					const res = await api.get(
+						`/post/bookmark/${discordId}/${postId}/has-bookmarked`,
+						{ signal },
+					);
+					if (res.data && typeof res.data.bookmarked === "boolean") {
+						return res.data.bookmarked;
+					}
+					return !!res.data;
+				},
+				staleTime: 5 * 60 * 1000,
+				gcTime: 10 * 60 * 1000,
+			})
 			.then((res: boolean) => {
 				if (!mounted) return;
 				setIsBookmarked(Boolean(res));
@@ -61,9 +74,8 @@ export default function BookmarkButton({
 
 		return () => {
 			mounted = false;
-			controller.abort();
 		};
-	}, [discordId, postId, skipInitialFetch, mutation, isStatusEnabled]);
+	}, [discordId, postId, skipInitialFetch, isStatusEnabled, queryClient]);
 
 	useEffect(() => {
 		if (
@@ -87,12 +99,12 @@ export default function BookmarkButton({
 				setIsStatusEnabled(true);
 				observer.disconnect();
 			},
-			{
-				root: null,
-				threshold: 0.2,
-				rootMargin: "240px 0px",
-			}
-		);
+				{
+					root: null,
+					threshold: 0.2,
+					rootMargin: "120px 0px",
+				}
+			);
 
 		observer.observe(target);
 

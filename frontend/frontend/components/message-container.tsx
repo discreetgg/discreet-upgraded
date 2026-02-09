@@ -9,6 +9,20 @@ import { MessageInput } from './message-input';
 import { ComponentLoader } from './ui/component-loader';
 import { DmMenuCreation } from './dm-menu-creation';
 
+const MAX_CACHED_SCROLL_THREADS = 20;
+const conversationScrollTopCache = new Map<string, number>();
+
+const cacheConversationScrollTop = (conversationKey: string, scrollTop: number) => {
+  conversationScrollTopCache.set(conversationKey, scrollTop);
+
+  if (conversationScrollTopCache.size > MAX_CACHED_SCROLL_THREADS) {
+    const oldestKey = conversationScrollTopCache.keys().next().value;
+    if (oldestKey) {
+      conversationScrollTopCache.delete(oldestKey);
+    }
+  }
+};
+
 export const MessageContainer = ({
   sender,
   receiver,
@@ -45,6 +59,8 @@ export const MessageContainer = ({
   const prevNewestMessageIdRef = useRef<string | null>(null);
   const isInitialLoadRef = useRef(true);
   const wasShowingDMMenuRef = useRef(false);
+  const shouldRestoreScrollRef = useRef(false);
+  const hasRestoredScrollRef = useRef(false);
 
   // Get the newest message ID (find the one with the latest createdAt)
   const newestMessageId = useMemo(() => {
@@ -76,9 +92,57 @@ export const MessageContainer = ({
   }, []);
 
   useEffect(() => {
+    const hasCachedScrollPosition = conversationScrollTopCache.has(conversationId);
+    shouldRestoreScrollRef.current = hasCachedScrollPosition;
+    hasRestoredScrollRef.current = !hasCachedScrollPosition;
+    isInitialLoadRef.current = !hasCachedScrollPosition;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!shouldRestoreScrollRef.current || hasRestoredScrollRef.current) {
+      return;
+    }
+
+    if (showDMMenu || messages.length === 0) {
+      return;
+    }
+
+    const cachedScrollTop = conversationScrollTopCache.get(conversationId);
+    if (cachedScrollTop === undefined) {
+      shouldRestoreScrollRef.current = false;
+      hasRestoredScrollRef.current = true;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      if (!scrollContainerRef.current) {
+        return;
+      }
+
+      scrollContainerRef.current.scrollTop = cachedScrollTop;
+      shouldRestoreScrollRef.current = false;
+      hasRestoredScrollRef.current = true;
+      isInitialLoadRef.current = false;
+    });
+  }, [conversationId, messages.length, showDMMenu]);
+
+  useEffect(() => {
+    return () => {
+      const scrollTop = scrollContainerRef.current?.scrollTop;
+      if (typeof scrollTop === 'number' && !Number.isNaN(scrollTop)) {
+        cacheConversationScrollTop(conversationId, scrollTop);
+      }
+    };
+  }, [conversationId]);
+
+  useEffect(() => {
     // Only scroll to bottom on initial load or when a NEW message is added (sent/received)
     // Don't scroll when loading older messages (which doesn't change the newest message)
     if (messages.length > 0 && newestMessageId && !showDMMenu) {
+      if (shouldRestoreScrollRef.current && !hasRestoredScrollRef.current) {
+        return;
+      }
+
       const isNewMessageAdded =
         newestMessageId !== prevNewestMessageIdRef.current;
       const isInitialLoad = isInitialLoadRef.current;

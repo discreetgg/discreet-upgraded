@@ -63,7 +63,7 @@ export const ProfilePostMediaDialog = ({
 				<div className="flex items-center justify-center h-full w-full">
 					{current.type === "image" ? (
 						<div 
-							className="relative w-full h-full flex items-center justify-center"
+							className="relative w-full h-full flex items-center justify-center bg-black"
 							onContextMenu={(e) => e.preventDefault()}
 						>
 							<Image
@@ -76,7 +76,7 @@ export const ProfilePostMediaDialog = ({
 								width={1200}
 								height={1200}
 								data-error={failedImages.has(current.mediaUrl)}
-								className="object-cover hover:scale-105 aspect-square5 duration-150 size-full data-[error=true]:opacity-50"
+								className="object-contain w-full h-full max-w-full max-h-full data-[error=true]:opacity-50"
 								onContextMenu={(e) => e.preventDefault()}
 								draggable={false}
 								onError={() => handleImageError(current.mediaUrl)}

@@ -3,20 +3,47 @@ import UserProfileView from "./_components/user-profile-view";
 import ErrorBoundaryWrapper from "@/components/shared/error-boundary-wrapper";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { getQueryClient } from "@/lib/get-query-client";
-import { getCreatorMedia, getPostLikedByUser } from "@/actions/creator-post";
+import { getCreatorMedia } from "@/actions/creator-post";
 import { generateProfileMetadata } from '@/lib/seo/metadata';
 import { generatePersonStructuredData, structuredDataToScript } from '@/lib/seo/structuredData';
 import type { Metadata } from 'next';
+import { cache } from "react";
 
 interface ViewProfilePageProps {
 	params: Promise<{ username: string }>;
 }
 
+const normalizeUsername = (username: string): string => {
+	if (!username) return '';
+
+	try {
+		return decodeURIComponent(username).trim();
+	} catch {
+		return username.trim();
+	}
+};
+
+const getCachedUserProfile = cache(async (username: string) => {
+	return getUserProfile(username);
+});
+
 export async function generateMetadata({ params }: ViewProfilePageProps): Promise<Metadata> {
 	const { username } = await params;
+	const normalizedUsername = normalizeUsername(username);
+
+	if (!normalizedUsername) {
+		return {
+			title: 'User Not Found',
+			description: 'The requested user profile could not be found.',
+			robots: {
+				index: false,
+				follow: false,
+			},
+		};
+	}
 	
 	try {
-		const data = await getUserProfile(username);
+		const data = await getCachedUserProfile(normalizedUsername);
 		if (!data) {
 			return {
 				title: 'User Not Found',
@@ -31,7 +58,7 @@ export async function generateMetadata({ params }: ViewProfilePageProps): Promis
 		return generateProfileMetadata({
 			displayName: data.displayName,
 			username: data.username,
-			profileImage: data.profileImage,
+			profileImage: data.profileImage ?? undefined,
 			bio: data.bio,
 		});
 	} catch (error) {
@@ -50,11 +77,12 @@ export default async function ViewProfilePage({
 	params,
 }: ViewProfilePageProps) {
 	const { username } = await params;
+	const normalizedUsername = normalizeUsername(username);
 	const queryClient = getQueryClient();
-	if (!username) {
+	if (!normalizedUsername) {
 		return <div>No username provided</div>;
 	}
-	const data = await getUserProfile(username);
+	const data = await getCachedUserProfile(normalizedUsername);
 	if (!data) {
 		return <div>User not found</div>;
 	}
@@ -63,18 +91,18 @@ export default async function ViewProfilePage({
 	const personStructuredData = generatePersonStructuredData({
 		displayName: data.displayName,
 		username: data.username,
-		profileImage: data.profileImage,
+		profileImage: data.profileImage ?? undefined,
 		bio: data.bio,
 	});
 	
-	void queryClient.prefetchQuery({
-		queryKey: ["creator-media", data.discordId],
-		queryFn: () => getCreatorMedia(data.discordId),
-	});
-	void queryClient.prefetchQuery({
-		queryKey: ["liked-posts", data.discordId],
-		queryFn: () => getPostLikedByUser({ limit: 10 }),
-	});
+	if (data.role === 'seller') {
+		void queryClient
+			.prefetchQuery({
+				queryKey: ["creator-media", data.discordId],
+				queryFn: () => getCreatorMedia(data.discordId),
+			})
+			.catch(() => undefined);
+	}
 	return (
 		<>
 			<script

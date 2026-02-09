@@ -197,7 +197,7 @@ export const PostMediaDialog = ({
           setCurrentIndex(activeMediaIndex);
           setOpen(true);
         }}
-        className="cursor-pointer"
+        className="relative block size-full cursor-pointer"
       >
         {children}
       </div>

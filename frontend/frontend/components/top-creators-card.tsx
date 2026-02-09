@@ -6,7 +6,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUser } from '@/hooks/queries/use-user';
 import UserHoverCardSkeleton from './skeleton/user-hover-card-skeleton';
 import Link from 'next/link';
@@ -17,11 +17,23 @@ interface TopCreatorsCardProps {
 }
 
 export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
+  const normalizedUsername = creator?.username?.trim() || '';
+  const profileHref = normalizedUsername
+    ? `/${encodeURIComponent(normalizedUsername)}`
+    : '';
   const [isHovered, setIsHovered] = useState(false);
-  const { data: user, isLoading } = useUser(creator?.username || '', {
+  const { data: user, isLoading } = useUser(normalizedUsername, {
     enabled: isHovered,
   });
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleMouseEnter = () => {
     if (timeoutRef.current) {
@@ -89,10 +101,13 @@ export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
 
   return (
     <div className="relative">
-      {creator?.username ? (
+      {profileHref ? (
         <Link
-          href={`/${creator.username}`}
-          aria-label={`View ${creator.displayName || creator.username} profile`}
+          href={profileHref}
+          prefetch={false}
+          aria-label={`View ${
+            creator?.displayName || creator?.username || 'creator'
+          } profile`}
           className="block cursor-pointer"
         >
           {cardContent}
@@ -129,7 +144,10 @@ export const TopCreatorsCard = ({ creator }: TopCreatorsCardProps) => {
                     width={70}
                   />
                   <Link
-                    href={`/${user?.username || creator?.username}`}
+                    href={`/${encodeURIComponent(
+                      (user?.username || normalizedUsername || '').trim(),
+                    )}`}
+                    prefetch={false}
                     className=""
                   >
                     <p className="text-lg font-bold leading-[100%] hover:underline">

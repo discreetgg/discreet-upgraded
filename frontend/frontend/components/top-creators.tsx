@@ -10,7 +10,7 @@ import {
 import { DotButton, useDotButton } from "@/hooks/use-dot-button";
 import { useCreators } from "@/hooks/queries/use-creators";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TopCreatorsCard } from "./top-creators-card";
 import { Icon } from "./ui/icons";
 
@@ -18,15 +18,6 @@ export const TopCreators = () => {
 	const [api, setApi] = useState<CarouselApi>();
 	const { selectedIndex, scrollSnaps, onDotButtonClick } = useDotButton(api);
 	const { data: creators, isLoading } = useCreators();
-
-	useEffect(() => {
-		if (!api) {
-			return;
-		}
-
-		api.on("select", () => {});
-		api.selectedScrollSnap;
-	}, [api]);
 
 	// Group creators into chunks of 3 for carousel items
 	const creatorsChunks = creators
@@ -76,7 +67,7 @@ export const TopCreators = () => {
 							// Render creators data
 							creatorsChunks.map((chunk, chunkIndex) => (
 								<CarouselItem key={chunkIndex} className="space-y-4 relative">
-									{chunk.map((creator, index) => (
+									{chunk.map((creator) => (
 										<TopCreatorsCard
 											key={creator.discordId}
 											creator={creator}
@@ -92,7 +83,7 @@ export const TopCreators = () => {
 							{scrollSnaps.map((_, index) => {
 								return (
 									<DotButton
-										key={Math.random()}
+										key={`creator-dot-${index}`}
 										onClick={() => onDotButtonClick(index)}
 										className={cn(
 											"size-[6.75px] rounded-full bg-[#FF007F] duration-300",

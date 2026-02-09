@@ -41,6 +41,58 @@ const resolveConversationIdentifier = (
   return undefined;
 };
 
+type ConversationThreadCacheEntry = {
+  messages: MessageType[];
+  hasMoreMessages: boolean;
+  oldestMessageDate: string | null;
+  updatedAt: number;
+};
+
+const MAX_CACHED_CONVERSATIONS = 20;
+const conversationThreadCache = new Map<string, ConversationThreadCacheEntry>();
+
+const upsertConversationThreadCache = (
+  conversationKey: string,
+  payload: Omit<ConversationThreadCacheEntry, 'updatedAt'>,
+) => {
+  conversationThreadCache.set(conversationKey, {
+    ...payload,
+    updatedAt: Date.now(),
+  });
+
+  if (conversationThreadCache.size > MAX_CACHED_CONVERSATIONS) {
+    const oldestKey = conversationThreadCache.keys().next().value;
+    if (oldestKey) {
+      conversationThreadCache.delete(oldestKey);
+    }
+  }
+};
+
+const getConversationThreadCache = (conversationKey: string) =>
+  conversationThreadCache.get(conversationKey);
+
+const upsertMessageIntoConversationThreadCache = (
+  conversationKey: string,
+  message: MessageType,
+) => {
+  const cached = conversationThreadCache.get(conversationKey);
+  if (!cached) {
+    return;
+  }
+
+  const existingIndex = cached.messages.findIndex((m) => m._id === message._id);
+  const nextMessages =
+    existingIndex === -1
+      ? [...cached.messages, message]
+      : cached.messages.map((m) => (m._id === message._id ? message : m));
+
+  upsertConversationThreadCache(conversationKey, {
+    messages: nextMessages,
+    hasMoreMessages: cached.hasMoreMessages,
+    oldestMessageDate: cached.oldestMessageDate,
+  });
+};
+
 export const useChat = (
   sender: AuthorType | UserType | null,
   receiverId: string,
@@ -76,6 +128,9 @@ export const useChat = (
   // Track if we've already loaded for the current conversation to prevent duplicate calls
   const loadedConversationIdRef = useRef<string | null>(null);
   const isReloadingRef = useRef(false);
+  const previousConversationIdRef = useRef<string | undefined>(
+    actualConversationId,
+  );
 
   // Keep refs in sync
   useEffect(() => {
@@ -93,6 +148,40 @@ export const useChat = (
   useEffect(() => {
     socketRef.current = socket;
   }, [socket]);
+
+  useEffect(() => {
+    const previousConversationId = previousConversationIdRef.current;
+
+    if (
+      previousConversationId &&
+      previousConversationId !== actualConversationId &&
+      loadedConversationIdRef.current === previousConversationId
+    ) {
+      upsertConversationThreadCache(previousConversationId, {
+        messages,
+        hasMoreMessages,
+        oldestMessageDate,
+      });
+    }
+
+    previousConversationIdRef.current = actualConversationId;
+  }, [actualConversationId, hasMoreMessages, messages, oldestMessageDate]);
+
+  useEffect(() => {
+    if (!actualConversationId) {
+      return;
+    }
+
+    if (loadedConversationIdRef.current !== actualConversationId) {
+      return;
+    }
+
+    upsertConversationThreadCache(actualConversationId, {
+      messages,
+      hasMoreMessages,
+      oldestMessageDate,
+    });
+  }, [actualConversationId, hasMoreMessages, messages, oldestMessageDate]);
 
   // Stable normalizeIncomingMessage callback using refs to avoid recreation
   const normalizeIncomingMessage = useCallback(
@@ -166,6 +255,11 @@ export const useChat = (
           actualConversationId,
       }));
 
+      const nextOldestMessageDate =
+        normalized.length > 0
+          ? (normalized[normalized.length - 1].createdAt ?? null)
+          : null;
+
       // Mark all unread messages from other users as read immediately
       const unreadMessages = normalized.filter(
         (msg: MessageType) =>
@@ -188,16 +282,17 @@ export const useChat = (
       setMessages(messagesWithReadStatus);
 
       // Set oldest message date for infinite scroll (use last message as it's the oldest)
-      if (normalized.length > 0) {
-        setOldestMessageDate(normalized[normalized.length - 1].createdAt);
-      }
+      setOldestMessageDate(nextOldestMessageDate);
 
       // If we got fewer than 50 messages, we've reached the end
-      if (normalized.length < 50) {
-        setHasMoreMessages(false);
-      } else {
-        setHasMoreMessages(true);
-      }
+      const nextHasMoreMessages = normalized.length >= 50;
+      setHasMoreMessages(nextHasMoreMessages);
+
+      upsertConversationThreadCache(actualConversationId, {
+        messages: messagesWithReadStatus,
+        hasMoreMessages: nextHasMoreMessages,
+        oldestMessageDate: nextOldestMessageDate,
+      });
 
       // Emit socket events for marking messages as read (batched)
       if (unreadMessages.length > 0 && currentSocket?.connected) {
@@ -297,6 +392,11 @@ export const useChat = (
         resolvedConversationId ?? currentConversationId ?? '';
 
       if (targetConversationId) {
+        upsertMessageIntoConversationThreadCache(
+          targetConversationId,
+          normalizedMessage,
+        );
+
         updateConversationLastMessage(
           targetConversationId,
           normalizedMessage,
@@ -1494,11 +1594,60 @@ export const useChat = (
   // Reload messages when conversation changes
   // Using actualConversationId as dependency instead of reload to prevent infinite loops
   useEffect(() => {
+    if (!actualConversationId) {
+      setMessages([]);
+      setHasMoreMessages(true);
+      setOldestMessageDate(null);
+      loadedConversationIdRef.current = null;
+      lastLoadedOldestDateRef.current = null;
+      return;
+    }
+
     // Only reload if we haven't already loaded this conversation
     if (
       actualConversationId &&
       loadedConversationIdRef.current !== actualConversationId
     ) {
+      lastLoadedOldestDateRef.current = null;
+
+      const cachedThread = getConversationThreadCache(actualConversationId);
+      if (cachedThread) {
+        loadedConversationIdRef.current = actualConversationId;
+        setIsLoading(false);
+        setMessages(cachedThread.messages);
+        setHasMoreMessages(cachedThread.hasMoreMessages);
+        setOldestMessageDate(cachedThread.oldestMessageDate);
+
+        const currentSender = senderRef.current;
+        const currentSocket = socketRef.current;
+        const unreadMessageIds = cachedThread.messages
+          .filter(
+            (msg) =>
+              msg.sender.discordId !== currentSender?.discordId &&
+              msg.status !== 'read' &&
+              msg.type !== 'call',
+          )
+          .map((msg) => msg._id);
+
+        if (unreadMessageIds.length > 0) {
+          const unreadSet = new Set(unreadMessageIds);
+          setMessages((prev) =>
+            prev.map((msg) =>
+              unreadSet.has(msg._id)
+                ? { ...msg, status: 'read' as const }
+                : msg,
+            ),
+          );
+
+          if (currentSocket?.connected) {
+            currentSocket.emit('message:read', { messageIds: unreadMessageIds });
+            notification.markAsRead(unreadMessageIds.length);
+          }
+        }
+
+        return;
+      }
+
       // Reset infinite scroll state when conversation changes
       setHasMoreMessages(true);
       setOldestMessageDate(null);

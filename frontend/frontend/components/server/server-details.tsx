@@ -60,9 +60,6 @@ export const ServerDetails = ({
     setIsHovered(false);
   };
 
-  console.log(server, "server");
-  console.log(currentUser, "currentUser");
-
   const isLoggedInUser = currentUser?.discordId === server.creatorId;
 
   const handleShare = (link: string) => {

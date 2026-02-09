@@ -47,7 +47,7 @@ export const PostMedia = ({
 		if (!width || !height) return;
 		const raw = width / height;
 		// Clamp to reasonable bounds to avoid extreme tall/wide containers
-		const aspect = Math.max(0.25, Math.min(raw, 4));
+		const aspect = Math.max(0.45, Math.min(raw, 4));
 		setMediaAspects((prev) => ({ ...prev, [url]: aspect }));
 	};
 
@@ -91,15 +91,22 @@ export const PostMedia = ({
 									alt={item.caption || `Post media ${index + 1}`}
 									fill
 									data-error={failedImages.has(item.url)}
-									className="object-cover hover:scale-105 duration-150 data-[error=true]:opacity-50"
+									className="object-contain duration-150 data-[error=true]:opacity-50"
 									sizes="(max-width: 768px) 100vw, 700px"
 									onContextMenu={(e) => e.preventDefault()}
 									draggable={false}
 									onError={() => handleImageError(item.url)}
 									onLoad={(result) => {
-										if (result.currentTarget.width === 0) {
+										const image = result.currentTarget;
+										if (
+											image.width === 0 ||
+											!image.naturalWidth ||
+											!image.naturalHeight
+										) {
 											handleImageError(item.url);
+											return;
 										}
+										setAspectFor(item.url, image.naturalWidth, image.naturalHeight);
 									}}
 								/>
 							</MediaDialog>
