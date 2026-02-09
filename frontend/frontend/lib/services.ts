@@ -1398,10 +1398,15 @@ export const getWalletService = async (discordId: string) => {
 	}
 };
 
-export const getWalletTransactionsService = async (discordId: string) => {
+export const getWalletTransactionsService = async (
+	discordId: string,
+	limit = 100
+) => {
 	if (!discordId) return [] as WalletTransactionType[];
 	try {
-		const response = await api.get(`/wallet/${discordId}/transactions`);
+		const response = await api.get(`/wallet/${discordId}/transactions`, {
+			params: { limit },
+		});
 		return response.data as WalletTransactionType[];
 	} catch (error: any) {
 		if (error.response) {
