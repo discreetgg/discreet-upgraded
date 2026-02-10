@@ -62,6 +62,9 @@ export default function PreviewSideAdCard({
 					alt={title}
 					width={300}
 					height={300}
+					sizes="(max-width: 768px) 100px, (max-width: 1440px) 124px, 150px"
+					quality={100}
+					unoptimized
 					className="object-cover size-full object-center  "
 				/>
 			</div>

@@ -9,11 +9,12 @@ import { PublicProfileProfileImage } from "./public-profile-profile-image";
 import { buttonVariants } from "./ui/button";
 import FollowButton from "./shared/follow-button";
 import TipDialog from "./tip-modal";
-import { useState } from "react";
+import { useState, type TouchEvent } from "react";
 import { Icon } from "./ui/icons";
 import { useRouter } from "next/navigation";
 import {
 	Sheet,
+	SheetClose,
 	SheetContent,
 	SheetHeader,
 	SheetTitle,
@@ -44,6 +45,7 @@ export const PublicProfileHeaderSection = ({
 	const [tipDialogOpen, setTipDialogOpen] = useState(false);
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	const [isOpeningMessage, setIsOpeningMessage] = useState(false);
+	const [sheetTouchStartX, setSheetTouchStartX] = useState<number | null>(null);
 	const router = useRouter();
 	const { setReceiver, conversations } = useMessage();
 	const { user: currentUser } = useGlobal();
@@ -94,6 +96,25 @@ export const PublicProfileHeaderSection = ({
 		setIsOpeningMessage(false);
 	};
 
+	const handleSheetTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+		setSheetTouchStartX(event.touches[0]?.clientX ?? null);
+	};
+
+	const handleSheetTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+		if (sheetTouchStartX === null) {
+			return;
+		}
+
+		const touchEndX = event.changedTouches[0]?.clientX ?? sheetTouchStartX;
+		const deltaX = touchEndX - sheetTouchStartX;
+		setSheetTouchStartX(null);
+
+		// Right-swipe to close on mobile.
+		if (deltaX > 70) {
+			setMobileMenuOpen(false);
+		}
+	};
+
 	return (
 		<div className={cn("  relative", className)}>
 			<PublicProfileBannerImage user={user} />
@@ -137,12 +158,24 @@ export const PublicProfileHeaderSection = ({
 									</SheetTrigger>
 									<SheetContent
 										side="right"
+										onTouchStart={handleSheetTouchStart}
+										onTouchEnd={handleSheetTouchEnd}
 										className="bg-dark-charcoal/90 backdrop-blur-2xl border-charcoal w-full max-w-[380px] px-4 pt-4 outline-none"
 									>
-										<SheetHeader className="p-0">
+										<SheetHeader className="p-0 flex-row items-center justify-between border-b border-charcoal pb-3">
 											<SheetTitle className="text-left uppercase text-[#D4D4D8]">
 												Profile Menu
 											</SheetTitle>
+											<SheetClose asChild>
+												<button
+													type="button"
+													className="inline-flex items-center gap-1 text-xs text-[#8A8C95] hover:text-[#D4D4D8] transition-colors"
+													aria-label="Close profile menu"
+												>
+													<Icon.left className="size-3.5 rotate-180" />
+													Close
+												</button>
+											</SheetClose>
 										</SheetHeader>
 										<div className="mt-4">
 											<ProfileSideMenuMenuContent user={user} />

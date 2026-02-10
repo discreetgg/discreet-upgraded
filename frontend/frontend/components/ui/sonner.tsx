@@ -1,17 +1,28 @@
 'use client';
 
+import { toastPresets } from '@/lib/toast-presets';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useTheme } from 'next-themes';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 import { Icon } from './icons';
-import { toastPresets } from '@/lib/toast-presets';
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const MOBILE_SWIPE_DIRECTIONS: NonNullable<ToasterProps['swipeDirections']> = [
+  'top',
+  'left',
+  'right',
+];
+
+const Toaster = ({ swipeDirections, ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme();
+  const isMobile = useIsMobile();
 
   return (
     <Sonner
       theme={theme as ToasterProps['theme']}
       className='toaster group'
+      swipeDirections={
+        swipeDirections ?? (isMobile ? MOBILE_SWIPE_DIRECTIONS : undefined)
+      }
       visibleToasts={2}
       expand={false}
       toastOptions={{

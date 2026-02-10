@@ -65,6 +65,7 @@ export default function ProfileSideAdCard({
 	const { setIsFundWalletDialogOpen } = useWallet();
 
 	const [openSuccessModal, setOpenSuccessModal] = useState(false);
+	const [openPreviewModal, setOpenPreviewModal] = useState(false);
 	const [confirmPurchase, setConfirmPurchase] = useState(false);
 	const [deleteMenu, setDeleteMenu] = useState(false);
 	const [errorImage, setErrorImage] = useState(false);
@@ -213,6 +214,10 @@ export default function ProfileSideAdCard({
 			? candidate
 			: undefined;
 	}, [conversationBetweenUsers]);
+	const highQualityCoverImage = useMemo(
+		() => getHighestQualityImageUrl(coverImage.url),
+		[coverImage.url],
+	);
 
 	return (
 		<>
@@ -230,11 +235,17 @@ export default function ProfileSideAdCard({
 				open={openSuccessModal}
 				setOpen={setOpenSuccessModal}
 				title={title}
-				coverImage={coverImage.url}
+				coverImage={highQualityCoverImage}
 				discordId={author.discordId}
 				receiver={author}
 				conversationId={conversationId}
 				isLoadingConversation={isFetchingConversation}
+			/>
+			<MenuImagePreviewDialog
+				open={openPreviewModal}
+				onOpenChange={setOpenPreviewModal}
+				title={title}
+				coverImage={highQualityCoverImage}
 			/>
 			<div
 				data-empty={isSoldOut}
@@ -242,7 +253,7 @@ export default function ProfileSideAdCard({
 				className="flex w-full max-w-[370px] isolate sm:max-w-[405px] data-[delete=true]:blur-[2px] data-[delete=true]:opacity-50 h-[166px] border border-accent-gray/30 rounded-xl pl-2 py-2 border-r-4 border-b-4 data-[empty=false]:hover:border-b-[6px] data-[empty=false]:hover:border-r-[6px] transition-all duration-150 justify-between overflow-hidden gap-x-4 relative"
 			>
 				{isSoldOut && !isCurrentUser && (
-					<div className="absolute size-full inset-0 flex items-center justify-center rounded-xl z-20 bg-black/70 ">
+					<div className="absolute size-full inset-0 flex items-center justify-center rounded-xl z-20 bg-black/70 pointer-events-none">
 						<div className="flex justify-center items-center uppercase text-xl md:text-3xl bg-black/30 backdrop-blur-xl size-full ">
 							SOLD OUT!
 						</div>
@@ -420,7 +431,12 @@ export default function ProfileSideAdCard({
 						)}
 					</div>
 				</div>
-				<div className="w-[140] sm:w-[154px] h-full flex-shrink-0  overflow-hiddenx   relative pr-1 isolate">
+				<button
+					type="button"
+					onClick={() => setOpenPreviewModal(true)}
+					className="w-[140px] sm:w-[154px] h-full flex-shrink-0 overflow-hiddenx relative pr-1 isolate bg-transparent border-0 p-0 text-left cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-color/70 rounded-md"
+					aria-label={`Open ${title} preview image`}
+				>
 					<div
 						data-bundle={!isSingle}
 						className="absolute data-[bundle=true]:bottom-1 data-[bundle=true]:-left-0.5 p-1 px-1.5 z-20 bg-black/50 backdrop-blur-xl rounded-md bottom-1 left-1 flex items-center text-off-white gap-x-1.5 text-xs font-inter"
@@ -434,17 +450,20 @@ export default function ProfileSideAdCard({
 					</div>
 					{!isSingle && !errorImage ? (
 						<div className="relative size-full">
-							{[1, 2, 3].map((item) => (
-								<ImageWithFallback
-									key={item}
-									src={coverImage.url}
-									alt={title}
-									width={200}
-									height={300}
-									data-index={item}
-									className="size-full object-cover object-center rounded-md absolute inset-0 z-[8] "
-									containerClassName={cn(
-										"absolute rounded-md shadow-[3px_4px_4px_0px_#00000040]  ",
+								{[1, 2, 3].map((item) => (
+									<ImageWithFallback
+										key={item}
+										src={highQualityCoverImage}
+										alt={title}
+										width={200}
+										height={300}
+										sizes="(max-width: 768px) 140px, 154px"
+										quality={100}
+										unoptimized
+										data-index={item}
+										className="size-full object-cover object-center rounded-md absolute inset-0 z-[8] "
+										containerClassName={cn(
+											"absolute rounded-md shadow-[3px_4px_4px_0px_#00000040]  ",
 										{
 											"-translate-x-2 z-10": item === 1,
 											"-translate-x-1 sh z-[9]": item === 2,
@@ -456,17 +475,20 @@ export default function ProfileSideAdCard({
 							))}
 						</div>
 					) : (
-						<ImageWithFallback
-							src={coverImage.url}
-							alt={title}
-							width={200}
-							height={300}
-							className="size-full object-cover object-center rounded-md "
-							priority
-							setErrorImage={setErrorImage}
-						/>
-					)}
-				</div>
+							<ImageWithFallback
+								src={highQualityCoverImage}
+								alt={title}
+								width={200}
+								height={300}
+								sizes="(max-width: 768px) 140px, 154px"
+								quality={100}
+								unoptimized
+								className="size-full object-cover object-center rounded-md "
+								priority
+								setErrorImage={setErrorImage}
+							/>
+						)}
+				</button>
 			</div>
 		</>
 	);
@@ -516,6 +538,79 @@ interface Props {
 	isLoadingConversation?: boolean;
 	receiver: AuthorType | UserType | null;
 }
+
+interface MenuImagePreviewDialogProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	title: string;
+	coverImage: string;
+}
+
+const MenuImagePreviewDialog = ({
+	open,
+	onOpenChange,
+	title,
+	coverImage,
+}: MenuImagePreviewDialogProps) => {
+	return (
+		<SubscribeDialog open={open} onOpenChange={onOpenChange}>
+			<SubscribeDialogContent className="w-full max-w-[min(95vw,900px)] p-2 sm:p-3 bg-[#0F1114] border border-[#1E2227]">
+				<SubscribeDialogDescription className="sr-only">
+					{title} preview image
+				</SubscribeDialogDescription>
+				<div className="w-full max-h-[85dvh] overflow-hidden rounded-md bg-black">
+					<ImageWithFallback
+						src={coverImage}
+						alt={`${title} preview`}
+						width={1200}
+						height={1600}
+						sizes="(max-width: 768px) 95vw, 900px"
+						quality={100}
+						unoptimized
+						className="w-full h-full max-h-[85dvh] object-contain"
+						priority
+					/>
+				</div>
+			</SubscribeDialogContent>
+		</SubscribeDialog>
+	);
+};
+
+const getHighestQualityImageUrl = (url: string) => {
+	if (!url || !url.includes("res.cloudinary.com")) {
+		return url;
+	}
+
+	try {
+		const parsedUrl = new URL(url);
+		const pathSegments = parsedUrl.pathname.split("/");
+		const uploadIndex = pathSegments.findIndex((segment) => segment === "upload");
+
+		if (uploadIndex === -1) {
+			return url;
+		}
+
+		const versionIndex = pathSegments.findIndex(
+			(segment, index) => index > uploadIndex && /^v\d+$/.test(segment),
+		);
+
+		// Already original or unsupported pattern.
+		if (versionIndex <= uploadIndex + 1) {
+			return url;
+		}
+
+		const cleanedPathSegments = [
+			...pathSegments.slice(0, uploadIndex + 1),
+			...pathSegments.slice(versionIndex),
+		];
+
+		parsedUrl.pathname = cleanedPathSegments.join("/");
+		return parsedUrl.toString();
+	} catch {
+		return url;
+	}
+};
+
 const SuccessMenuDialog = ({
 	open,
 	setOpen,
@@ -555,6 +650,9 @@ const SuccessMenuDialog = ({
 						width={1000}
 						height={300}
 						alt={title}
+						sizes="(max-width: 768px) 95vw, 613px"
+						quality={100}
+						unoptimized
 						className="w-full h-full object-cover object-center rounded-md "
 					/>
 				</div>

@@ -122,7 +122,7 @@ export const TipDialog = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="flex items-center !p-3 sm:!p-[18.36px] border relative border-[#202026] bg-black rounded-[14.6px] justify-center !w-full max-w-[calc(100vw-2rem)] sm:max-w-[562px] py-4 px-3 sm:py-10 sm:px-6 mx-4 sm:mx-0">
+      <DialogContent className="flex items-center !p-3 sm:!p-[18.36px] border relative border-[#202026] bg-black rounded-[14.6px] justify-center !w-full max-w-[calc(100vw-2rem)] sm:max-w-[562px] py-4 px-3 sm:py-10 sm:px-6 mx-4 sm:mx-0 max-h-[calc(100dvh-6rem)] sm:max-h-none overflow-y-auto">
         <div className="w-full h-full absolute top-0 left-0" />{' '}
         <div className="w-full space-y-3 sm:space-y-6">
           <div className="grid grid-cols-2 items-center justify-center gap-2 sm:gap-3.5">

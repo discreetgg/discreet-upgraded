@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import { Icon } from "./icons";
 import { Button } from "./button";
 
-const MAX_DIALOG_BOX_WIDTH = "w-[600px] min-w-[600px]";
+const MAX_DIALOG_BOX_WIDTH =
+  "w-full max-w-[600px] min-w-0 sm:w-[600px] sm:min-w-[600px]";
 
 function Dialog({
   ...props
@@ -44,21 +45,21 @@ function DialogOverlay({
         data-slot="dialog-overlay"
         className={cn(
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/80",
-          "grid grid-rows-8  flex-col divide-y divide-x divide-[#1F2227] backdrop-blur-[10px]",
+          "flex flex-col overflow-y-auto divide-y divide-[#1F2227] backdrop-blur-[10px] sm:grid sm:grid-rows-8 sm:overflow-hidden sm:divide-x",
 
           className
         )}
         {...props}
       >
-        <div className="row-span-1 w-full h-full flex items-center justify-between border-b border-[#1F2227]">
-          <div className="w-full h-full" />
+        <div className="w-full flex items-center justify-center border-b border-[#1F2227] px-3 py-2 sm:row-span-1 sm:h-full sm:px-0 sm:py-0 sm:justify-between">
+          <div className="hidden sm:block w-full h-full" />
           <div
             className={cn(
-              "w-full h-full border-r border-[#1F2227] border-l",
+              "w-full h-full sm:border-r border-[#1F2227] sm:border-l",
               MAX_DIALOG_BOX_WIDTH
             )}
           >
-            <div className="relative pb-6 pl-1.5 flex items-end h-full">
+            <div className="relative flex items-end h-full pb-0 sm:pb-6 pl-0 sm:pl-1.5">
               <DialogPrimitive.Close asChild className="">
                 <Button className="space-x-2  text-[#8A8C95] !border-0 !shadow-none !bg-transparent hover:bg-transparent active:bg-transparent hover:text-[#F8F8F8] ">
                   <Icon.left className="size-4" />
@@ -67,11 +68,11 @@ function DialogOverlay({
               </DialogPrimitive.Close>
             </div>
           </div>
-          <div className="w-full h-full" />
+          <div className="hidden sm:block w-full h-full" />
         </div>
 
-        <div className="flex items-center justify-between w-full h-[550px] row-span-5">
-          <div className=" w-full h-full" />
+        <div className="flex w-full flex-1 min-h-0 items-center justify-center px-3 pb-3 sm:px-0 sm:pb-0 sm:h-[550px] sm:row-span-5 sm:justify-between">
+          <div className="hidden sm:block w-full h-full" />
 
           {/* <div className="relative border-r-0">
           <DialogPrimitive.Close className="rounded border hover:bg-transparent active:bg-transparent h-auto px-4 py-3.5 text-[15px] font-medium whitespace-nowrap flex items-center gap-2 border-[#1E1E21] bg-[#0F1114] shadow-[2px_2px_0_0_#1E1E21] absolute right-6 top-[46px] z-50">
@@ -85,19 +86,19 @@ function DialogOverlay({
 
           <div
             className={cn(
-              "relative col-span-10 lg:col-span-6 flex items-center justify-center border-[#1F2227] border-l border-r w-full h-full",
+              "relative col-span-10 lg:col-span-6 flex items-center justify-center sm:border-[#1F2227] sm:border-l sm:border-r w-full h-full",
               MAX_DIALOG_BOX_WIDTH
             )}
           >
             {children}
-            <Icon.dialogAddIcon className=" absolute -left-[7.9616445px] -top-[7.9616445px]" />
-            <Icon.dialogAddIcon className=" absolute -right-[7.9616445px] -top-[7.9616445px]" />
-            <Icon.dialogAddIcon className=" absolute -left-[7.9616445px] -bottom-[7.9616445px]" />
-            <Icon.dialogAddIcon className=" absolute -right-[7.9616445px] -bottom-[7.9616445px]" />
+            <Icon.dialogAddIcon className="hidden sm:block absolute -left-[7.9616445px] -top-[7.9616445px]" />
+            <Icon.dialogAddIcon className="hidden sm:block absolute -right-[7.9616445px] -top-[7.9616445px]" />
+            <Icon.dialogAddIcon className="hidden sm:block absolute -left-[7.9616445px] -bottom-[7.9616445px]" />
+            <Icon.dialogAddIcon className="hidden sm:block absolute -right-[7.9616445px] -bottom-[7.9616445px]" />
           </div>
-          <div className=" w-full h-full" />
+          <div className="hidden sm:block w-full h-full" />
         </div>
-        <div className="row-span-2 w-full h-full flex items-center justify-between ">
+        <div className="hidden sm:flex row-span-2 w-full h-full items-center justify-between ">
           <div className="w-full h-full" />
           <div
             className={cn(
