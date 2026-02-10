@@ -36,6 +36,7 @@ import type { Tag } from '@/types/global';
 import { createPostService } from '@/lib/services';
 import { createMenuCategory } from '@/actions/menu-item';
 import { useMenuCategories } from '@/hooks/queries/use-menu-categories';
+import { toastPresets } from '@/lib/toast-presets';
 
 const FormSchema = z
   .object({
@@ -169,6 +170,11 @@ export const ContentCreatorAddPostDialog = ({
     }
 
     setIsSubmitting(true);
+    const postToastId = `post-submit-${Date.now()}`;
+    toast.loading(data.isDraft ? 'Saving draft...' : 'Publishing post...', {
+      ...toastPresets.loading,
+      id: postToastId,
+    });
 
     if (data.isDraft) {
       setIsDraftSubmitting(true);
@@ -295,7 +301,6 @@ export const ContentCreatorAddPostDialog = ({
 
         // Close dialog immediately for better UX
         setIsOpen(false);
-        toast.success('Posting...', { duration: 1500 });
       }
 
       // Create the post in background
@@ -315,9 +320,15 @@ export const ContentCreatorAddPostDialog = ({
             };
             return { ...oldData, pages: newPages };
           });
-          toast.success('Post created!');
+          toast.success('Post published.', {
+            ...toastPresets.success,
+            id: postToastId,
+          });
         } else if (data.isDraft) {
-          toast.success('Post saved as draft!');
+          toast.success('Draft saved.', {
+            ...toastPresets.success,
+            id: postToastId,
+          });
           setIsOpen(false);
         }
 
@@ -333,6 +344,28 @@ export const ContentCreatorAddPostDialog = ({
             queryKey: ['menu_categories', user.discordId],
           });
         }
+      } else {
+        if (!data.isDraft) {
+          queryClient.setQueryData(['posts', 'general', 10], (oldData: any) => {
+            if (!oldData?.pages?.[0]) return oldData;
+            const newPages = [...oldData.pages];
+            newPages[0] = {
+              ...newPages[0],
+              posts: newPages[0].posts.filter((post: any) => !post.isOptimistic),
+            };
+            return { ...oldData, pages: newPages };
+          });
+        }
+
+        toast.error(
+          data.isDraft ? 'Could not save draft.' : 'Could not publish post.',
+          {
+            ...toastPresets.error,
+            id: postToastId,
+            description: 'No confirmation was received from the server.',
+            duration: 5000,
+          }
+        );
       }
     } catch (error: any) {
       console.error('Failed to create post:', error);
@@ -351,9 +384,11 @@ export const ContentCreatorAddPostDialog = ({
       }
 
       toast.error(
-        data.isDraft ? 'Failed to save draft' : 'Failed to create post',
+        data.isDraft ? 'Could not save draft.' : 'Could not publish post.',
         {
-          description: error.message,
+          ...toastPresets.error,
+          id: postToastId,
+          description: error?.message || 'Please try again.',
           duration: 5000,
         }
       );

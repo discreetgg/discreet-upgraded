@@ -19,6 +19,8 @@ import { QuickAmounts } from '@/lib/data';
 import TipAmountCard from './cards/tip-amount-card';
 import Image from 'next/image';
 import TipButton from './cards/tip-button';
+import { useWallet } from '@/context/wallet-context-provider';
+import { toastPresets } from '@/lib/toast-presets';
 
 const formSchema = z.object({
   amount: z
@@ -45,6 +47,7 @@ export const MessageSendTip = ({
 }: MessageSendTipProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useGlobal();
+  const { setIsFundWalletDialogOpen } = useWallet();
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
 
   // Use chat hook to get sendTipMessage function if not provided as prop
@@ -71,7 +74,9 @@ export const MessageSendTip = ({
       amount,
     })
       .then(async () => {
-        toast.success(`Successfully sent $${amount.toFixed(2)} tip!`);
+        toast.success(`Successfully sent $${amount.toFixed(2)} tip!`, {
+          ...toastPresets.success,
+        });
         
         // Emit tip message to conversation
         console.log('🔵 Calling sendTipMessage from component:', { amount, receiverId });
@@ -90,8 +95,20 @@ export const MessageSendTip = ({
       })
       .catch((error: any) => {
         const errorMessage =
-          error?.message || 'Failed to send tip. Please try again.';
-        toast.error(errorMessage);
+          error?.message || error?.data?.message || 'Failed to send tip.';
+
+        if (/insufficient funds/i.test(errorMessage)) {
+          toast.error('Not enough wallet balance.', {
+            ...toastPresets.error,
+            description: 'Add funds to continue sending tips.',
+          });
+          setIsFundWalletDialogOpen(true);
+          return;
+        }
+
+        toast.error(errorMessage, {
+          ...toastPresets.error,
+        });
       })
       .finally(() => {
         setIsLoading(false);

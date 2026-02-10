@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { createMediaAssetService } from "@/lib/services";
+import { toastPresets } from "@/lib/toast-presets";
 
 export interface MediaMetaItem {
 	type: "image" | "video";
@@ -56,7 +57,9 @@ export const useMediaAssetMutation = () => {
 		},
 
 		onSuccess: (data, variables) => {
-			toast.success("Media asset created successfully!");
+			toast.success("Bundle sent successfully.", {
+				...toastPresets.success,
+			});
 
 			// Invalidate relevant queries if needed
 			queryClient.invalidateQueries({
@@ -66,19 +69,28 @@ export const useMediaAssetMutation = () => {
 
 		onError: (error: any) => {
 			if (error?.status === 401) {
-				toast.error("You must be logged in to create media assets.");
+				toast.error("Please sign in to send bundles.", {
+					...toastPresets.error,
+				});
 			} else if (error?.status === 400) {
 				toast.error(
-					error.message || "Invalid data. Please check your input."
+					error.message || "We couldn't send the bundle. Check your details and try again.",
+					{
+						...toastPresets.error,
+					}
 				);
 			} else if (error?.status === 404) {
-				toast.error("User not found.");
+				toast.error("Recipient not found.", {
+					...toastPresets.error,
+				});
 			} else {
 				toast.error(
-					error?.message || "Failed to create media asset. Please try again."
+					error?.message || "Bundle couldn't be sent right now. Please try again.",
+					{
+						...toastPresets.error,
+					}
 				);
 			}
 		},
 	});
 };
-

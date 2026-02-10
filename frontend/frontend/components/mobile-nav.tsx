@@ -2,17 +2,19 @@
 
 import { useAuth } from '@/context/auth-context-provider';
 import { useGlobal } from '@/context/global-context-provider';
+import { useMessage } from '@/context/message-context';
 import { useWallet } from '@/context/wallet-context-provider';
-import { getWalletService } from '@/lib/services';
+import { getConversationsService, getWalletService } from '@/lib/services';
 import { sidebarData } from '@/lib/data';
 import { cn, inDevEnvironment } from '@/lib/utils';
-import type { SidebarItemType } from '@/types/global';
+import type { ConversationType, SidebarItemType } from '@/types/global';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icon } from './ui/icons';
 import { ContentCreatorAddPostDialog } from './content-creator-add-post-dialog';
 import { useNotifications } from '@/hooks/queries/use-notifications';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,6 +57,7 @@ export function MobileNav() {
   const pathname = usePathname();
   const { isAuthenticated } = useAuth();
   const { user, handleLogout } = useGlobal();
+  const { conversations } = useMessage();
   const { wallet, setWallet } = useWallet();
   const [isVisible, setIsVisible] = useState(true);
   const lastScrollY = useRef(0);
@@ -64,6 +67,26 @@ export function MobileNav() {
     userId: user?.discordId || '',
     page: 1,
   });
+
+  const { data: fetchedConversations } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: getConversationsService,
+    enabled: Boolean(user?.discordId),
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+
+  const totalUnreadConversations = useMemo(() => {
+    const source = (conversations ??
+      fetchedConversations ??
+      []) as ConversationType[];
+    if (!source || source.length === 0) return 0;
+
+    return source.reduce((total: number, conversation: ConversationType) => {
+      return total + (conversation.unreadCount || 0);
+    }, 0);
+  }, [conversations, fetchedConversations]);
 
   // Fetch wallet balance on mount and when user changes
   useEffect(() => {
@@ -188,6 +211,14 @@ export function MobileNav() {
                         {notifications.unreadCount > 9
                           ? '9+'
                           : notifications.unreadCount}
+                      </div>
+                    )}
+                  {item.name.toLowerCase() === 'messages' &&
+                    totalUnreadConversations > 0 && (
+                      <div className="absolute top-1 right-2 min-w-[16px] h-4 px-[3px] rounded-full bg-[#FF007F] flex items-center justify-center text-[8px] text-white font-medium">
+                        {totalUnreadConversations > 99
+                          ? '99+'
+                          : totalUnreadConversations}
                       </div>
                     )}
                   <div

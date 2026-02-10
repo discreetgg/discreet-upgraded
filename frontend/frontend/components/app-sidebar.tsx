@@ -17,12 +17,12 @@ import { useGlobal } from "@/context/global-context-provider";
 import { useWallet } from "@/context/wallet-context-provider";
 import { sidebarData } from "@/lib/data";
 import { cn, formatBalance, inDevEnvironment } from "@/lib/utils";
-import type { SidebarItemType } from "@/types/global";
+import type { ConversationType, SidebarItemType } from "@/types/global";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type * as React from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { AppSidebarUser } from "./app-sidebar-user";
 import { Icon } from "./ui/icons";
 import { useRouter } from "@bprogress/next/app";
@@ -30,7 +30,8 @@ import useWindowWidth from "@/hooks/use-window-width";
 import { ContentCreatorAddPostDialog } from "./content-creator-add-post-dialog";
 import { useNotifications } from "@/hooks/queries/use-notifications";
 import { useMessage } from "@/context/message-context";
-import { getWalletService } from "@/lib/services";
+import { getConversationsService, getWalletService } from "@/lib/services";
+import { useQuery } from "@tanstack/react-query";
 
 // Format balance to match mobile nav display
 
@@ -48,15 +49,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	});
 
 	const { conversations } = useMessage();
+	const { data: fetchedConversations } = useQuery({
+		queryKey: ["conversations"],
+		queryFn: getConversationsService,
+		enabled: Boolean(user?.discordId),
+		staleTime: 30 * 1000,
+		gcTime: 5 * 60 * 1000,
+		refetchOnWindowFocus: true,
+	});
 
-	const getTotalUnreadConversations = (): number => {
-		if (!conversations) return 0;
-		return conversations.reduce((total, conversation) => {
+	const totalUnreadConversations = useMemo(() => {
+		const source = (conversations ??
+			fetchedConversations ??
+			[]) as ConversationType[];
+
+		if (source.length === 0) return 0;
+
+		return source.reduce((total: number, conversation: ConversationType) => {
 			return total + (conversation.unreadCount || 0);
 		}, 0);
-	};
-
-	const totalUnreadConversations = getTotalUnreadConversations();
+	}, [conversations, fetchedConversations]);
 
 	const windowWidth = useWindowWidth();
 	const LG_SCREEN = windowWidth >= 1024;

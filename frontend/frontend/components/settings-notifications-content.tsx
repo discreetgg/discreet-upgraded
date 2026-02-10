@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
 import { type Control, useForm } from "react-hook-form";
 import { z } from "zod";
+import { SettingsAlertPreferences } from "./settings-alert-preferences";
 import { SettingsNotificationsGroup } from "./settings-notifications-group";
 import { Form } from "./ui/form";
 
@@ -122,6 +123,8 @@ export const SettingsNotificationsContent = () => {
 					description="Get push notifications to find out what's going on when you're not on discreet. You can turn them off anytime."
 					fields={inAppFields}
 				/>
+
+				<SettingsAlertPreferences />
 			</form>
 		</Form>
 	);

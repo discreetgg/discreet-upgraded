@@ -22,6 +22,7 @@ const Page = () => {
   const { receiver } = useMessage();
   const { user } = useGlobal();
   const [showCallDialog, setShowCallDialog] = useState(false);
+  const isTemporaryConversationView = chat === 'new' && Boolean(receiver);
 
   // Show call dialog when call query param is present and receiver is set
   useEffect(() => {
@@ -41,7 +42,13 @@ const Page = () => {
     markAsRead,
     sendUnlockMessage,
     reload,
-  } = useChat(user, receiver?.discordId ?? '', undefined, true);
+  } = useChat(
+    user,
+    receiver?.discordId ?? '',
+    undefined,
+    true,
+    isTemporaryConversationView,
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);

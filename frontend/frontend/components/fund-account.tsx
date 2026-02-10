@@ -27,6 +27,7 @@ import {
 import { fundWalletService } from '@/lib/services';
 import { useWallet } from '@/context/wallet-context-provider';
 import { toast } from 'sonner';
+import { toastPresets } from '@/lib/toast-presets';
 
 const formSchema = z.object({
   amount: z.string({
@@ -38,22 +39,40 @@ const formSchema = z.object({
 });
 
 export const FundAccount = () => {
-  const { wallet, setWallet, setLoading, setStep } = useWallet();
+  const { setWallet, setLoading, setStep } = useWallet();
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
   });
 
   async function onSubmit(data: z.infer<typeof formSchema>) {
+    const parsedAmount = Number.parseFloat(data.amount);
+    const normalizedAmount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+
     setStep('loading');
     setLoading(true);
     await fundWalletService({ amount: data.amount })
       .then(() => {
-        if (wallet && setWallet) {
-          setWallet({
-            ...wallet,
-            balance: wallet.balance + Number.parseFloat(data.amount),
-          } as typeof wallet);
+        if (setWallet) {
+          setWallet((previousWallet) => {
+            if (!previousWallet) {
+              return previousWallet;
+            }
+
+            return {
+              ...previousWallet,
+              balance: previousWallet.balance + normalizedAmount,
+            };
+          });
         }
+
+        setStep('message');
+        toast.success('Funds added to wallet', {
+          ...toastPresets.revenue,
+          description: `+$${normalizedAmount.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`,
+        });
       })
       .catch((e) => {
         console.error('Fund wallet error:', e);
@@ -71,12 +90,14 @@ export const FundAccount = () => {
           errorString.includes('idl')
         ) {
           toast.error('Wallet service configuration error', {
+            ...toastPresets.error,
             description: 'The payment service is currently misconfigured. Please contact support or try again later.',
             duration: 10000,
           });
           setStep('form'); // Return to form instead of showing success message
         } else {
           toast.error('Failed to fund wallet', {
+            ...toastPresets.error,
             description: errorMessage || 'An unexpected error occurred. Please try again.',
             duration: 5000,
           });

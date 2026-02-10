@@ -1,19 +1,18 @@
 'use client';
 
-import { useNotification } from '@/hooks/use-notification';
 import { useEffect } from 'react';
 
 interface NotificationManagerProps {
+  clearNotifications: () => void;
   clearOnFocus?: boolean;
   clearOnVisibilityChange?: boolean;
 }
 
 export const NotificationManager = ({
+  clearNotifications,
   clearOnFocus = true,
   clearOnVisibilityChange = true,
 }: NotificationManagerProps) => {
-  const { clearNotifications } = useNotification();
-
   useEffect(() => {
     if (clearOnFocus === false && clearOnVisibilityChange === false) return;
 

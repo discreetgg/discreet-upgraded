@@ -1,6 +1,7 @@
 'use client';
 
 import { NotificationManager } from '@/components/notification-manager';
+import { useAlertPreferences } from '@/context/alert-preferences-context';
 import { useNotification } from '@/hooks/use-notification';
 import { createContext, useContext } from 'react';
 
@@ -18,15 +19,20 @@ const GlobalNotificationContext =
 export const GlobalNotificationProvider = ({
   children,
 }: { children: React.ReactNode }) => {
+  const { alertSoundsEnabled } = useAlertPreferences();
   const notification = useNotification({
-    soundEnabled: true,
+    soundEnabled: alertSoundsEnabled,
     titleUpdates: true,
     faviconBadge: true,
   });
 
   return (
     <GlobalNotificationContext.Provider value={notification}>
-      <NotificationManager clearOnFocus clearOnVisibilityChange />
+      <NotificationManager
+        clearNotifications={notification.clearNotifications}
+        clearOnFocus
+        clearOnVisibilityChange
+      />
       {children}
     </GlobalNotificationContext.Provider>
   );

@@ -900,7 +900,16 @@ export const deleteAdminPostService = async (postId: string) => {
 
 export const getConversationsService = async () => {
 	try {
-		const response = await api.get("/chat/conversations");
+		// Use uncached request for unread accuracy.
+		const response = await axios.get(`${baseURL}/chat/conversations`, {
+			withCredentials: true,
+			headers: {
+				"Content-Type": "application/json",
+				"Cache-Control": "no-cache",
+				Pragma: "no-cache",
+			},
+			params: { _t: Date.now() },
+		});
 		return response.data;
 	} catch (error: any) {
 		if (error.response) {
@@ -936,7 +945,7 @@ const pruneConversationRequestCache = (now: number) => {
 
 const buildConversationRequestKey = (
 	id: string,
-	params?: { from?: string; to?: string; limit?: number }
+	params?: { from?: string; to?: string; limit?: number; force?: boolean }
 ) => {
 	const normalizedLimit = params?.limit ?? DEFAULT_CONVERSATION_LIMIT;
 	const normalizedFrom = params?.from ?? "";
@@ -946,27 +955,31 @@ const buildConversationRequestKey = (
 
 export const getConversationByIdService = async (
 	id: string,
-	params?: { from?: string; to?: string; limit?: number }
+	params?: { from?: string; to?: string; limit?: number; force?: boolean }
 ) => {
 	try {
 		const requestKey = buildConversationRequestKey(id, params);
 		const now = Date.now();
 		pruneConversationRequestCache(now);
+		const shouldBypassCache = params?.force === true;
 
-		const cached = conversationRequestCache.get(requestKey);
-		if (cached && cached.expiresAt > now) {
-			return cached.data;
-		}
+		if (!shouldBypassCache) {
+			const cached = conversationRequestCache.get(requestKey);
+			if (cached && cached.expiresAt > now) {
+				return cached.data;
+			}
 
-		const existingRequest = inFlightConversationRequests.get(requestKey);
-		if (existingRequest) {
-			return await existingRequest;
+			const existingRequest = inFlightConversationRequests.get(requestKey);
+			if (existingRequest) {
+				return await existingRequest;
+			}
 		}
 
 		const normalizedParams = {
 			limit: params?.limit ?? DEFAULT_CONVERSATION_LIMIT,
 			...(params?.from ? { from: params.from } : {}),
 			...(params?.to ? { to: params.to } : {}),
+			...(shouldBypassCache ? { _t: Date.now() } : {}),
 		};
 
 		const requestPromise = axios

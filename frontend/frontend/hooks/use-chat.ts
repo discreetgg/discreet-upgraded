@@ -51,6 +51,11 @@ type ConversationThreadCacheEntry = {
 const MAX_CACHED_CONVERSATIONS = 20;
 const conversationThreadCache = new Map<string, ConversationThreadCacheEntry>();
 
+type ReloadOptions = {
+  background?: boolean;
+  forceFresh?: boolean;
+};
+
 const upsertConversationThreadCache = (
   conversationKey: string,
   payload: Omit<ConversationThreadCacheEntry, 'updatedAt'>,
@@ -98,6 +103,7 @@ export const useChat = (
   receiverId: string,
   conversationId?: string,
   isTemporary = false,
+  hasActiveConversationView = true,
 ) => {
   const { updateConversationLastMessage, addNewConversation } = useMessage();
   const notification = useGlobalNotification();
@@ -220,7 +226,10 @@ export const useChat = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (options?: ReloadOptions) => {
+    const background = options?.background ?? false;
+    const forceFresh = options?.forceFresh ?? false;
+
     if (!actualConversationId) {
       setMessages([]);
       loadedConversationIdRef.current = null;
@@ -238,10 +247,13 @@ export const useChat = (
 
     try {
       isReloadingRef.current = true;
-      setIsLoading(true);
+      if (!background) {
+        setIsLoading(true);
+      }
 
       const data = await getConversationByIdService(actualConversationId, {
         limit: 50,
+        force: forceFresh,
       });
 
       // Mark this conversation as loaded
@@ -306,7 +318,9 @@ export const useChat = (
     } catch (err) {
       console.error('Failed to load chat history', err);
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
       isReloadingRef.current = false;
     }
     // Note: Using refs for sender, socket, notification - excluded from deps to prevent infinite loops
@@ -327,10 +341,15 @@ export const useChat = (
         resolveConversationIdentifier(msg.conversation) ??
         currentActualConversationId ??
         currentConversationIdParam;
-      const currentConversationId =
-        currentActualConversationId ?? currentConversationIdParam;
+      const currentConversationId = hasActiveConversationView
+        ? currentActualConversationId ?? currentConversationIdParam
+        : undefined;
 
-      if (!currentActualConversationId && resolvedConversationId) {
+      if (
+        hasActiveConversationView &&
+        !currentActualConversationId &&
+        resolvedConversationId
+      ) {
         setActualConversationId(resolvedConversationId);
       }
 
@@ -342,6 +361,7 @@ export const useChat = (
 
       // Check if this message is for the currently active conversation
       const isActiveConversation =
+        hasActiveConversationView &&
         !!resolvedConversationId &&
         !!currentConversationId &&
         resolvedConversationId === currentConversationId;
@@ -540,7 +560,7 @@ export const useChat = (
     // Note: Using refs for actualConversationId, conversationId, sender, normalizeIncomingMessage
     // to prevent infinite re-render loops. These are accessed via refs inside handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, router, updateConversationLastMessage]);
+  }, [socket, router, updateConversationLastMessage, hasActiveConversationView]);
 
   // Cleanup preview URLs on unmount
   useEffect(() => {
@@ -877,7 +897,8 @@ export const useChat = (
 
   const markAsRead = (messageId: string) => {
     if (socket?.connected) {
-      socket.emit('message:read', { messageId });
+      // Backend expects messageIds (string or string[]) payload shape.
+      socket.emit('message:read', { messageIds: [messageId] });
     }
     setMessages((prev) =>
       prev.map((m) => (m._id === messageId ? { ...m, status: 'read' } : m)),
@@ -1645,13 +1666,16 @@ export const useChat = (
           }
         }
 
+        // Keep instant cached render, but always refresh from server so
+        // latest incoming messages appear without a manual page refresh.
+        void reload({ background: true, forceFresh: true });
         return;
       }
 
       // Reset infinite scroll state when conversation changes
       setHasMoreMessages(true);
       setOldestMessageDate(null);
-      reload();
+      void reload({ forceFresh: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actualConversationId]);

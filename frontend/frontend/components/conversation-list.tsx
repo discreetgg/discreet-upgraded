@@ -58,10 +58,31 @@ export const ConversationList = () => {
 
   // Sync React Query data to message context
   useEffect(() => {
-    if (fetchedConversations) {
-      setConversations(fetchedConversations);
-    }
-  }, [fetchedConversations, setConversations]);
+    if (!fetchedConversations) return;
+
+    setConversations((currentConversations) => {
+      if (!currentConversations || currentConversations.length === 0) {
+        return fetchedConversations;
+      }
+
+      const existingConversationIds = new Set(
+        currentConversations.map((conversation) => conversation._id),
+      );
+
+      const missingConversations = fetchedConversations.filter(
+        (conversation) => !existingConversationIds.has(conversation._id),
+      );
+
+      if (missingConversations.length === 0) {
+        return currentConversations;
+      }
+
+      return sortConversations([
+        ...currentConversations,
+        ...missingConversations,
+      ]);
+    });
+  }, [fetchedConversations, setConversations, sortConversations]);
 
   const renderMessagePreview = (message: MessageType) => {
     const prefix = message.sender.discordId === user?.discordId ? 'You: ' : '';

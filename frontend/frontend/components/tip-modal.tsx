@@ -28,6 +28,7 @@ import TipButton from './cards/tip-button';
 import { Dialog, DialogContent } from './ui/tipping-dialog';
 import { DialogTrigger } from '@radix-ui/react-dialog';
 import { useWallet } from '@/context/wallet-context-provider';
+import { toastPresets } from '@/lib/toast-presets';
 
 const FormSchema = z.object({
   tipAmount: z
@@ -66,7 +67,9 @@ export const TipDialog = ({
 
   const sendTip = async (amount: number) => {
     if (!user?.discordId) {
-      toast.error('You must be logged in to send tips.');
+      toast.error('You must be logged in to send tips.', {
+        ...toastPresets.error,
+      });
       return;
     }
 
@@ -81,16 +84,17 @@ export const TipDialog = ({
       },
       {
         onSuccess: () => {
-          toast.success('Tip sent successfully.');
           onOpenChange(false);
           form.reset();
           setIsSelected(false);
           setSelectedAmount(null);
         },
-        onError: (error) => {
-          toast.error('Failed to send tip.');
+        onError: (error: any) => {
           console.log('FAILED TO SEND TIPP', error);
-          if (error.data.message === 'Insufficient funds') {
+          if (
+            error?.data?.message === 'Insufficient funds' ||
+            error?.message === 'Insufficient funds'
+          ) {
             setIsFundWalletDialogOpen(true);
           }
         },
@@ -104,7 +108,9 @@ export const TipDialog = ({
 
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {
     if (!user?.discordId) {
-      toast.error('You must be logged in to send tips.');
+      toast.error('You must be logged in to send tips.', {
+        ...toastPresets.error,
+      });
       return;
     }
 

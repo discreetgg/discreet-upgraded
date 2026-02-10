@@ -1,6 +1,8 @@
 'use client';
 
 import { Toaster } from '@/components/ui/sonner';
+import { LivePaymentAlerts } from '@/components/live-payment-alerts';
+import { AlertPreferencesProvider } from '@/context/alert-preferences-context';
 import AuthContextProvider from '@/context/auth-context-provider';
 import GlobalContextProvider from '@/context/global-context-provider';
 import { GlobalNotificationProvider } from '@/context/global-notification-context';
@@ -37,36 +39,39 @@ export const Providers = ({
 
   return (
     <AuthContextProvider>
-      <GlobalContextProvider initialUser={initialUser}>
-        <GlobalNotificationProvider>
-          <SocketContextProvider>
-            <MessageContextProvider>
-              <CallContextProvider>
-                <WalletContextProvider>
-                  <ProgressProvider
-                    disableStyle
-                    options={{ showSpinner: false }}
-                    shallowRouting
-                  >
-                    <ThemeModeProvider
-                      attribute="class"
-                      defaultTheme="dark"
-                      forcedTheme="dark"
-                      disableTransitionOnChange
-                    >
-                      <QueryClientProvider client={queryClient}>
-                        {children}
-                      </QueryClientProvider>
-                      <Toaster position="top-center" />
-                      <CallSheet />
-                    </ThemeModeProvider>
-                  </ProgressProvider>
-                </WalletContextProvider>
-              </CallContextProvider>
-            </MessageContextProvider>
-          </SocketContextProvider>
-        </GlobalNotificationProvider>
-      </GlobalContextProvider>
+      <QueryClientProvider client={queryClient}>
+        <GlobalContextProvider initialUser={initialUser}>
+          <AlertPreferencesProvider>
+            <GlobalNotificationProvider>
+              <SocketContextProvider>
+                <MessageContextProvider>
+                  <CallContextProvider>
+                    <WalletContextProvider>
+                      <ProgressProvider
+                        disableStyle
+                        options={{ showSpinner: false }}
+                        shallowRouting
+                      >
+                        <ThemeModeProvider
+                          attribute="class"
+                          defaultTheme="dark"
+                          forcedTheme="dark"
+                          disableTransitionOnChange
+                        >
+                          {children}
+                          <Toaster position="top-center" />
+                          <LivePaymentAlerts />
+                          <CallSheet />
+                        </ThemeModeProvider>
+                      </ProgressProvider>
+                    </WalletContextProvider>
+                  </CallContextProvider>
+                </MessageContextProvider>
+              </SocketContextProvider>
+            </GlobalNotificationProvider>
+          </AlertPreferencesProvider>
+        </GlobalContextProvider>
+      </QueryClientProvider>
     </AuthContextProvider>
   );
 };

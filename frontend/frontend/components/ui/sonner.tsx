@@ -3,6 +3,7 @@
 import { useTheme } from 'next-themes';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 import { Icon } from './icons';
+import { toastPresets } from '@/lib/toast-presets';
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme();
@@ -11,9 +12,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps['theme']}
       className='toaster group'
+      visibleToasts={2}
+      expand={false}
       toastOptions={{
-        className:
-          '!border-[#32D583] !border  !px-4 !py-1.5 !w-max !border-r-3 !border-b-3 !text-[15px] !font-medium',
+        className: toastPresets.neutral.className,
+        descriptionClassName: toastPresets.neutral.descriptionClassName,
+        duration: toastPresets.neutral.duration,
       }}
       icons={{
         success: <Icon.toastSuccess />,

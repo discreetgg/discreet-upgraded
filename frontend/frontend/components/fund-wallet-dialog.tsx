@@ -1,12 +1,10 @@
 'use client';
 
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
-import { useState } from 'react';
 import { FundAccount } from './fund-account';
 import { FundMessage } from './fund-message';
 import { Icon } from './ui/icons';
 import { useWallet } from '@/context/wallet-context-provider';
-import { Button } from '@/components/ui/button';
 
 export const FundWalletDialog = ({
   children,
@@ -37,7 +35,7 @@ export const FundWalletDialog = ({
 
         {step === 'message' && (
           <FundMessage
-            title="You've successfully added X Amount to your wallet."
+            title="Funds added to your wallet."
             description="Thank you for topping up! You're now ready to unlock content and interact with your favorite creators."
             action="Continue to Marketplace"
             icon={Icon.tickCircle}
