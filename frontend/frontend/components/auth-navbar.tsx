@@ -3,7 +3,7 @@
 import React from 'react';
 import { Icon } from './ui/icons';
 import Link from 'next/link';
-import { Button, buttonVariants } from './ui/button';
+import { buttonVariants } from './ui/button';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -43,22 +43,22 @@ export const AuthNavbar = () => {
       {/* Desktop links */}
       <div className="hidden md:flex items-center gap-[18px]">
         <Link
-          href="/auth/guest-seller"
+          href="/auth/sign-in"
           className={cn(
             buttonVariants({ variant: 'outline' }),
             'rounded-full py-3.5 px-4 text-[15px] font-medium text-[#F8F8F8]'
           )}
         >
-          Guest Seller signin
+          Sign in
         </Link>
         <Link
-          href="/auth/guest-buyer"
+          href="/auth/sign-up"
           className={cn(
             buttonVariants({ variant: 'outline' }),
             'rounded-full py-3.5 px-4 text-[15px] font-medium text-[#F8F8F8]'
           )}
         >
-          Guest Buyer signin
+          Create account
         </Link>
       </div>
 
@@ -97,24 +97,24 @@ export const AuthNavbar = () => {
               >
                 <div className="flex flex-col gap-3">
                   <Link
-                    href="/auth/guest-seller"
+                    href="/auth/sign-in"
                     className={cn(
                       buttonVariants({ variant: 'outline' }),
                       'w-full rounded-full py-3.5 px-4 text-[15px] font-medium text-[#F8F8F8]'
                     )}
                     onClick={() => setOpen(false)}
                   >
-                    Guest Seller signin
+                    Sign in
                   </Link>
                   <Link
-                    href="/auth/guest-buyer"
+                    href="/auth/sign-up"
                     className={cn(
                       buttonVariants({ variant: 'outline' }),
                       'w-full rounded-full py-3.5 px-4 text-[15px] font-medium text-[#F8F8F8]'
                     )}
                     onClick={() => setOpen(false)}
                   >
-                    Guest Buyer signin
+                    Create account
                   </Link>
                 </div>
               </motion.div>

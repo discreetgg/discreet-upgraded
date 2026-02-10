@@ -20,6 +20,22 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const storageKey = 'root:auth';
+const manualLogoutKey = 'manual_logout';
+
+const hasManualLogoutMarker = () => {
+  if (typeof window === 'undefined') return false;
+  const cookieMarker = document.cookie
+    .split('; ')
+    .some((cookie) => cookie === `${manualLogoutKey}=1`);
+  const localMarker = localStorage.getItem(manualLogoutKey) === '1';
+  return cookieMarker || localMarker;
+};
+
+const clearManualLogoutMarker = () => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(manualLogoutKey);
+  document.cookie = `${manualLogoutKey}=; max-age=0; path=/; samesite=lax`;
+};
 
 const AuthContextProvider = ({ children }: { children: React.ReactNode }) => {
   const didHydrate = useRef(false);
@@ -32,6 +48,14 @@ const AuthContextProvider = ({ children }: { children: React.ReactNode }) => {
     let isMounted = true;
 
     const checkAuth = async () => {
+      if (hasManualLogoutMarker()) {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setLoading(false);
+        }
+        return false;
+      }
+
       // Simplified approach: Verify auth via API call
       // This works with httpOnly cookies (sent automatically via withCredentials)
       // No need to read cookies directly - the API will use httpOnly cookies
@@ -95,6 +119,12 @@ const AuthContextProvider = ({ children }: { children: React.ReactNode }) => {
         isAuthenticated,
       })
     );
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      clearManualLogoutMarker();
+    }
   }, [isAuthenticated]);
 
   const value = useMemo(

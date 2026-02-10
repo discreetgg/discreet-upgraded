@@ -13,11 +13,15 @@ const authRoutes = ['/auth', '/_auth'];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  
-  // Check for auth cookies (httpOnly cookies are sent automatically)
-  const hasAuthCookie = request.cookies.has('auth_token') || 
-                        request.cookies.has('discord_id') ||
-                        request.cookies.has('refresh_token');
+  const hasManualLogoutMarker =
+    request.cookies.get('manual_logout')?.value === '1';
+
+  // Check for real auth session cookies (httpOnly cookies are sent automatically).
+  // `discord_id` is only an identifier helper and should not gate auth routes.
+  const hasAuthCookie =
+    request.cookies.has('auth_token') ||
+    request.cookies.has('refresh_token');
+  const isAuthenticated = hasAuthCookie && !hasManualLogoutMarker;
 
   // Check if route is protected
   const isProtectedRoute = protectedRoutes.some(route => 
@@ -30,14 +34,14 @@ export function proxy(request: NextRequest) {
   );
 
   // Redirect to auth if accessing protected route without auth
-  if (isProtectedRoute && !hasAuthCookie) {
+  if (isProtectedRoute && !isAuthenticated) {
     const authUrl = new URL('/auth', request.url);
     authUrl.searchParams.set('redirect', pathname);
     return NextResponse.redirect(authUrl);
   }
 
   // Redirect to home if accessing auth route while authenticated
-  if (isAuthRoute && hasAuthCookie) {
+  if (isAuthRoute && isAuthenticated) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
@@ -57,4 +61,3 @@ export const config = {
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
-

@@ -5,7 +5,7 @@ import { HomePostsNavHeaderLoader } from "@/components/home-posts-nav-header-loa
 import { NotificationNav } from "@/components/notification-nav";
 import { useAuth } from "@/context/auth-context-provider";
 import { useGlobal } from "@/context/global-context-provider";
-import { cn, inDevEnvironment } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Suspense, useLayoutEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -68,18 +68,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 						/>
 					)}
 					{showBanner && (
-						<>
-							{(isAuthenticated && user?.role === "buyer") ||
-								(inDevEnvironment && (
-									<GetFullExperienceCard
-										title="Want to make more money?"
-										description="Become a seller, share your content, and start earning from your audience."
-										actionText="Become a Seller"
-										url="/verify-age"
-										setShowBanner={setShowBanner}
-									/>
-								))}
-						</>
+						<>{isAuthenticated && user?.role === "buyer" && (
+							<GetFullExperienceCard
+								title="Want to make more money?"
+								description="Become a seller, share your content, and start earning from your audience."
+								actionText="Become a Seller"
+								url="/verify-age"
+								setShowBanner={setShowBanner}
+							/>
+						)}</>
 					)}
 					<TopCreators />
 					{/* {isAuthenticated && inDevEnvironment && <PartnerDiscordServers />} */}

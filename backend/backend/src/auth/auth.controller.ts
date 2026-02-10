@@ -5,7 +5,6 @@ import {
   HttpCode,
   Post,
   Query,
-  Redirect,
   Req,
   Res,
   UnauthorizedException,
@@ -27,7 +26,60 @@ import { CreatGuestUserDto } from './dto/guest-user';
 
 @Controller('auth')
 export class AuthController {
+  private readonly oauthCallbackCookieName = 'oauth_callback_url';
+
   constructor(private readonly authService: AuthService) {}
+
+  private getDefaultFrontendRedirectUrl(): string {
+    if (process.env.FRONTEND_URL) {
+      return process.env.FRONTEND_URL;
+    }
+    return process.env.NODE_ENV === 'production'
+      ? 'https://www.discreet.gg'
+      : 'http://localhost:3000';
+  }
+
+  private getAllowedOAuthCallbackHosts(): string[] {
+    const configured = process.env.OAUTH_ALLOWED_REDIRECT_HOSTS
+      ?.split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (configured && configured.length > 0) {
+      return configured;
+    }
+
+    return ['localhost', '127.0.0.1', 'discreet.gg', 'www.discreet.gg'];
+  }
+
+  private sanitizeOAuthCallbackUrl(callbackUrl?: string): string | null {
+    if (!callbackUrl) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(callbackUrl);
+      const host = parsed.hostname.toLowerCase();
+      const allowedHosts = this.getAllowedOAuthCallbackHosts();
+      const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+      const isAllowedHost = allowedHosts.includes(host);
+      const isHttps = parsed.protocol === 'https:';
+
+      // Allow localhost over http/https, require https for non-local hosts.
+      if (!isAllowedHost || (!isLocalhost && !isHttps)) {
+        return null;
+      }
+
+      // Restrict callback to auth routes to avoid open redirect abuse.
+      if (!parsed.pathname.startsWith('/auth')) {
+        return null;
+      }
+
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
 
   @Post('discord/signup')
   @ApiOperation({ summary: 'Register a guest user (discord-like account)' })
@@ -134,15 +186,36 @@ export class AuthController {
 
   @Get('discord/signin')
   @ApiOperation({ summary: 'Signin a user using discord' })
-  @Redirect(process.env.DISCORD_OAUTH2_URL, 302)
-  discordSignIn(): Promise<any> {
-    return;
+  discordSignIn(
+    @Query('callback') callback: string | undefined,
+    @Res() res: Response,
+  ) {
+    const oauthUrl = process.env.DISCORD_OAUTH2_URL;
+    if (!oauthUrl) {
+      return res.status(500).json({ message: 'Discord OAuth URL not configured' });
+    }
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    const safeCallback = this.sanitizeOAuthCallbackUrl(callback);
+
+    if (safeCallback) {
+      res.cookie(this.oauthCallbackCookieName, safeCallback, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        maxAge: 10 * 60 * 1000, // 10 minutes
+        path: '/auth',
+      });
+    }
+
+    return res.redirect(oauthUrl);
   }
 
   @ApiExcludeEndpoint()
   @Get('discord/callback')
   async discordCallback(
     @Query('code') code: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<any> {
     try {
@@ -167,11 +240,25 @@ export class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
+      const callbackFromCookie = this.sanitizeOAuthCallbackUrl(
+        req.cookies?.[this.oauthCallbackCookieName],
+      );
+
+      // Cleanup callback cookie once consumed.
+      const clearCookieOptions = {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        path: '/auth',
+      } as const;
+      res.clearCookie(this.oauthCallbackCookieName, clearCookieOptions);
+
+      if (callbackFromCookie) {
+        return res.redirect(callbackFromCookie);
+      }
+
       if (process.env.NODE_ENV == 'production') {
-        //discreet.fans/
-        //TODO:redirect to the homepage
-        // return res.redirect('https://discreet-mocha.vercel.app/');
-        return res.redirect('https://www.discreet.gg');
+        return res.redirect(this.getDefaultFrontendRedirectUrl());
       }
 
       return { authenticated: true, user, token: jwt.accessToken };
@@ -223,8 +310,15 @@ export class AuthController {
     } catch (error) {
       console.log(error);
       // Refresh token invalid/expired → force logout
-      res.clearCookie('auth_token');
-      res.clearCookie('refresh_token');
+      const isProduction = process.env.NODE_ENV === 'production';
+      const clearCookieOptions = {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        path: '/',
+      } as const;
+      res.clearCookie('auth_token', clearCookieOptions);
+      res.clearCookie('refresh_token', clearCookieOptions);
       console.log('hereee');
       throw new UnauthorizedException('Session expired, please login again');
     }
@@ -233,8 +327,15 @@ export class AuthController {
   @Post('logout')
   @ApiOperation({ summary: 'Logout user' })
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('auth_token');
-    res.clearCookie('refresh_token');
+    const isProduction = process.env.NODE_ENV === 'production';
+    const clearCookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/',
+    } as const;
+    res.clearCookie('auth_token', clearCookieOptions);
+    res.clearCookie('refresh_token', clearCookieOptions);
     return { message: 'Logged out successfully', successful: true };
   }
 

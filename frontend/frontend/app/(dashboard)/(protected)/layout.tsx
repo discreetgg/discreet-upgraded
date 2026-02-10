@@ -6,31 +6,20 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import { useAuth } from "@/context/auth-context-provider";
 import WalletContextProvider from "@/context/wallet-context-provider";
-import { useRouter } from "@bprogress/next/app";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { FundWalletDialog } from "@/components/fund-wallet-dialog";
 
 import type React from "react";
-import { Suspense, useEffect } from "react";
-import { toast } from "sonner";
+import { Suspense } from "react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
 	const { isAuthenticated, loading } = useAuth();
-	const router = useRouter();
 	const pathname = usePathname();
-
-	useEffect(() => {
-		// Middleware handles route protection, but we still check here for client-side navigation
-		if (!loading && !isAuthenticated) {
-			toast.error("You are not logged in.");
-			router.push("/auth");
-		}
-	}, [isAuthenticated, router, loading]);
 
 	const isMessagePage =
 		pathname.startsWith("/messages/") && pathname !== "/messages";
-	const showRouteSkeleton = loading || !isAuthenticated;
+	const showRouteSkeleton = loading;
 	const skeletonVariant = isMessagePage ? "list" : "posts";
 
 	return (

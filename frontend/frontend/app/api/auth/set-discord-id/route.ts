@@ -1,10 +1,5 @@
-import { setAuthCookie } from '@/lib/cookies';
+import { clearAuthCookie, setAuthCookie } from '@/lib/cookies';
 import { NextRequest, NextResponse } from 'next/server';
-
-/**
- * Cookie name for storing Discord ID (client-readable)
- */
-const DISCORD_ID_COOKIE = 'discord_id';
 
 /**
  * API route to set Discord ID cookie
@@ -35,6 +30,23 @@ export async function POST(request: NextRequest) {
     console.error('Error setting Discord ID cookie:', error);
     return NextResponse.json(
       { error: 'Failed to set Discord ID cookie' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * API route to clear Discord ID cookie
+ * Called from client-side during logout to prevent stale auth detection.
+ */
+export async function DELETE() {
+  try {
+    await clearAuthCookie();
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing Discord ID cookie:', error);
+    return NextResponse.json(
+      { error: 'Failed to clear Discord ID cookie' },
       { status: 500 }
     );
   }

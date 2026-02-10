@@ -38,6 +38,15 @@ const refreshToken = async () => {
   return axios.post(`${baseURL}/auth/refresh`, {}, { withCredentials: true });
 };
 
+const hasManualLogoutMarker = () => {
+  if (typeof window === 'undefined') return false;
+  const cookieMarker = document.cookie
+    .split('; ')
+    .some((cookie) => cookie === 'manual_logout=1');
+  const localMarker = localStorage.getItem('manual_logout') === '1';
+  return cookieMarker || localMarker;
+};
+
 // Add token to all requests from localStorage
 api.interceptors.request.use(
   (config) => {
@@ -66,6 +75,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const manuallyLoggedOut = hasManualLogoutMarker();
 
     // Check if user has an existing session by checking localStorage
     // Only attempt token refresh if user was previously authenticated
@@ -88,6 +98,7 @@ api.interceptors.response.use(
     if (
       (error.response?.status === 403 || error.response?.status === 401) &&
       !originalRequest._retry &&
+      !manuallyLoggedOut &&
       wasAuthenticated && // Only retry if user was previously authenticated
       !isLogoutRequest // Don't refresh token on logout requests
     ) {
@@ -136,7 +147,7 @@ api.interceptors.response.use(
             } catch (e) { }
           }
 
-          if (!isGuest) {
+          if (!isGuest && !hasManualLogoutMarker()) {
             await discordSigninService();
           } else {
             // Just clear token and redirect to /auth

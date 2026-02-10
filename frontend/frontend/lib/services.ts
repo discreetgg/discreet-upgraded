@@ -114,6 +114,20 @@ export const discordSigninService = async () => {
 	// Store the current page in sessionStorage for mobile redirect handling
 	if (typeof window !== "undefined") {
 		sessionStorage.setItem("discord_signin_source", window.location.pathname);
+		const hostname = window.location.hostname.toLowerCase();
+		const isLocalHost =
+			hostname === "localhost" ||
+			hostname === "127.0.0.1" ||
+			hostname.endsWith(".local");
+
+		if (isLocalHost) {
+			const callbackUrl = `${window.location.origin}/auth/callback`;
+			const signinUrl = `${baseURL}/auth/discord/signin?callback=${encodeURIComponent(
+				callbackUrl
+			)}`;
+			window.location.href = signinUrl;
+			return;
+		}
 	}
 	window.location.href = `${baseURL}/auth/discord/signin`;
 };
@@ -320,7 +334,8 @@ export const removeAuthenticatorAppService = async (
 
 export const getUserService = async () => {
 	try {
-		const response = await api.get("/user");
+		// Auth identity must always be fresh and never served from client cache.
+		const response = await api.get("/user", { cache: false });
 		// console.log("CURRENT USER", response.data);
 
 		return response;

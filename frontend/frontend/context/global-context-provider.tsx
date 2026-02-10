@@ -48,6 +48,16 @@ type GlobalContextValue = {
 const GlobalContext = createContext<GlobalContextValue | null>(null);
 
 const storageKey = 'root:global';
+const manualLogoutKey = 'manual_logout';
+
+const hasManualLogoutMarker = () => {
+  if (typeof window === 'undefined') return false;
+  const cookieMarker = document.cookie
+    .split('; ')
+    .some((cookie) => cookie === `${manualLogoutKey}=1`);
+  const localMarker = localStorage.getItem(manualLogoutKey) === '1';
+  return cookieMarker || localMarker;
+};
 
 const GlobalContextProvider = ({
   children,
@@ -91,8 +101,22 @@ const GlobalContextProvider = ({
     }
   }, []);
 
+  const clearDiscordIdCookie = useCallback(async () => {
+    try {
+      await fetch('/api/auth/set-discord-id', {
+        method: 'DELETE',
+      });
+    } catch (error) {
+      console.error('Failed to clear Discord ID cookie:', error);
+    }
+  }, []);
+
   // Update user state when initialUser changes (e.g., on server-side navigation)
   useEffect(() => {
+    if (hasManualLogoutMarker()) {
+      return;
+    }
+
     if (initialUser) {
       setUser(initialUser);
       setIsAuthenticated(true);
@@ -104,6 +128,10 @@ const GlobalContextProvider = ({
 
   // Hydrate user and settings from localStorage
   useEffect(() => {
+    if (hasManualLogoutMarker()) {
+      return;
+    }
+
     const stored = localStorage.getItem(storageKey);
     if (stored) {
       try {
@@ -131,6 +159,11 @@ const GlobalContextProvider = ({
   // Fetch user on mount if we don't have user data (initialUser or localStorage)
   useEffect(() => {
     const fetchUserOnMount = async () => {
+      if (hasManualLogoutMarker()) {
+        setIsAuthenticated(false);
+        return;
+      }
+
       // Only fetch if we don't have user data from server or localStorage
       if (!user && !initialUser) {
         try {
@@ -191,18 +224,26 @@ const GlobalContextProvider = ({
       // Logout API may fail, but we still want to clear local state
       console.error('Logout API error:', error);
     } finally {
+      await clearDiscordIdCookie();
       setUser(null);
       setIsAuthenticated(false);
       // Clear entire localStorage to remove any persisted state for guest mode
       localStorage.clear();
+      localStorage.setItem(manualLogoutKey, '1');
 
-      // Clear cookies
-      document.cookie = 'bp_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      
+      // Best-effort cleanup for client-visible cookies.
+      const expires = 'expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      document.cookie = `auth_token=; ${expires}`;
+      document.cookie = `refresh_token=; ${expires}`;
+      document.cookie = `discord_id=; ${expires}`;
+      document.cookie = `bp_token=; ${expires}`;
+      document.cookie = `${manualLogoutKey}=1; path=/; max-age=604800; samesite=lax`;
+
       // Always redirect to /auth page on logout
-      router.push('/auth');
+      router.replace('/auth');
+      router.refresh();
     }
-  }, [setIsAuthenticated, router]);
+  }, [clearDiscordIdCookie, setIsAuthenticated, router]);
 
   const value = useMemo(
     () => ({

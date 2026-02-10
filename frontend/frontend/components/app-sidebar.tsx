@@ -97,6 +97,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			return item.isPublic;
 		}
 
+		// Earnings navigation is seller-only in all environments.
+		if (item.url === "/earnings") {
+			return user?.role === "seller";
+		}
+
+		// Become-a-seller navigation is buyer-only in all environments.
+		if (item.url === "/become-a-seller") {
+			return user?.role === "buyer";
+		}
+
 		return (
 			item?.role === "all" || item?.role === user?.role || inDevEnvironment
 		);

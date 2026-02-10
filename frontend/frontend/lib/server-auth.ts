@@ -1,5 +1,5 @@
-import { getAuthCookie } from './cookies';
 import { cookies } from 'next/headers';
+import { getAuthCookie } from '@/lib/cookies';
 import type { UserType } from '@/types/global';
 
 /**
@@ -9,12 +9,18 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.discreet.fans/ap
 
 /**
  * Get the current authenticated user on the server
- * Uses auth token from cookies or Discord ID to fetch user data
+ * Uses auth token/cookies to fetch user data
  * @returns User object if authenticated, null otherwise
  */
 export async function getServerUser(): Promise<UserType | null> {
     try {
         const cookieStore = await cookies();
+
+        // Respect explicit manual logout even if auth cookies still exist.
+        const manualLogout = cookieStore.get('manual_logout')?.value === '1';
+        if (manualLogout) {
+            return null;
+        }
         
         // Build cookie header from all available cookies to forward to API
         const cookieHeader = cookieStore.getAll()
@@ -58,23 +64,17 @@ export async function getServerUser(): Promise<UserType | null> {
             }
         }
 
-        // Fallback: Try using Discord ID if available (public endpoint)
+        // Fallback for environments where API auth cookies are not readable on the frontend domain:
+        // use the mirrored frontend discord_id cookie to resolve the current user.
         const discordId = await getAuthCookie();
         if (discordId) {
-            const response = await fetch(`${API_URL}/user/${discordId}`, {
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                cache: 'no-store',
-            });
-
-            if (response.ok) {
-                const user = await response.json();
+            const user = await getServerUserByDiscordId(discordId);
+            if (user) {
                 return user;
             }
         }
 
-        // No authentication available
+        // No authenticated session available
         return null;
     } catch (error: any) {
         // Only log non-DNS errors in production, or all errors in development

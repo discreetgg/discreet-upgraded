@@ -10,7 +10,7 @@ const Page = async () => {
 
 	// Redirect if not authenticated
 	if (!user) {
-		redirect('/auth');
+		redirect('/auth?redirect=/profile');
 	}
 
 	return (

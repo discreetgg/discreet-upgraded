@@ -1,10 +1,22 @@
 import { EarningSummary } from '@/components/earning-summary';
 import { MyPayout } from '@/components/my-payout';
 import { Icon } from '@/components/ui/icons';
+import { getServerUser } from '@/lib/server-auth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Image from 'next/image';
+import { redirect } from 'next/navigation';
 
-const Page = () => {
+const Page = async () => {
+  const user = await getServerUser();
+
+  if (!user) {
+    redirect('/auth?redirect=/earnings');
+  }
+
+  if (user.role !== 'seller') {
+    redirect('/not-authorized');
+  }
+
   return (
     <div className="py-6 px-2">
       <main className="relative md:pt-[88px] space-y-6">
