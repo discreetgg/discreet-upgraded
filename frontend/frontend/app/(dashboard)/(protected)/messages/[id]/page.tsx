@@ -63,7 +63,7 @@ const ConversationPage = () => {
   }
 
   return (
-    <div className="relative h-full flex gap-4 w-full min-w-0 pt-4 md:pt-0">
+    <div className="relative h-full min-h-0 flex gap-4 w-full min-w-0 overflow-hidden pt-4 md:pt-0">
       <MessageContainer
         sender={{
           _id: user?.discordId ?? '',
@@ -91,10 +91,14 @@ const ConversationPage = () => {
         }
         conversationId={conversationId}
       />
-      <div className="hidden md:block w-[311px] space-y-4">
+      <div className="hidden md:flex h-full min-h-0 w-[311px] min-w-[311px] flex-col gap-4">
         <MessageSearchContainer />
         <MessageSenderDetailsContainer />
-        {user?.role === 'buyer' && <MessageSharedMediaContainer />}
+        {user?.role === 'buyer' && (
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden hidden_scrollbar rounded-[14.41px] border border-[#73819712] bg-[#0F1114] py-3">
+            <MessageSharedMediaContainer />
+          </div>
+        )}
         {user?.role === 'seller' && (
           <>
             <NotesContainer />

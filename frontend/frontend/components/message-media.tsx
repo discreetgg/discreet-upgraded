@@ -7,6 +7,7 @@ import { MessageMediaDialog } from './message-media-dialog';
 import { useState } from 'react';
 import { FALLBACK_IMAGE } from '@/constants/constants';
 import { ComponentLoader } from './ui/component-loader';
+import { Play } from 'lucide-react';
 
 interface MessageMediaProps {
   media: MediaType[];
@@ -107,28 +108,41 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
               </>
               ) : item.type === 'video' ? (
               <>
-                <AuthenticatedMedia
-                  type="video"
-                  src={getProxiedMediaUrl(item._id, item.url)}
-                  alt={item.caption || 'Video'}
-                  className="w-full h-full object-contain"
-                  videoProps={{
-                    controls: true,
-                    style: { objectPosition: 'center' },
-                    preload: "metadata",
-                    onLoadedMetadata: (e) => {
-                      const el = e.currentTarget as HTMLVideoElement;
-                      if (!el.videoWidth || !el.videoHeight) {
-                        handleImageError(getProxiedMediaUrl(item._id, item.url));
-                        return;
+                <MessageMediaDialog
+                  media={media}
+                  activeMediaIndex={index}
+                  activeMedia={item}
+                >
+                  <div className="relative h-full w-full cursor-zoom-in bg-black">
+                    <AuthenticatedMedia
+                      type="video"
+                      src={getProxiedMediaUrl(item._id, item.url)}
+                      alt={item.caption || 'Video'}
+                      className="w-full h-full object-contain"
+                      videoProps={{
+                        muted: true,
+                        playsInline: true,
+                        preload: 'metadata',
+                        onLoadedMetadata: (e) => {
+                          const el = e.currentTarget as HTMLVideoElement;
+                          if (!el.videoWidth || !el.videoHeight) {
+                            handleImageError(getProxiedMediaUrl(item._id, item.url));
+                            return;
+                          }
+                          setAspectFor(item.url, el.videoWidth, el.videoHeight);
+                        },
+                      }}
+                      onMediaError={() =>
+                        handleImageError(getProxiedMediaUrl(item._id, item.url))
                       }
-                      setAspectFor(item.url, el.videoWidth, el.videoHeight);
-                    }
-                  }}
-                  onMediaError={() =>
-                    handleImageError(getProxiedMediaUrl(item._id, item.url))
-                  }
-                />
+                    />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="rounded-full bg-black/60 p-3 text-white">
+                        <Play className="size-6 fill-current" />
+                      </div>
+                    </div>
+                  </div>
+                </MessageMediaDialog>
                 {isLoading && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10">
                     <ComponentLoader />

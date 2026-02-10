@@ -10,7 +10,7 @@ import { MessageMediaDialog } from './message-media-dialog';
 import { cn, getBlurredImage, getProxiedMediaUrl } from '@/lib/utils';
 import { AuthenticatedMedia } from './authenticated-media';
 import { useWallet } from '@/context/wallet-context-provider';
-import { VideoPlayer } from './shared/video-player';
+import { Play } from 'lucide-react';
 
 export const DMMenuPreview = ({
   mediaArray,
@@ -163,6 +163,14 @@ export const DMMenuPreview = ({
               const mediaIsPaid = isPaid || media.paid;
               const shouldShowBlurred =
                 isReceiver && isPaidContent && !mediaIsPaid;
+              const isMediaLocked = (mediaItem: MediaType) => {
+                const isPaidContentItem =
+                  mediaItem.caption === 'content image' ||
+                  mediaItem.caption === 'content video' ||
+                  mediaItem.caption === 'video';
+                const mediaItemIsPaid = isPaid || mediaItem.paid;
+                return isReceiver && isPaidContentItem && !mediaItemIsPaid;
+              };
 
               return (
                 <div key={mediaKey} className="min-w-full">
@@ -171,16 +179,9 @@ export const DMMenuPreview = ({
                       media={mediaArray}
                       activeMediaIndex={index}
                       activeMedia={media}
-                      isMediaLocked={(mediaItem) => {
-                        const isPaidContent =
-                          mediaItem.caption === 'content image' ||
-                          mediaItem.caption === 'content video' ||
-                          mediaItem.caption === 'video';
-                        const mediaItemIsPaid = isPaid || mediaItem.paid;
-                        return isReceiver && isPaidContent && !mediaItemIsPaid;
-                      }}
+                      isMediaLocked={isMediaLocked}
                     >
-                      <div className="relative w-full h-[226px]">
+                      <div className="relative w-full h-[226px] rounded-[12px] bg-black">
                         <AuthenticatedMedia
                           type="image"
                           src={
@@ -195,7 +196,7 @@ export const DMMenuPreview = ({
                           width={400}
                           height={400}
                           className={cn(
-                            'w-full h-[226px] object-cover rounded-[12px]',
+                            'w-full h-full object-contain rounded-[12px]',
                             shouldShowBlurred && 'blur-xl'
                           )}
                         />
@@ -212,19 +213,28 @@ export const DMMenuPreview = ({
                       </div>
                     </MessageMediaDialog>
                   ) : media.type === 'video' ? (
-                    <div className="relative w-full h-[226px]">
-                      {shouldShowBlurred ? (
-                        <>
-                          <AuthenticatedMedia
-                            type="video"
-                            src={getProxiedMediaUrl(media._id, media.url)}
-                            alt={media.caption || 'Video'}
-                            className="w-full h-[226px] object-cover rounded-[12px] blur-2xl"
-                            videoProps={{
-                              preload: 'metadata',
-                              muted: true,
-                            }}
-                          />
+                    <MessageMediaDialog
+                      media={mediaArray}
+                      activeMediaIndex={index}
+                      activeMedia={media}
+                      isMediaLocked={isMediaLocked}
+                    >
+                      <div className="relative w-full h-[226px] rounded-[12px] bg-black overflow-hidden cursor-zoom-in">
+                        <AuthenticatedMedia
+                          type="video"
+                          src={getProxiedMediaUrl(media._id, media.url)}
+                          alt={media.caption || 'Video'}
+                          className={cn(
+                            'w-full h-full object-contain rounded-[12px]',
+                            shouldShowBlurred && 'blur-2xl'
+                          )}
+                          videoProps={{
+                            preload: 'metadata',
+                            muted: true,
+                            playsInline: true,
+                          }}
+                        />
+                        {shouldShowBlurred ? (
                           <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-[12px]">
                             <div className="flex flex-col items-center gap-2">
                               <Icon.lock className="w-8 h-8 text-white/80" />
@@ -233,14 +243,15 @@ export const DMMenuPreview = ({
                               </span>
                             </div>
                           </div>
-                        </>
-                      ) : (
-                        <VideoPlayer
-                          src={getProxiedMediaUrl(media._id, media.url)}
-                          className="w-full h-[226px] object-contain rounded-[12px]"
-                        />
-                      )}
-                    </div>
+                        ) : (
+                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                            <div className="rounded-full bg-black/60 p-3 text-white">
+                              <Play className="size-7 fill-current" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </MessageMediaDialog>
                   ) : null}
                 </div>
               );

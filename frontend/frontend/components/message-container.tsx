@@ -172,7 +172,7 @@ export const MessageContainer = ({
   };
 
   return (
-    <section className="flex h-full w-full lg:w-[524px] flex-col mx-auto bg-[#111316]">
+    <section className="flex h-full min-h-0 w-full lg:w-[524px] flex-col mx-auto bg-[#111316]">
       <MessageContainerHeader receiver={receiver} />
       {showDMMenu ? (
         <DmMenuCreation

@@ -81,7 +81,7 @@ export function MessagesLayoutClient({ children }: { children: ReactNode }) {
       </div>
       {/* Message Container - Hidden on mobile when on /messages page */}
       <div
-        className={`${isConversationPage ? '' : 'hidden md:flex'} flex-1 `}
+        className={`${isConversationPage ? '' : 'hidden md:flex'} flex-1 min-h-0 overflow-hidden`}
       >
         {children}
       </div>

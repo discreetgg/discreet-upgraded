@@ -3,7 +3,7 @@ import { cn, getProxiedMediaUrl } from '@/lib/utils';
 import type { MediaType } from '@/types/global';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AuthenticatedMedia } from './authenticated-media';
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Icon } from './ui/icons';
 import { FullScreenModal } from './ui/full-screen-modal';
 
@@ -47,6 +47,30 @@ export const MessageMediaDialog = ({
   const [showControls, setShowControls] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const modalContentRef = useRef<HTMLDivElement | null>(null);
+
+  const pauseModalVideos = useCallback(() => {
+    const videos = modalContentRef.current?.querySelectorAll('video');
+    if (!videos?.length) {
+      return;
+    }
+
+    videos.forEach((video) => {
+      if (!video.paused) {
+        video.pause();
+      }
+    });
+  }, []);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        pauseModalVideos();
+      }
+      setOpen(nextOpen);
+    },
+    [pauseModalVideos]
+  );
 
   // Detect mobile viewport
   useEffect(() => {
@@ -90,8 +114,10 @@ export const MessageMediaDialog = ({
     }
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') {
+        pauseModalVideos();
         setCurrentIndex((prev) => (prev + 1) % sortedMedia.length);
       } else if (e.key === 'ArrowLeft') {
+        pauseModalVideos();
         setCurrentIndex(
           (prev) => (prev - 1 + sortedMedia.length) % sortedMedia.length
         );
@@ -99,7 +125,7 @@ export const MessageMediaDialog = ({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, sortedMedia.length]);
+  }, [open, sortedMedia.length, pauseModalVideos]);
 
   // Reset controls visibility when dialog opens
   useEffect(() => {
@@ -107,6 +133,13 @@ export const MessageMediaDialog = ({
       setShowControls(true);
     }
   }, [open]);
+
+  // Re-show controls after media changes so close/navigation remains reachable
+  useEffect(() => {
+    if (open) {
+      setShowControls(true);
+    }
+  }, [open, currentIndex]);
 
   // Update current index when activeMediaIndex changes
   useEffect(() => {
@@ -136,7 +169,7 @@ export const MessageMediaDialog = ({
       <div
         onClick={() => {
           setCurrentIndex(findSortedIndex(activeMediaIndex));
-          setOpen(true);
+          handleOpenChange(true);
         }}
         className="cursor-pointer"
       >
@@ -145,15 +178,16 @@ export const MessageMediaDialog = ({
 
       <FullScreenModal
         open={open}
-        onOpenChange={setOpen}
-        showCloseButton={!isMobile || showControls}
+        onOpenChange={handleOpenChange}
+        showCloseButton
       >
         <div
+          ref={modalContentRef}
           className="flex items-center justify-center h-full w-full"
           onClick={(e) => {
             // Close when clicking the wrapper (outside the image)
             if (e.target === e.currentTarget) {
-              setOpen(false);
+              handleOpenChange(false);
             }
           }}
         >
@@ -185,18 +219,20 @@ export const MessageMediaDialog = ({
               )}
             </div>
           ) : current.type === 'video' ? (
-            <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+            <div className="relative w-full h-full flex items-center justify-center bg-black">
               <AuthenticatedMedia
                 type="video"
                 src={getProxiedMediaUrl(current._id, current.url)}
                 alt={current.caption || 'Post video'}
                 className={cn(
-                  'max-h-[90vh] w-auto mx-auto rounded-lg overflow-hidden',
-                  isLocked && 'blur-xl overflow-hidden'
+                  'h-full w-full max-h-full max-w-full object-contain',
+                  isLocked && 'blur-xl'
                 )}
                 videoProps={{
                   controls: !isLocked ? true : false,
                   autoPlay: !isLocked ? true : false,
+                  playsInline: true,
+                  preload: 'metadata',
                 }}
               />
               {isLocked && (
@@ -222,11 +258,12 @@ export const MessageMediaDialog = ({
                 'absolute left-4 top-1/2 -translate-y-1/2 text-white/90 hover:text-white text-3xl z-40 transition-opacity duration-300 bg-black/30 hover:bg-black/50 rounded-full p-2',
                 isMobile && !showControls && 'opacity-0 pointer-events-none'
               )}
-              onClick={() =>
+              onClick={() => {
+                pauseModalVideos();
                 setCurrentIndex(
                   (prev) => (prev - 1 + sortedMedia.length) % sortedMedia.length
-                )
-              }
+                );
+              }}
             >
               <ChevronLeft />
             </button>
@@ -236,9 +273,10 @@ export const MessageMediaDialog = ({
                 'absolute right-4 top-1/2 -translate-y-1/2 text-white/90 hover:text-white text-3xl z-40 transition-opacity duration-300 bg-black/30 hover:bg-black/50 rounded-full p-2',
                 isMobile && !showControls && 'opacity-0 pointer-events-none'
               )}
-              onClick={() =>
-                setCurrentIndex((prev) => (prev + 1) % sortedMedia.length)
-              }
+              onClick={() => {
+                pauseModalVideos();
+                setCurrentIndex((prev) => (prev + 1) % sortedMedia.length);
+              }}
             >
               <ChevronRight />
             </button>

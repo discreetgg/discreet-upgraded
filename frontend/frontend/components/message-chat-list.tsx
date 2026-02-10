@@ -42,6 +42,9 @@ export const MessageChatList = ({
 }: MessageChatListProps) => {
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
   const hasIntersectedTopRef = useRef(false);
+  const pendingJumpMessageIdRef = useRef<string | null>(null);
+  const jumpLoadAttemptsRef = useRef(0);
+  const MAX_JUMP_LOAD_ATTEMPTS = 20;
   type ScrollAnchor = {
     type: 'day' | 'message';
     key: string;
@@ -99,6 +102,58 @@ export const MessageChatList = ({
 
     entries.sort((a, b) => Math.abs(a.top) - Math.abs(b.top));
     return entries[0].anchor;
+  };
+
+  const highlightJumpTarget = (element: HTMLElement) => {
+    const previousTransition = element.style.transition;
+    const previousBoxShadow = element.style.boxShadow;
+
+    element.style.transition = 'box-shadow 160ms ease';
+    element.style.boxShadow = '0 0 0 2px rgba(255, 0, 127, 0.8)';
+    window.setTimeout(() => {
+      element.style.boxShadow = previousBoxShadow;
+      window.setTimeout(() => {
+        element.style.transition = previousTransition;
+      }, 180);
+    }, 900);
+  };
+
+  const scrollToMessageById = (messageId: string) => {
+    const root = scrollRootRef?.current ?? null;
+    const queryRoot: ParentNode = root ?? document;
+    const target = queryRoot.querySelector<HTMLElement>(
+      `[data-message-id="${messageId}"]`,
+    );
+
+    if (!target) {
+      return false;
+    }
+
+    target.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
+    highlightJumpTarget(target);
+    return true;
+  };
+
+  const tryLoadOlderForJump = () => {
+    if (!pendingJumpMessageIdRef.current) {
+      return;
+    }
+
+    if (!onLoadOlder || !hasMoreMessages || isLoadingMore) {
+      return;
+    }
+
+    if (jumpLoadAttemptsRef.current >= MAX_JUMP_LOAD_ATTEMPTS) {
+      pendingJumpMessageIdRef.current = null;
+      jumpLoadAttemptsRef.current = 0;
+      return;
+    }
+
+    jumpLoadAttemptsRef.current += 1;
+    onLoadOlder();
   };
 
   // Filter messages that match the search term
@@ -235,6 +290,48 @@ export const MessageChatList = ({
       anchor: null,
     };
   }, [messages.length, isLoadingMore, scrollRootRef]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const jumpEvent = event as CustomEvent<{ messageId?: string }>;
+      const messageId = jumpEvent.detail?.messageId;
+      if (!messageId) {
+        return;
+      }
+
+      pendingJumpMessageIdRef.current = messageId;
+      jumpLoadAttemptsRef.current = 0;
+
+      const found = scrollToMessageById(messageId);
+      if (found) {
+        pendingJumpMessageIdRef.current = null;
+        return;
+      }
+
+      tryLoadOlderForJump();
+    };
+
+    window.addEventListener('messages:jump-to', handler as EventListener);
+    return () => {
+      window.removeEventListener('messages:jump-to', handler as EventListener);
+    };
+  }, [hasMoreMessages, isLoadingMore, onLoadOlder, scrollRootRef]);
+
+  useEffect(() => {
+    const pendingId = pendingJumpMessageIdRef.current;
+    if (!pendingId) {
+      return;
+    }
+
+    const found = scrollToMessageById(pendingId);
+    if (found) {
+      pendingJumpMessageIdRef.current = null;
+      jumpLoadAttemptsRef.current = 0;
+      return;
+    }
+
+    tryLoadOlderForJump();
+  }, [messages.length, hasMoreMessages, isLoadingMore, onLoadOlder, scrollRootRef]);
 
   return (
     <div className="p-4 space-y-6">

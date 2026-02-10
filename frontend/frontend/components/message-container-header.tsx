@@ -50,6 +50,24 @@ export const MessageContainerHeader = ({
     }
   }, [receiver?.discordId]);
 
+  useEffect(() => {
+    const handleJumpToMessage = () => {
+      setIsSheetOpen(false);
+    };
+
+    window.addEventListener(
+      'messages:jump-to',
+      handleJumpToMessage as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        'messages:jump-to',
+        handleJumpToMessage as EventListener,
+      );
+    };
+  }, []);
+
   return (
     <div className="relative flex items-center w-full border-b border-[#1E2227] py-3 px-4 min-w-0 overflow-hidden">
       {/* Left side - Hidden on mobile when search is expanded */}

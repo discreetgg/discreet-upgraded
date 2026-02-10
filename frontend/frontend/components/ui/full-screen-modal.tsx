@@ -49,7 +49,7 @@ export function FullScreenModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] bg-black/95 animate-in fade-in-0 duration-200"
+      className="fixed inset-0 z-[9999] pointer-events-auto bg-black/95 animate-in fade-in-0 duration-200"
       onClick={(e) => {
         // Close when clicking backdrop
         if (e.target === e.currentTarget) {
