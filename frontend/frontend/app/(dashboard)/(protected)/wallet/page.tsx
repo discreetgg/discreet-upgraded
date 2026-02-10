@@ -6,32 +6,44 @@ import Image from "next/image";
 const Page = () => {
 	return (
 		<div className="relative pt-5 md:pt-[88px] px-4 space-y-[26px] mb-10">
-			<div className="space-y-1">
-				<div className="flex items-center justify-between gap-3 md:mb-0 mb-2">
-					<Image
-						src="/logo.png"
-						height={41}
-						width={41}
-						alt="logo"
-						className="md:hidden"
-					/>
-					<h1 className="md:text-[32px] text-[15px] font-semibold text-[#F8F8F8] ">
-						Wallet
-					</h1>
-					<div className="md:hidden" />
-				</div>
-				<p className="text-[#8A8C95] font-light mt-4 md:mt-0">
-					Manage your credits and track transactions
-				</p>
-			</div>
-			<div className="rounded-xl md:border  border-[#2E2E32] pb-4 ">
-				<div className="  flex flex-col !relative md:px-6  bg-[#0F1114]  space-y-4 divide-y divide-[#2E2E32]">
-					<WalletBalanceSection />
-					<ScrollArea className="rounded-xl md:border  border-[#2E2E32]">
-						<div className="  md:max-h-[700px] xl:max-h-[800px]  overflow-y-auto !relative  bg-[#0F1114]  space-y-4">
-							<WalletTransactionsSection />
+			<div className="space-y-4">
+				<div className="flex items-center justify-between gap-3 md:mb-0 mb-6">
+					<div className="flex items-center gap-4">
+						<Image
+							src="/logo.png"
+							height={48}
+							width={48}
+							alt="logo"
+							className="md:hidden rounded-xl shadow-lg"
+						/>
+						<div>
+							<h1 className="md:text-4xl text-2xl font-bold text-[#F8F8F8] tracking-tight">
+								Wallet
+							</h1>
+							<p className="text-[#8A8C95] text-sm font-medium mt-1">
+								Manage your digital assets and track history
+							</p>
 						</div>
-					</ScrollArea>
+					</div>
+				</div>
+			</div>
+
+			<div className="max-w-6xl mx-auto">
+				<WalletBalanceSection />
+
+				<div className="space-y-4">
+					<div className="flex items-center justify-between px-1">
+						<h2 className="text-xl font-bold text-white tracking-tight">Recent Activity</h2>
+						<div className="h-[1px] flex-1 bg-[#2E2E32] mx-6 hidden md:block" />
+					</div>
+
+					<div className="rounded-3xl border border-[#2E2E32] bg-[#0F1114]/50 backdrop-blur-md overflow-hidden">
+						<ScrollArea className="h-[500px] md:h-[600px] xl:h-[700px]">
+							<div className="overflow-y-auto">
+								<WalletTransactionsSection />
+							</div>
+						</ScrollArea>
+					</div>
 				</div>
 			</div>
 		</div>

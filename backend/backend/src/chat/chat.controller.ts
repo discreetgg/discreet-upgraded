@@ -94,7 +94,7 @@ export class ChatController {
     @Query('limit') limit = 50,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ) {
+  ): Promise<any> {
     return this.chatService.fetchConversation(
       conversationId,
       Number(limit),

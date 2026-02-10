@@ -112,146 +112,114 @@ export const PreCallBalanceCheckDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        {checkState === 'loading' && (
-          <div className="flex flex-col items-center gap-6 py-8">
-            {/* Loading spinner */}
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-[#1F2227]">
-              <Icon.loadingIndicator className="w-8 h-8 text-[#FF007F] animate-spin" />
-            </div>
-
-            {/* Title */}
-            <div className="text-center">
-              <h2 className="text-xl font-semibold text-[#D4D4D8]">
-                Checking Balance
-              </h2>
-              <p className="text-sm text-[#71717A] mt-2">
-                Verifying you have enough credits for this call...
-              </p>
-            </div>
-
-            {/* Skeleton details */}
-            <div className="w-full space-y-3 bg-[#0F1114] rounded-lg p-4 border border-[#1E1E21]">
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-24 bg-[#1F2227]" />
-                <Skeleton className="h-4 w-20 bg-[#1F2227]" />
-              </div>
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-28 bg-[#1F2227]" />
-                <Skeleton className="h-4 w-16 bg-[#1F2227]" />
-              </div>
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-20 bg-[#1F2227]" />
-                <Skeleton className="h-4 w-24 bg-[#1F2227]" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {checkState === 'sufficient' && (
-          <div className="flex flex-col items-center gap-6 py-8">
-            {/* Success icon */}
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-[#22C55E]/10">
-              <Icon.tickCircle className="w-8 h-8 text-[#22C55E]" />
-            </div>
-
-            {/* Title */}
-            <div className="text-center">
-              <h2 className="text-xl font-semibold text-[#D4D4D8]">
-                Balance Verified
-              </h2>
-              <p className="text-sm text-[#71717A] mt-2">
-                Starting your call...
-              </p>
-            </div>
-          </div>
-        )}
-
-        {checkState === 'insufficient' && (
-          <div className="flex flex-col items-center gap-6 py-4">
-            {/* Warning icon */}
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-[#EF4444]/10">
-              <Icon.callEnded className="w-8 h-8" />
-            </div>
-
-            {/* Title */}
-            <div className="text-center">
-              <h2 className="text-xl font-semibold text-[#D4D4D8]">
-                Insufficient Balance
-              </h2>
-              <p className="text-sm text-[#71717A] mt-2">
-                You don&apos;t have enough credits to cover the minimum call
-                time.
-              </p>
-            </div>
-
-            {/* Balance Details */}
-            <div className="w-full space-y-3 bg-[#0F1114] rounded-lg p-4 border border-[#1E1E21]">
-              {/* Current Balance */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[#71717A]">Your Balance</span>
-                <span className="text-sm font-medium text-[#D4D4D8]">
-                  ${balance.toFixed(2)}
-                </span>
+      <DialogContent className="max-w-[400px] p-0 overflow-hidden border-[#2E2E32] bg-[#0A0A0B] rounded-[32px] shadow-2xl outline-none">
+        <div className="p-8">
+          {checkState === 'loading' && (
+            <div className="flex flex-col items-center gap-8 py-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-accent-color/20 blur-2xl rounded-full" />
+                <div className="relative flex items-center justify-center w-20 h-20 rounded-full bg-[#1A1A1E] border border-[#2E2E32]">
+                  <Icon.loadingIndicator className="w-10 h-10 text-accent-color animate-spin" />
+                </div>
               </div>
 
-              {/* Call Rate */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[#71717A]">Call Rate</span>
-                <span className="text-sm font-medium text-[#D4D4D8]">
-                  ${callRate.toFixed(2)}/min
-                </span>
+              <div className="text-center space-y-2">
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                  Verifying Balance
+                </h2>
+                <p className="text-[13px] text-[#8A8C95] leading-relaxed max-w-[240px] mx-auto">
+                  Ensuring you have enough credits to connect with {seller?.displayName}...
+                </p>
               </div>
 
-              {/* Minimum Time */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[#71717A]">Minimum Time</span>
-                <span className="text-sm font-medium text-[#D4D4D8]">
-                  {minimumCallTime}{' '}
-                  {minimumCallTime === 1 ? 'minute' : 'minutes'}
-                </span>
-              </div>
-
-              <div className="border-t border-[#1E1E21] my-2" />
-
-              {/* Required Amount */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-[#D4D4D8]">
-                  Minimum Required
-                </span>
-                <span className="text-base font-semibold text-[#D4D4D8]">
-                  ${requiredAmount.toFixed(2)}
-                </span>
-              </div>
-
-              {/* Shortfall */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[#EF4444]">Amount Needed</span>
-                <span className="text-sm font-semibold text-[#EF4444]">
-                  ${shortfall.toFixed(2)}
-                </span>
+              <div className="w-full space-y-4 bg-[#161618]/50 rounded-2xl p-6 border border-[#2E2E32]/50">
+                <div className="flex items-center justify-between opacity-40">
+                  <Skeleton className="h-4 w-24 bg-[#2E2E32]" />
+                  <Skeleton className="h-4 w-12 bg-[#2E2E32]" />
+                </div>
+                <div className="flex items-center justify-between opacity-40">
+                  <Skeleton className="h-4 w-28 bg-[#2E2E32]" />
+                  <Skeleton className="h-4 w-16 bg-[#2E2E32]" />
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Actions */}
-            <div className="w-full space-y-3">
-              <Button
-                onClick={handleFundWallet}
-                className="w-full bg-[#FF007F] hover:bg-[#FF007F]/90 text-white border-0"
-              >
-                <Icon.fundWallet className="w-4 h-4 mr-2" />
-                Fund Wallet
-              </Button>
-              <Button
-                onClick={handleCancel}
-                variant="outline"
-                className="w-full bg-[#1F2227] hover:bg-[#2A2D33] text-[#D4D4D8] border border-[#1E1E21]"
-              >
-                Cancel
-              </Button>
+          {checkState === 'sufficient' && (
+            <div className="flex flex-col items-center gap-8 py-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full" />
+                <div className="relative flex items-center justify-center w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                  <Icon.tickCircle className="w-10 h-10 text-emerald-500" />
+                </div>
+              </div>
+
+              <div className="text-center space-y-2">
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                  Balance Verified
+                </h2>
+                <p className="text-[13px] text-emerald-500/80 font-medium">
+                  Preparing your secure connection...
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {checkState === 'insufficient' && (
+            <div className="flex flex-col items-center gap-8 py-4">
+              <div className="relative">
+                <div className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full" />
+                <div className="relative flex items-center justify-center w-20 h-20 rounded-full bg-red-500/10 border border-red-500/20">
+                  <Icon.callEnded className="w-10 h-10 text-red-500" />
+                </div>
+              </div>
+
+              <div className="text-center space-y-2">
+                <h2 className="text-xl font-bold text-white tracking-tight">
+                  Top-up Required
+                </h2>
+                <p className="text-[13px] text-[#8A8C95] leading-relaxed">
+                  Your current balance of <span className="text-white font-bold">${balance.toFixed(2)}</span> is below the minimum required for this call.
+                </p>
+              </div>
+
+              <div className="w-full space-y-3 bg-[#161618]/50 rounded-2xl p-5 border border-[#2E2E32]/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#8A8C95]">Minimum Required</span>
+                  <span className="text-sm font-bold text-white">${requiredAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-red-400 font-medium">Amount Needed</span>
+                  <span className="text-sm font-bold text-red-400">${shortfall.toFixed(2)}</span>
+                </div>
+
+                <div className="pt-2 border-t border-[#2E2E32]/50 mt-1" />
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-[#8A8C95]">Call Rate</span>
+                  <span className="text-xs text-white/60">${callRate.toFixed(2)} / min</span>
+                </div>
+              </div>
+
+              <div className="w-full space-y-4 pt-2">
+                <Button
+                  onClick={handleFundWallet}
+                  className="w-full h-14 bg-accent-color hover:bg-accent-color/90 text-white rounded-2xl font-bold text-base shadow-[0_0_20px_rgba(255,0,127,0.3)] border-0"
+                >
+                  <Icon.fundWallet className="w-5 h-5 mr-3" />
+                  Add Credits
+                </Button>
+                <Button
+                  onClick={handleCancel}
+                  variant="ghost"
+                  className="w-full h-12 text-[#8A8C95] hover:text-white hover:bg-white/5 rounded-xl font-medium"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

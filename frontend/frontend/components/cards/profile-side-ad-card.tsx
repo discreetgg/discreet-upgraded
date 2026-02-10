@@ -93,21 +93,22 @@ export default function ProfileSideAdCard({
 				return old.map((it) =>
 					it._id === _id
 						? {
-								...it,
-								itemSold: (it.itemSold ?? 0) + quantity,
-								updatedAt: new Date().toISOString(),
-							}
+							...it,
+							itemSold: (it.itemSold ?? 0) + quantity,
+							updatedAt: new Date().toISOString(),
+						}
 						: it,
 				);
 			});
 			setOpenSuccessModal(true);
 		},
-		onError: (error) => {
+		onError: (error: any) => {
 			console.error("Error buying menu item:", error);
-			toast.error("Failed to buy menu item. Please try again.");
 			if (error?.response?.data?.message === "Insufficient funds") {
 				toast.error("Not enough balance");
 				setIsFundWalletDialogOpen(true);
+			} else {
+				toast.error("Failed to buy menu item. Please try again.");
 			}
 		},
 	});
@@ -450,20 +451,20 @@ export default function ProfileSideAdCard({
 					</div>
 					{!isSingle && !errorImage ? (
 						<div className="relative size-full">
-								{[1, 2, 3].map((item) => (
-									<ImageWithFallback
-										key={item}
-										src={highQualityCoverImage}
-										alt={title}
-										width={200}
-										height={300}
-										sizes="(max-width: 768px) 140px, 154px"
-										quality={100}
-										unoptimized
-										data-index={item}
-										className="size-full object-cover object-center rounded-md absolute inset-0 z-[8] "
-										containerClassName={cn(
-											"absolute rounded-md shadow-[3px_4px_4px_0px_#00000040]  ",
+							{[1, 2, 3].map((item) => (
+								<ImageWithFallback
+									key={item}
+									src={highQualityCoverImage}
+									alt={title}
+									width={200}
+									height={300}
+									sizes="(max-width: 768px) 140px, 154px"
+									quality={100}
+									unoptimized
+									data-index={item}
+									className="size-full object-cover object-center rounded-md absolute inset-0 z-[8] "
+									containerClassName={cn(
+										"absolute rounded-md shadow-[3px_4px_4px_0px_#00000040]  ",
 										{
 											"-translate-x-2 z-10": item === 1,
 											"-translate-x-1 sh z-[9]": item === 2,
@@ -475,19 +476,19 @@ export default function ProfileSideAdCard({
 							))}
 						</div>
 					) : (
-							<ImageWithFallback
-								src={highQualityCoverImage}
-								alt={title}
-								width={200}
-								height={300}
-								sizes="(max-width: 768px) 140px, 154px"
-								quality={100}
-								unoptimized
-								className="size-full object-cover object-center rounded-md "
-								priority
-								setErrorImage={setErrorImage}
-							/>
-						)}
+						<ImageWithFallback
+							src={highQualityCoverImage}
+							alt={title}
+							width={200}
+							height={300}
+							sizes="(max-width: 768px) 140px, 154px"
+							quality={100}
+							unoptimized
+							className="size-full object-cover object-center rounded-md "
+							priority
+							setErrorImage={setErrorImage}
+						/>
+					)}
 				</button>
 			</div>
 		</>
@@ -507,21 +508,31 @@ function ConfirmPurchaseDialog({
 }: ConfirmPurchaseDialogProps) {
 	return (
 		<AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-			<AlertDialogContent className="bg-gradient-to-r from-primary/80 to-rose-900/10 backdrop-blur-xl">
-				<AlertDialogHeader>
-					<AlertDialogTitle>Confirm Purchase?</AlertDialogTitle>
-					<AlertDialogDescription>
-						Confirm to proceed with the purchase.
+			<AlertDialogContent className="bg-[#0A0A0B] border-[#2E2E32] rounded-[32px] p-8 max-w-[400px] shadow-2xl overflow-hidden">
+				<div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#FF007F] to-transparent opacity-50" />
+
+				<AlertDialogHeader className="space-y-4 pt-4">
+					<div className="mx-auto size-16 rounded-full bg-[#FF007F]/10 flex items-center justify-center border border-[#FF007F]/20 mb-2">
+						<Icon.credit className="size-8 text-[#FF007F]" />
+					</div>
+					<AlertDialogTitle className="text-2xl font-bold text-center text-white">
+						Confirm Purchase
+					</AlertDialogTitle>
+					<AlertDialogDescription className="text-[#8A8C95] text-center text-base">
+						Are you sure you want to proceed with this purchase? This action cannot be undone.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction
+
+				<AlertDialogFooter className="mt-8 flex flex-col sm:flex-col gap-3">
+					<Button
 						onClick={onConfirm}
-						className="bg-red-500 hover:bg-red-600"
+						className="h-12 w-full rounded-2xl bg-[#FF007F] hover:bg-[#FF007F]/90 text-white font-bold text-base shadow-[0_4px_12px_rgba(255,0,127,0.3)] transition-all active:scale-[0.98]"
 					>
-						Proceed
-					</AlertDialogAction>
+						Yes, Purchase Now
+					</Button>
+					<AlertDialogCancel className="h-12 w-full border-none bg-transparent hover:bg-white/5 text-[#8A8C95] hover:text-white rounded-2xl transition-colors m-0">
+						Cancel
+					</AlertDialogCancel>
 				</AlertDialogFooter>
 			</AlertDialogContent>
 		</AlertDialog>
@@ -616,18 +627,15 @@ const SuccessMenuDialog = ({
 	setOpen,
 	title,
 	coverImage,
-	discordId,
+	receiver,
 	conversationId,
 	isLoadingConversation = false,
-	receiver,
 }: Props) => {
 	const router = useRouter();
 	const { setReceiver } = useMessage();
 
 	const handleCheckItOut = () => {
-		if (isLoadingConversation && !conversationId) {
-			return;
-		}
+		if (isLoadingConversation && !conversationId) return;
 		setReceiver(receiver);
 		setOpen(false);
 		if (conversationId) {
@@ -637,57 +645,70 @@ const SuccessMenuDialog = ({
 			toast.success(`Opening new chat`);
 		}
 	};
+
 	return (
 		<SubscribeDialog open={open} onOpenChange={setOpen}>
 			<SubscribeDialogContent
 				showCloseButton={false}
-				tabIndex={-1}
-				className="flex flex-col bg-medium-charcoal border-none w-full !ring-0 !outline-none justify-start  overflow-hidden p-0"
+				className="p-0 overflow-hidden bg-[#0A0A0B] border-[#2E2E32] rounded-[32px] max-w-[480px] shadow-2xl"
 			>
-				<div className="absolute w-full top-0 left-0">
+				<SubscribeDialogDescription className="sr-only">
+					Purchase Successful
+				</SubscribeDialogDescription>
+
+				<div className="relative w-full aspect-[4/3] overflow-hidden">
 					<ImageWithFallback
 						src={coverImage}
-						width={1000}
-						height={300}
+						width={600}
+						height={450}
 						alt={title}
-						sizes="(max-width: 768px) 95vw, 613px"
-						quality={100}
-						unoptimized
-						className="w-full h-full object-cover object-center rounded-md "
+						className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
 					/>
+					<div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0B] via-[#0A0A0B]/40 to-transparent" />
+
+					{/* Ambient Glow */}
+					<div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-40 h-40 bg-[#FF007F]/20 blur-[80px] rounded-full pointer-events-none" />
+
+					{/* Success Icon */}
+					<div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-20">
+						<div className="relative group">
+							<div className="absolute inset-0 bg-[#FF007F] blur-xl opacity-40 group-hover:opacity-60 animate-pulse transition-opacity rounded-full" />
+							<div className="relative flex items-center justify-center size-20 rounded-full bg-[#0A0A0B] border-2 border-[#FF007F] shadow-[0_0_20px_rgba(255,0,127,0.4)] transition-transform duration-300 group-hover:scale-110">
+								<Icon.tickCircle className="size-10 text-[#FF007F]" />
+							</div>
+						</div>
+					</div>
 				</div>
-				<div className="flex flex-col gap-y-10 bg-medium-charcoal/95 relative z-10 py-10 px-6 sm:px-24  gap-8 overflow-hidden rounded-xl size-full scale-[1.01]">
-					<SubscribeDialogClose className=" absolute top-6 left-6 flex items-center gap-x-2 cursor-pointer hover:underline text-accent-text text-xs font-inter">
-						<span className="size-3 bg-accent-text text-black flex items-center justify-center rounded-[2px]">
-							<ChevronLeft />
-						</span>
-						Back to profile
-					</SubscribeDialogClose>
-					<SubscribeDialogDescription className="sr-only">
-						{" "}
-						Purchase Successful
-					</SubscribeDialogDescription>
-					<div className="flex flex-col gap-y-8 items-center font-inter pb-5 pt-10 z-10 relative">
-						<SubscribeDialogTitle className="capitalize text-center md:text-3xl font-inter text-2xl font-medium ">
+
+				<div className="flex flex-col items-center px-8 pt-16 pb-10 text-center relative z-10">
+					<div className="space-y-2 mb-8">
+						<SubscribeDialogTitle className="text-3xl font-bold tracking-tight text-white">
 							Purchase Successful
 						</SubscribeDialogTitle>
-						<p className="text-accent-text text-center text-2xl">
-							Thank you for purchasing{" "}
-							<span className="text-accent-color capitalize">{title}</span> from
-							my Menu
+						<p className="text-[#8A8C95] text-lg leading-relaxed px-4">
+							Thank you for purchasing <span className="text-white font-semibold">"{title}"</span>. It's now available in your messages.
 						</p>
 					</div>
 
-					<Button
-						type="button"
-						onClick={handleCheckItOut}
-						className="rounded relative flex items-center  border hover:bg-transparent active:bg-transparent h-auto mt-5 py-2 text-[15px] font-medium cursor-pointer whitespace-nowrap border-[#FF007F] bg-[#0A0A0B] shadow-[2px_2px_0_0_#FF007F] text-[#F8F8F8] text-lg px-3 gap-3 "
-						disabled={isLoadingConversation && !conversationId}
-					>
-						{isLoadingConversation && !conversationId
-							? "Loading chat..."
-							: "Check it out!"}
-					</Button>
+					<div className="w-full flex flex-col gap-3">
+						<Button
+							type="button"
+							onClick={handleCheckItOut}
+							disabled={isLoadingConversation && !conversationId}
+							className="h-14 w-full rounded-2xl bg-[#FF007F] hover:bg-[#FF007F]/90 text-white font-bold text-lg shadow-[0_4px_15px_rgba(255,0,127,0.35)] transition-all active:scale-[0.98] disabled:opacity-50"
+						>
+							{isLoadingConversation && !conversationId
+								? "Locating Content..."
+								: "View in Messages"}
+						</Button>
+
+						<button
+							onClick={() => setOpen(false)}
+							className="h-12 w-full text-[#8A8C95] hover:text-white font-medium transition-colors text-sm"
+						>
+							Back to Profile
+						</button>
+					</div>
 				</div>
 			</SubscribeDialogContent>
 		</SubscribeDialog>

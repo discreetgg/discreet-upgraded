@@ -10,6 +10,7 @@ import { useCall } from '@/context/call-context';
 import { getConversationBetweenUsersService } from '@/lib/services';
 import { useGlobal } from '@/context/global-context-provider';
 import { Icon } from './ui/icons';
+import { Button } from './ui/button';
 
 const CONFIRMATION_TIMEOUT = 1150; // 13 seconds to confirm
 
@@ -230,176 +231,175 @@ export const CamsConnectQueueBuyerDialog = ({
         onOpenChange(isOpen);
       }}
     >
-      <DialogContent className="!max-w-5xl w-full space-y-10">
-        {error ? (
-          <div className="text-center space-y-4">
-            <p className="text-xl text-red-500 font-medium">{error}</p>
-            <button
-              onClick={() => onOpenChange(false)}
-              className={cn(
-                'rounded flex items-center justify-center border-2 hover:bg-transparent active:bg-transparent h-auto px-4 py-2 text-lg font-medium whitespace-nowrap border-[#8A8C95] shadow-[2px_2px_0_0_#8A8C95] bg-[#0A0A0B] text-[#F8F8F8] mx-auto',
-              )}
-            >
-              Close
-            </button>
-          </div>
-        ) : (
-          <>
-            {isPreviewReady && (
-              <div className="rounded-[69px] bg-[#FF007F] gap-3 p-2.5 w-max mx-auto flex items-center">
-                <Icon.warning />
-                <span className="text-sm font-medium text-black">
-                  Billing will start only after both parties confirm.
-                </span>
+      <DialogContent className="max-w-[900px] p-0 overflow-hidden border-[#2E2E32] bg-[#0A0A0B] rounded-[40px] shadow-2xl outline-none">
+        <div className="relative p-8 md:p-12">
+          {error ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-8">
+              <div className="size-20 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <Icon.callEnded className="size-10 text-red-500" />
               </div>
-            )}
-            <p className="text-xl text-[#D4D4D8] font-medium text-center">
-              {isPreviewReady ? (
-                <>
-                  Respond within{' '}
-                  <span className="text-[#FF007F] font-bold">
-                    {countdown} seconds
-                  </span>{' '}
-                  to avoid disconnection
-                </>
-              ) : (
-                'Waiting for connection...'
-              )}
-            </p>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-white">Connection Failed</h2>
+                <p className="text-[#8A8C95] max-w-[300px] mx-auto">{error}</p>
+              </div>
+              <Button
+                onClick={() => onOpenChange(false)}
+                className="h-12 px-8 bg-[#1A1A1E] text-white border border-[#2E2E32] rounded-xl hover:bg-[#2E2E32]"
+              >
+                Return to Sellers
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Header Info */}
+              <div className="flex flex-col items-center mb-10 space-y-6">
+                {isPreviewReady ? (
+                  <div className="flex items-center gap-3 px-5 py-2.5 bg-accent-color/10 border border-accent-color/20 rounded-full animate-in fade-in zoom-in duration-500">
+                    <div className="size-2 rounded-full bg-accent-color animate-pulse shadow-[0_0_8px_rgba(255,0,127,1)]" />
+                    <span className="text-sm font-bold text-accent-color uppercase tracking-wider">Secure Preview Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 px-5 py-2.5 bg-[#1A1A1E] border border-[#2E2E32] rounded-full animate-pulse">
+                    <Icon.loadingIndicator className="size-4 text-[#8A8C95] animate-spin" />
+                    <span className="text-sm font-bold text-[#8A8C95] uppercase tracking-wider">Establishing Connection...</span>
+                  </div>
+                )}
 
-            <div className="flex max-w-[755px] items-center gap-5 mx-auto">
-              {/* Remote video (seller) */}
-              <div className="relative w-[367.638px] h-[306.099px] bg-[#1D0E0D] rounded-lg overflow-hidden">
-                <video
-                  ref={remoteVideoRef}
-                  className="w-full h-full object-cover -scale-x-100"
-                  autoPlay
-                  playsInline
-                >
-                  <track
-                    kind="captions"
-                    srcLang="en"
-                    label="English captions"
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-bold text-white tracking-tight">
+                    {isPreviewReady ? "Ready to Start?" : "Connecting..."}
+                  </h2>
+                  <p className="text-base text-[#8A8C95]">
+                    {isPreviewReady ? (
+                      <>Respond within <span className="text-white font-bold tabular-nums">{countdown}s</span> or the session will expire</>
+                    ) : (
+                      <>Waiting for <span className="text-white font-bold">{user?.displayName}</span> to join the preview</>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Video Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                {/* Seller Preview */}
+                <div className="relative aspect-[4/3] bg-[#0F1114] rounded-3xl overflow-hidden border border-[#2E2E32] shadow-inner group">
+                  <video
+                    ref={remoteVideoRef}
+                    className="w-full h-full object-cover -scale-x-100"
+                    autoPlay
+                    playsInline
                   />
-                </video>
-                {!isPreviewReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#1D0E0D]">
-                    <div className="text-center">
+                  {!isPreviewReady && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0F1114]/80 backdrop-blur-sm">
                       <img
-                        src={
-                          user?.profileImage?.url ||
-                          `https://cdn.discordapp.com/avatars/${user?.discordId}/${user?.discordAvatar}.png`
-                        }
-                        alt={user?.displayName || 'Callee'}
-                        className="w-16 h-16 rounded-full object-cover mx-auto mb-2 animate-pulse"
+                        src={user?.profileImage?.url || `https://cdn.discordapp.com/avatars/${user?.discordId}/${user?.discordAvatar}.png`}
+                        alt=""
+                        className="size-24 rounded-full border-4 border-[#1A1A1E] shadow-2xl mb-4 animate-pulse"
                       />
-                      <p className="text-[#8A8C95] text-sm">
-                        {isWaitingForAnswer ? 'Ringing...' : 'Connecting...'}
+                      <p className="text-sm font-bold text-[#8A8C95] uppercase tracking-widest">
+                        {isWaitingForAnswer ? 'Ringing...' : 'Initializing...'}
                       </p>
                     </div>
-                  </div>
-                )}
-                <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                  {user?.displayName || 'Seller'}
-                </div>
-              </div>
-
-              {/* Local video (buyer - you) */}
-              <div className="relative w-[367.638px] h-[306.099px] bg-[#1D0E0D] rounded-lg overflow-hidden">
-                <video
-                  ref={localVideoRef}
-                  className={cn(
-                    'w-full h-full object-cover -scale-x-100',
-                    mutedVideo && 'opacity-0',
                   )}
-                  autoPlay
-                  playsInline
-                  muted
-                >
-                  <track
-                    kind="captions"
-                    srcLang="en"
-                    label="English captions"
+                  <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-lg border border-white/10">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">{user?.displayName}</span>
+                  </div>
+                </div>
+
+                {/* Local Preview */}
+                <div className="relative aspect-[4/3] bg-[#0F1114] rounded-3xl overflow-hidden border border-[#2E2E32] shadow-inner group">
+                  <video
+                    ref={localVideoRef}
+                    className={cn(
+                      'w-full h-full object-cover -scale-x-100 transition-opacity duration-300',
+                      mutedVideo && 'opacity-0'
+                    )}
+                    autoPlay
+                    playsInline
+                    muted
                   />
-                </video>
-                {mutedVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#1D0E0D]">
-                    <Icon.videoOffIcon className="size-12 text-[#8A8C95]" />
+                  {mutedVideo && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0F1114]/90">
+                      <div className="size-20 rounded-full bg-[#1A1A1E] flex items-center justify-center border border-[#2E2E32]">
+                        <Icon.videoOffIcon className="size-8 text-[#8A8C95]" />
+                      </div>
+                      <p className="mt-4 text-xs font-bold text-[#8A8C95] uppercase tracking-widest">Camera Disabled</p>
+                    </div>
+                  )}
+                  <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-lg border border-white/10">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">You (Preview)</span>
                   </div>
-                )}
-                <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                  You
+
+                  {/* Local Controls Overlay */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
+                    <button
+                      onClick={handleMicToggle}
+                      className={cn(
+                        "p-2.5 rounded-xl transition-all",
+                        muted ? "bg-red-500/20 text-red-500 hover:bg-red-500/30" : "hover:bg-white/10 text-white"
+                      )}
+                    >
+                      {muted ? <Icon.microphoneOff className="size-5" /> : <Icon.microphone className="size-5" />}
+                    </button>
+                    <button
+                      onClick={handleVideoToggle}
+                      className={cn(
+                        "p-2.5 rounded-xl transition-all",
+                        mutedVideo ? "bg-red-500/20 text-red-500 hover:bg-red-500/30" : "hover:bg-white/10 text-white"
+                      )}
+                    >
+                      {mutedVideo ? <Icon.videoOffIcon className="size-5" /> : <Icon.videoOnIcon className="size-5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Media controls */}
-            <div className="flex items-center justify-center gap-3">
-              {/* Microphone toggle */}
-              <button
-                type="button"
-                className={cn(
-                  'rounded-lg bg-[#1E2227] p-3 hover:bg-[#2A2F36] transition-colors',
-                  muted && 'bg-[#F0443842]',
-                )}
-                onClick={handleMicToggle}
-              >
-                {muted ? (
-                  <Icon.microphoneOff className="size-5" />
-                ) : (
-                  <Icon.microphone className="size-5" />
-                )}
-              </button>
+              {/* Instructions and Actions */}
+              <div className="max-w-[600px] mx-auto flex flex-col items-center space-y-10">
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="flex items-center gap-2 text-orange-500/80">
+                    <Icon.warning className="size-4" />
+                    <p className="text-sm font-medium">Billing will only begin after both users confirm.</p>
+                  </div>
+                  <p className="text-[13px] text-[#8A8C95] text-center leading-relaxed">
+                    Check video and audio quality now. If anything looks or sounds off, you can disconnect before the session starts without any charge.
+                  </p>
+                </div>
 
-              {/* Video toggle */}
-              <button
-                type="button"
-                className={cn(
-                  'rounded-lg bg-[#1E2227] p-3 hover:bg-[#2A2F36] transition-colors',
-                  mutedVideo && 'bg-[#F0443842]',
-                )}
-                onClick={handleVideoToggle}
-              >
-                {mutedVideo ? (
-                  <Icon.videoOffIcon className="size-5" />
-                ) : (
-                  <Icon.videoOnIcon className="size-5" />
-                )}
-              </button>
-            </div>
+                <div className="grid grid-cols-2 gap-4 w-full">
+                  <button
+                    onClick={handleDisconnect}
+                    className="h-14 flex items-center justify-center gap-3 rounded-2xl bg-[#1A1A1E] text-white border border-[#2E2E32] hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-500 transition-all font-bold group"
+                  >
+                    <Icon.callEnded className="size-5 transition-transform group-hover:scale-110" />
+                    <span>Disconnect</span>
+                  </button>
 
-            <div className="space-y-[25px]">
-              <p className="text-[#D4D4D8] font-medium text-center max-w-[413px] mx-auto">
-                Confirm you can hear each other before starting. Disconnect if
-                audio or video is unclear.
-              </p>
-
-              <div className="flex items-center gap-[28px] max-w-[458px] mx-auto">
-                <button
-                  onClick={handleDisconnect}
-                  className={cn(
-                    'rounded flex items-center justify-center border-2 hover:bg-transparent active:bg-transparent h-auto px-4 py-2 text-lg font-medium whitespace-nowrap border-[#8A8C95] shadow-[2px_2px_0_0_#8A8C95] bg-[#0A0A0B] text-[#F8F8F8] w-full transition-colors hover:border-red-500 hover:shadow-[2px_2px_0_0_#EF4444]',
-                  )}
-                >
-                  Disconnect Call
-                </button>
-                <button
-                  onClick={handleConfirmAndStartCall}
-                  disabled={!isPreviewReady || isStartingCall}
-                  className={cn(
-                    'rounded flex items-center justify-center border-2 hover:bg-transparent active:bg-transparent h-auto px-4 py-2 text-lg font-medium whitespace-nowrap border-[#FF007F] bg-[#0A0A0B] shadow-[2px_2px_0_0_#FF007F] text-[#F8F8F8] w-full transition-opacity',
-                    (!isPreviewReady || isStartingCall) &&
-                      'opacity-50 cursor-not-allowed',
-                  )}
-                >
-                  {isStartingCall
-                    ? 'Starting Call...'
-                    : 'Looks Good, Start My Call'}
-                </button>
+                  <button
+                    onClick={handleConfirmAndStartCall}
+                    disabled={!isPreviewReady || isStartingCall}
+                    className={cn(
+                      "relative h-14 flex items-center justify-center gap-3 rounded-2xl transition-all font-bold overflow-hidden shadow-2xl",
+                      isPreviewReady && !isStartingCall
+                        ? "bg-accent-color text-white shadow-[0_0_30px_rgba(255,0,127,0.3)] hover:shadow-[0_0_40px_rgba(255,0,127,0.5)] active:scale-[0.98]"
+                        : "bg-[#1A1A1E] text-[#8A8C95] border border-[#2E2E32] cursor-not-allowed"
+                    )}
+                  >
+                    {isStartingCall ? (
+                      <Icon.loadingIndicator className="size-6 animate-spin" />
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 bg-white/10 opacity-0 hover:opacity-100 transition-opacity" />
+                        <Icon.videoOnIcon className="size-6" />
+                        <span>Start Session</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -87,7 +87,7 @@ export const AuthPageContent = () => {
 
 					<footer className="text-sm text-center text-[#B3B3B3]">
 						By signing up you are agreeing to Discreet{" "}
-						<Link className="underline" href="/terms-and-conditions">
+						<Link className="underline" href="/terms-of-service">
 							Terms & Conditions.
 						</Link>
 					</footer>

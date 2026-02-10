@@ -32,15 +32,22 @@ export const SortDropdown = ({ sortOptions }: SortDropdownProps) => {
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            'md:py-[11px] md:px-[16.5px] px-3 py-2 border-[1px] transition-all duration-200 border-[#1E2227]  cursor-pointer rounded-[7px] text-[#8A8C95] md:text-[14px] text-[10px] capitalize hover:text-[#F8F8F8] flex items-center gap-2',
-            isOpen ? 'border-[#8A8C95]' : 'border-[#1E2227]'
+            'group flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-300',
+            'bg-[#1A1A1E]/40 backdrop-blur-md border border-[#2E2E32] hover:border-accent-color/50',
+            'text-[#8A8C95] hover:text-white shadow-lg active:scale-95',
+            isOpen && 'border-accent-color/50 ring-1 ring-accent-color/20 bg-[#1A1A1E]/60'
           )}
         >
-          <span>{selectedSort}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest opacity-60">Sort By</span>
+            <span className="text-sm font-medium text-white/90 group-hover:text-white transition-colors capitalize">
+              {selectedSort === 'Sort by' ? 'Default' : selectedSort}
+            </span>
+          </div>
           <Icon.chevronDown
             className={cn(
-              'transition-transform duration-200 size-6',
-              isOpen ? 'rotate-180' : 'rotate-0 '
+              'transition-transform duration-300 size-4 opacity-40 group-hover:opacity-100',
+              isOpen ? 'rotate-180 text-accent-color' : 'rotate-0'
             )}
           />
         </button>

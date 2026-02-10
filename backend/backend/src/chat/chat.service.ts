@@ -53,7 +53,7 @@ export class ChatService {
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
     @InjectConnection() private readonly connection: Connection,
-  ) {}
+  ) { }
 
   async sendMessage(
     senderId: string,
@@ -512,7 +512,7 @@ export class ChatService {
     limit = 50,
     from?: Date,
     to?: Date,
-  ) {
+  ): Promise<any> {
     const query: any = { conversation: conversationId };
     const safeLimit = Number.isFinite(limit)
       ? Math.max(1, Math.min(limit, 200))

@@ -48,8 +48,12 @@ export class DiscordBotService {
       partials: [Partials.Message, Partials.Channel],
     });
     this.logger.log('this is client ' + this.client.token);
-    this.client.login(token);
-    this.registerCommands();
+    if (!token || token === 'your_bot_token') {
+      this.logger.warn('DISCORD_BOT_TOKEN is missing or placeholder. Bot will not be initialized.');
+    } else {
+      this.client.login(token);
+      this.registerCommands();
+    }
     this.client.once('ready', this.onReady);
     this.client.on('warn', this.onWarn);
     this.client.on('messageCreate', this.handleRecievedMessages);
