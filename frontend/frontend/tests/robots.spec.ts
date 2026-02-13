@@ -62,7 +62,7 @@ Sitemap: ${siteUrl}/sitemap.xml`;
   };
 
   it('should allow crawling in production environment', () => {
-    process.env.NODE_ENV === 'production';
+    process.env.NODE_ENV = 'production';
     process.env.NEXT_PUBLIC_SITE_URL = 'https://discreet.gg';
 
     const robotsContent = generateRobotsContent(
@@ -83,7 +83,7 @@ Sitemap: ${siteUrl}/sitemap.xml`;
   });
 
   it('should block all crawling in non-production environment', () => {
-    process.env.NODE_ENV === 'development';
+    process.env.NODE_ENV = 'development';
     process.env.NEXT_PUBLIC_SITE_URL = 'https://staging.discreet.gg';
 
     const robotsContent = generateRobotsContent(
@@ -99,7 +99,7 @@ Sitemap: ${siteUrl}/sitemap.xml`;
   });
 
   it('should use default site URL when environment variable is not set', () => {
-     process.env.NODE_ENV === 'production';
+    process.env.NODE_ENV = 'production';
     delete process.env.NEXT_PUBLIC_SITE_URL;
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://discreet.gg';
@@ -115,7 +115,7 @@ Sitemap: ${siteUrl}/sitemap.xml`;
     ];
 
     testCases.forEach(({ NODE_ENV, SITE_URL }) => {
-      process.env.NODE_ENV === NODE_ENV;
+      process.env.NODE_ENV = NODE_ENV;
       process.env.NEXT_PUBLIC_SITE_URL = SITE_URL;
 
       const robotsContent = generateRobotsContent(NODE_ENV, SITE_URL);

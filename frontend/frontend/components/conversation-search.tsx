@@ -8,7 +8,9 @@ import {
 } from '@/components/ui/popover';
 import { useGlobal } from '@/context/global-context-provider';
 import { useMessage } from '@/context/message-context';
+import { getConversationsService } from '@/lib/services';
 import { getUserDiscordAvatar } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useMemo, useState, useRef, useEffect } from 'react';
@@ -69,16 +71,35 @@ export const ConversationSearch = ({
     }
   };
 
+  const normalizedSearchQuery = searchQuery.trim();
+  const { data: searchedConversations, isFetching: isSearching } = useQuery({
+    queryKey: ['conversation-search', normalizedSearchQuery],
+    queryFn: async () =>
+      getConversationsService({
+        search: normalizedSearchQuery,
+        limit: 20,
+        force: true,
+      }),
+    enabled: normalizedSearchQuery.length > 0,
+    staleTime: 10 * 1000,
+  });
+
   const filteredConversations = useMemo(() => {
-    if (!searchQuery) return [];
+    if (!normalizedSearchQuery) return [];
+
+    const fromApi = searchedConversations?.conversations ?? [];
+    if (fromApi.length > 0) {
+      return fromApi;
+    }
+
     return conversations?.filter((c) =>
       c.participants.some((p) =>
         (p.displayName || p.username)
           .toLowerCase()
-          .includes(searchQuery.toLowerCase())
+          .includes(normalizedSearchQuery.toLowerCase())
       )
     );
-  }, [conversations, searchQuery]);
+  }, [conversations, normalizedSearchQuery, searchedConversations?.conversations]);
 
   return (
     <div
@@ -131,7 +152,9 @@ export const ConversationSearch = ({
           className="w-full sm:max-w-[294px] rounded-[8px] border-none p-0 max-h-[300px] overflow-y-auto bg-[#2E2E32]"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          {filteredConversations?.length === 0 ? (
+          {isSearching ? (
+            <p className="text-muted-foreground text-sm p-2">Searching...</p>
+          ) : filteredConversations?.length === 0 ? (
             <p className="text-muted-foreground text-sm p-2">
               No conversations found
             </p>

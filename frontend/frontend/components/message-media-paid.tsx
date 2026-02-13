@@ -1,4 +1,4 @@
-import { cn, getBlurredImage } from '@/lib/utils';
+import { cn, getBlurredImage, getProxiedMediaUrl } from '@/lib/utils';
 import type { MediaType } from '@/types/global';
 import { motion } from 'motion/react';
 import Image from 'next/image';
@@ -81,7 +81,8 @@ export const MessageMediaPaid = ({
     <div className="rounded-2xl overflow-hidden">
       <div className={cn('grid gap-1', gridClasses)}>
         {media.map((item, index) => {
-          const mediaKey = `${item._id ?? 'media'}-${item.url ?? 'no-url'}-${index}`;
+          const mediaSrc = getProxiedMediaUrl(item._id, item.url);
+          const mediaKey = `${item._id ?? mediaSrc ?? 'media'}-${index}`;
           return (
             <motion.div
               key={mediaKey}
@@ -93,9 +94,10 @@ export const MessageMediaPaid = ({
             {item.type === 'image' ? (
               <>
                 <Image
-                  src={getBlurredImage(item.url, 2000)}
+                  src={getBlurredImage(mediaSrc || '/user.svg', 2000)}
                   alt={item.caption || `Locked media ${index + 1}`}
                   fill
+                  loading="lazy"
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 700px"
                   onContextMenu={(e) => e.preventDefault()}
@@ -127,9 +129,9 @@ export const MessageMediaPaid = ({
               <>
                 <video
                   className="w-full h-full object-cover blur-3xl"
-                  preload="metadata"
+                  preload="none"
                 >
-                  <source src={item.url} type="video/mp4" />
+                  <source src={mediaSrc} type="video/mp4" />
                   <track kind="captions" label="English" />
                 </video>
                 {index === 0 && type !== 'in_message_media' && (

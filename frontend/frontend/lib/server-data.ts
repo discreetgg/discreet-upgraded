@@ -5,13 +5,20 @@ import type { PostType } from '@/types/global';
  */
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.discreet.fans/api';
 
+function normalizePosts(payload: any): PostType[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.posts)) return payload.posts;
+  return [];
+}
+
 /**
  * Interface for posts response with pagination
  */
 interface PostsResponse {
-    data: PostType[];
-    hasNextPage: boolean;
-    nextCursor?: string;
+  data: PostType[];
+  hasNextPage: boolean;
+  nextCursor?: string;
 }
 
 /**
@@ -22,47 +29,50 @@ interface PostsResponse {
  * @returns Posts data with pagination info
  */
 export async function getServerPosts(
-    visibility: string = 'general',
-    limit: number = 10,
-    cursor?: string
+  visibility: string = 'general',
+  limit: number = 10,
+  cursor?: string
 ): Promise<PostsResponse> {
-    try {
-        const params = new URLSearchParams({
-            visibility,
-            limit: limit.toString(),
-            ...(cursor && { cursor }),
-        });
+  try {
+    const endpoint =
+      visibility && visibility !== 'all'
+        ? `${API_URL}/post?visibility=${encodeURIComponent(visibility)}`
+        : `${API_URL}/post/recent?limit=${limit}`;
 
-        const response = await fetch(`${API_URL}/posts?${params}`, {
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            cache: 'no-store', // Don't cache posts on server (they change frequently)
-        });
+    const response = await fetch(endpoint, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store', // Don't cache posts on server (they change frequently)
+    });
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch posts: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-
-        // Normalize response structure
-        if (Array.isArray(data)) {
-            return {
-                data,
-                hasNextPage: data.length >= limit,
-                nextCursor: data.length > 0 ? data[data.length - 1]._id : undefined,
-            };
-        }
-
-        return data;
-    } catch (error) {
-        console.error('Error fetching server posts:', error);
-        return {
-            data: [],
-            hasNextPage: false,
-        };
+    if (!response.ok) {
+      throw new Error(`Failed to fetch posts: ${response.statusText}`);
     }
+
+    const payload = await response.json();
+    const posts = normalizePosts(payload);
+    const startIndex = cursor
+      ? posts.findIndex((post: any) => (post?._id || post?.id) === cursor) + 1
+      : 0;
+    const data = posts.slice(startIndex, startIndex + limit);
+
+    return {
+      data: data as PostType[],
+      hasNextPage: startIndex + data.length < posts.length,
+      nextCursor:
+        data.length > 0
+          ? (data[data.length - 1] as any)?._id ||
+            (data[data.length - 1] as any)?.id
+          : undefined,
+    };
+  } catch (error) {
+    console.error('Error fetching server posts:', error);
+    return {
+      data: [],
+      hasNextPage: false,
+    };
+  }
 }
 
 /**
@@ -71,24 +81,24 @@ export async function getServerPosts(
  * @returns Array of trending posts
  */
 export async function getServerTrendingPosts(limit: number = 10): Promise<PostType[]> {
-    try {
-        const response = await fetch(`${API_URL}/posts/trending?limit=${limit}`, {
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            next: { revalidate: 600 }, // Cache for 10 minutes
-        });
+  try {
+    const response = await fetch(`${API_URL}/post/trending?limit=${limit}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 600 }, // Cache for 10 minutes
+    });
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch trending posts: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return Array.isArray(data) ? data : data.data || [];
-    } catch (error) {
-        console.error('Error fetching trending posts:', error);
-        return [];
+    if (!response.ok) {
+      throw new Error(`Failed to fetch trending posts: ${response.statusText}`);
     }
+
+    const payload = await response.json();
+    return normalizePosts(payload);
+  } catch (error) {
+    console.error('Error fetching trending posts:', error);
+    return [];
+  }
 }
 
 /**
@@ -97,23 +107,23 @@ export async function getServerTrendingPosts(limit: number = 10): Promise<PostTy
  * @returns Post data if found, null otherwise
  */
 export async function getServerPost(postId: string): Promise<PostType | null> {
-    try {
-        const response = await fetch(`${API_URL}/posts/${postId}`, {
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            next: { revalidate: 300 }, // Cache for 5 minutes
-        });
+  try {
+    const response = await fetch(`${API_URL}/post/${postId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 300 }, // Cache for 5 minutes
+    });
 
-        if (!response.ok) {
-            return null;
-        }
-
-        return await response.json();
-    } catch (error) {
-        console.error('Error fetching post:', error);
-        return null;
+    if (!response.ok) {
+      return null;
     }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching post:', error);
+    return null;
+  }
 }
 
 /**
@@ -122,24 +132,24 @@ export async function getServerPost(postId: string): Promise<PostType | null> {
  * @returns Array of media posts
  */
 export async function getServerCreatorMedia(discordId: string): Promise<PostType[]> {
-    try {
-        const response = await fetch(`${API_URL}/creator/${discordId}/media`, {
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            next: { revalidate: 600 }, // Cache for 10 minutes
-        });
+  try {
+    const response = await fetch(`${API_URL}/post/creator-media/${discordId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 600 }, // Cache for 10 minutes
+    });
 
-        if (!response.ok) {
-            return [];
-        }
-
-        const data = await response.json();
-        return Array.isArray(data) ? data : data.data || [];
-    } catch (error) {
-        console.error('Error fetching creator media:', error);
-        return [];
+    if (!response.ok) {
+      return [];
     }
+
+    const payload = await response.json();
+    return normalizePosts(payload);
+  } catch (error) {
+    console.error('Error fetching creator media:', error);
+    return [];
+  }
 }
 
 /**
@@ -149,25 +159,26 @@ export async function getServerCreatorMedia(discordId: string): Promise<PostType
  * @returns Array of creator posts
  */
 export async function getServerCreatorPosts(
-    discordId: string,
-    limit: number = 10
+  discordId: string,
+  limit: number = 10
 ): Promise<PostType[]> {
-    try {
-        const response = await fetch(`${API_URL}/creator/${discordId}/posts?limit=${limit}`, {
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            next: { revalidate: 300 }, // Cache for 5 minutes
-        });
+  try {
+    const response = await fetch(`${API_URL}/post/creator/${discordId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      next: { revalidate: 300 }, // Cache for 5 minutes
+    });
 
-        if (!response.ok) {
-            return [];
-        }
-
-        const data = await response.json();
-        return Array.isArray(data) ? data : data.data || [];
-    } catch (error) {
-        console.error('Error fetching creator posts:', error);
-        return [];
+    if (!response.ok) {
+      return [];
     }
+
+    const payload = await response.json();
+    const posts = normalizePosts(payload);
+    return posts.slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching creator posts:', error);
+    return [];
+  }
 }

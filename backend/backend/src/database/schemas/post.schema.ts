@@ -22,7 +22,7 @@ export type ScheduledPost = {
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -89,3 +89,6 @@ export class Post {
 
 export const PostSchema = SchemaFactory.createForClass(Post);
 PostSchema.index({ author: 1 });
+PostSchema.index({ author: 1, createdAt: -1 });
+PostSchema.index({ visibility: 1, createdAt: -1 });
+PostSchema.index({ category: 1, createdAt: -1 });

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -116,8 +117,12 @@ export class CreatorController {
   async submitServer(
     @Param('creatorId') creatorId: string,
     @Body() dto: SubmitDiscordServerDto,
+    @Req() req: any,
   ) {
-    //TODO:check if is a creators
+    if (creatorId !== req.user.sub) {
+      throw new ForbiddenException('You can only submit servers for yourself');
+    }
+
     return this.creatorService.submitServer(creatorId, dto);
   }
 
@@ -167,14 +172,8 @@ export class CreatorController {
   @ApiOperation({
     summary: 'Permanently delete a server',
   })
-  @ApiQuery({ name: 'discordId', required: true, type: String })
-  async deleteServer(
-    @Param('id') serverId: string,
-    @Query('discordId') discordId: string,
-  ) {
-    // const authorId = req.user.userId;
-
-    return this.creatorService.deleteServer(serverId, discordId);
+  async deleteServer(@Param('id') serverId: string, @Req() req: any) {
+    return this.creatorService.deleteServer(serverId, req.user.userId);
   }
 
   @Get('search-server')
@@ -219,22 +218,38 @@ export class CreatorController {
 
   // @Patch(':id/race')
   @Patch('race/:id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Set Seller race for the first time' })
   @ApiParam({ name: 'id', description: 'discord Id', type: String })
   @ApiBody({ type: SetRaceDto })
   @ApiResponse({ status: 200, description: 'Race set successfully' })
   @ApiResponse({ status: 404, description: 'Seller not found' })
-  async setRace(@Param('id') id: string, @Body() dto: SetRaceDto) {
+  async setRace(
+    @Param('id') id: string,
+    @Body() dto: SetRaceDto,
+    @Req() req: any,
+  ) {
+    if (id !== req.user.sub) {
+      throw new ForbiddenException('You can only update your own race');
+    }
     return this.creatorService.setRace(id, dto);
   }
 
   @Patch('race/edit/:id')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Edit/Update sellers race' })
   @ApiParam({ name: 'id', description: 'discord Id', type: String })
   @ApiBody({ type: SetRaceDto })
   @ApiResponse({ status: 200, description: 'Race updated successfully' })
   @ApiResponse({ status: 404, description: 'Seller not found' })
-  async editRace(@Param('id') id: string, @Body() dto: SetRaceDto) {
+  async editRace(
+    @Param('id') id: string,
+    @Body() dto: SetRaceDto,
+    @Req() req: any,
+  ) {
+    if (id !== req.user.sub) {
+      throw new ForbiddenException('You can only update your own race');
+    }
     return this.creatorService.editRace(id, dto);
   }
 

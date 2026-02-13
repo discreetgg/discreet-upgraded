@@ -7,7 +7,7 @@ export type ConversationDocument = mongoose.HydratedDocument<Conversation>;
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -18,6 +18,9 @@ export class Conversation {
   @Prop({ type: [mongoose.Schema.Types.ObjectId], ref: 'User', required: true })
   participants: mongoose.Schema.Types.ObjectId[];
 
+  @Prop({ type: String, required: false })
+  participantKey?: string;
+
   @Prop({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Message',
@@ -26,3 +29,6 @@ export class Conversation {
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
+// Fast keyset pagination over conversation list.
+ConversationSchema.index({ participants: 1, updatedAt: -1, _id: -1 });
+ConversationSchema.index({ participantKey: 1 }, { unique: true, sparse: true });

@@ -32,6 +32,12 @@ export interface UseCallOptions {
   onRinging?: () => void;
 }
 
+const debugLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
+
 export function useCall(options: UseCallOptions = {}) {
   const { socket } = useSocket();
 
@@ -61,16 +67,26 @@ export function useCall(options: UseCallOptions = {}) {
   const callStateRef = useRef<CallState>('idle');
   // Track if we received ringing signal from remote (to ignore stale 'User busy' messages)
   const receivedRingingRef = useRef<boolean>(false);
+  const callbacksRef = useRef<UseCallOptions>(options);
+
+  useEffect(() => {
+    callbacksRef.current = options;
+  }, [options]);
 
   // Cleanup function
   const cleanup = useCallback(() => {
-    console.log('[useCall] Cleaning up call resources');
+    debugLog('[useCall] Cleaning up call resources');
 
     // Stop ALL tracks from local stream (both audio AND video)
     if (localStreamRef.current) {
-      console.log('[useCall] Stopping local stream tracks:', localStreamRef.current.getTracks().length);
+      debugLog(
+        '[useCall] Stopping local stream tracks:',
+        localStreamRef.current.getTracks().length,
+      );
       localStreamRef.current.getTracks().forEach((track) => {
-        console.log(`[useCall] Stopping track: ${track.kind}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
+        debugLog(
+          `[useCall] Stopping track: ${track.kind}, enabled: ${track.enabled}, readyState: ${track.readyState}`,
+        );
         track.stop();
       });
       localStreamRef.current = null;
@@ -81,7 +97,7 @@ export function useCall(options: UseCallOptions = {}) {
       // Get all senders and stop their tracks
       peerConnectionRef.current.getSenders().forEach((sender) => {
         if (sender.track) {
-          console.log(`[useCall] Stopping sender track: ${sender.track.kind}`);
+          debugLog(`[useCall] Stopping sender track: ${sender.track.kind}`);
           sender.track.stop();
         }
       });
@@ -127,7 +143,7 @@ export function useCall(options: UseCallOptions = {}) {
   // Create peer connection
   const createPeerConnection = useCallback(
     (targetId: string) => {
-      console.log('[useCall] Creating peer connection for:', targetId);
+      debugLog('[useCall] Creating peer connection for:', targetId);
 
       const pc = new RTCPeerConnection(
         iceServersConfigRef.current || undefined,
@@ -135,7 +151,7 @@ export function useCall(options: UseCallOptions = {}) {
 
       pc.onicecandidate = (event) => {
         if (event.candidate && socket?.connected) {
-          console.log('[useCall] Sending ICE candidate');
+          debugLog('[useCall] Sending ICE candidate');
           socket.emit('call:ice', {
             to: targetId,
             candidate: event.candidate,
@@ -145,23 +161,23 @@ export function useCall(options: UseCallOptions = {}) {
       };
 
       pc.ontrack = (event) => {
-        console.log('[useCall] Received remote track');
+        debugLog('[useCall] Received remote track');
         const stream = event.streams[0];
         setRemoteStream(stream);
-        options.onRemoteStream?.(stream);
+        callbacksRef.current.onRemoteStream?.(stream);
       };
 
       pc.onconnectionstatechange = () => {
-        console.log('[useCall] Connection state:', pc.connectionState);
+        debugLog('[useCall] Connection state:', pc.connectionState);
 
         switch (pc.connectionState) {
           case 'connected':
             setCallState('connected');
-            options.onCallConnected?.();
+            callbacksRef.current.onCallConnected?.();
             break;
           case 'disconnected':
           case 'failed':
-            options.onCallFailed?.('Connection failed');
+            callbacksRef.current.onCallFailed?.('Connection failed');
             cleanup();
             break;
           case 'closed':
@@ -171,13 +187,13 @@ export function useCall(options: UseCallOptions = {}) {
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log('[useCall] ICE connection state:', pc.iceConnectionState);
+        debugLog('[useCall] ICE connection state:', pc.iceConnectionState);
       };
 
       peerConnectionRef.current = pc;
       return pc;
     },
-    [socket, options, cleanup],
+    [socket, cleanup],
   );
 
   // Get user media
@@ -191,11 +207,11 @@ export function useCall(options: UseCallOptions = {}) {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStreamRef.current = stream;
       setLocalStream(stream);
-      options.onLocalStream?.(stream);
+      callbacksRef.current.onLocalStream?.(stream);
 
       return stream;
     },
-    [options],
+    [],
   );
 
   // Start a call
@@ -206,7 +222,7 @@ export function useCall(options: UseCallOptions = {}) {
         return;
       }
 
-      console.log(`[useCall] Starting ${callType} call to ${targetId}`);
+      debugLog(`[useCall] Starting ${callType} call to ${targetId}`);
 
       // Clean up any existing call
       cleanup();
@@ -241,7 +257,7 @@ export function useCall(options: UseCallOptions = {}) {
           callId, // Pass the backend call ID to the callee
         });
 
-        console.log('[useCall] Offer sent, waiting for answer');
+        debugLog('[useCall] Offer sent, waiting for answer');
         // Caller stays in 'connecting' state while waiting for callee to answer
         // The 'ringing' state is only for the callee receiving the call
       } catch (error) {
@@ -249,11 +265,11 @@ export function useCall(options: UseCallOptions = {}) {
         const message =
           error instanceof Error ? error.message : 'Failed to start call';
         toast.error(message);
-        options.onCallFailed?.(message);
+        callbacksRef.current.onCallFailed?.(message);
         cleanup();
       }
     },
-    [socket, cleanup, getUserMedia, createPeerConnection, options],
+    [socket, cleanup, getUserMedia, createPeerConnection],
   );
 
   // Accept incoming call
@@ -263,7 +279,7 @@ export function useCall(options: UseCallOptions = {}) {
       return;
     }
 
-    console.log('[useCall] Accepting call from:', incomingCall.from);
+    debugLog('[useCall] Accepting call from:', incomingCall.from);
 
     try {
       setCallState('connecting');
@@ -302,16 +318,17 @@ export function useCall(options: UseCallOptions = {}) {
         to: incomingCall.from,
         answer,
         conversationId: incomingCall.conversationId,
+        callId: incomingCall.callId,
       });
 
-      console.log('[useCall] Answer sent');
+      debugLog('[useCall] Answer sent');
       setIncomingCall(null);
     } catch (error) {
       console.error('[useCall] Error accepting call:', error);
       const message =
         error instanceof Error ? error.message : 'Failed to accept call';
       toast.error(message);
-      options.onCallFailed?.(message);
+      callbacksRef.current.onCallFailed?.(message);
       cleanup();
     }
   }, [
@@ -319,7 +336,6 @@ export function useCall(options: UseCallOptions = {}) {
     socket,
     getUserMedia,
     createPeerConnection,
-    options,
     cleanup,
   ]);
 
@@ -329,7 +345,7 @@ export function useCall(options: UseCallOptions = {}) {
       return;
     }
 
-    console.log('[useCall] Rejecting call from:', incomingCall.from);
+    debugLog('[useCall] Rejecting call from:', incomingCall.from);
 
     socket.emit('call:end', {
       to: incomingCall.from,
@@ -344,7 +360,7 @@ export function useCall(options: UseCallOptions = {}) {
   // End call
   const endCall = useCallback(() => {
     if (socket?.connected && remoteUserId) {
-      console.log('[useCall] Ending call with:', remoteUserId);
+      debugLog('[useCall] Ending call with:', remoteUserId);
 
       socket.emit('call:end', {
         to: remoteUserId,
@@ -353,9 +369,9 @@ export function useCall(options: UseCallOptions = {}) {
       });
     }
 
-    options.onCallEnded?.('User ended call');
+    callbacksRef.current.onCallEnded?.('User ended call');
     cleanup();
-  }, [socket, remoteUserId, cleanup, options]);
+  }, [socket, remoteUserId, cleanup]);
 
   // Toggle mute
   const toggleMute = useCallback(() => {
@@ -406,7 +422,7 @@ export function useCall(options: UseCallOptions = {}) {
       callType: CallType;
       callId?: string;
     }) => {
-      console.log(
+      debugLog(
         `[useCall] Received offer from ${data.from} (${data.callType})`,
       );
 
@@ -415,14 +431,17 @@ export function useCall(options: UseCallOptions = {}) {
       
       // Check if we've already processed this offer (prevents duplicate handling)
       if (processedOffersRef.current.has(offerKey)) {
-        console.log('[useCall] Duplicate offer detected, ignoring');
+        debugLog('[useCall] Duplicate offer detected, ignoring');
         return;
       }
 
       // Use ref for synchronous state check to avoid React batching issues
       // If already in a call, reject the new one
       if (callStateRef.current !== 'idle') {
-        console.log('[useCall] Already in a call, rejecting new offer. Current state:', callStateRef.current);
+        debugLog(
+          '[useCall] Already in a call, rejecting new offer. Current state:',
+          callStateRef.current,
+        );
         socket?.emit('call:end', {
           to: data.from,
           reason: 'User busy',
@@ -454,9 +473,9 @@ export function useCall(options: UseCallOptions = {}) {
       });
 
       // Notify via callback
-      options.onIncomingCall?.(incomingCallData);
+      callbacksRef.current.onIncomingCall?.(incomingCallData);
     },
-    [socket, options],
+    [socket],
   );
 
   // Handle answer
@@ -466,7 +485,7 @@ export function useCall(options: UseCallOptions = {}) {
       answer: RTCSessionDescriptionInit;
       conversationId: string;
     }) => {
-      console.log('[useCall] Received answer from:', data.from);
+      debugLog('[useCall] Received answer from:', data.from);
 
       const pc = peerConnectionRef.current;
       if (!pc) {
@@ -475,7 +494,7 @@ export function useCall(options: UseCallOptions = {}) {
       }
 
       if (pc.signalingState === 'stable') {
-        console.log('[useCall] Connection already stable, ignoring answer');
+        debugLog('[useCall] Connection already stable, ignoring answer');
         return;
       }
 
@@ -501,7 +520,7 @@ export function useCall(options: UseCallOptions = {}) {
       candidate: RTCIceCandidateInit;
       conversationId: string;
     }) => {
-      console.log('[useCall] Received ICE candidate');
+      debugLog('[useCall] Received ICE candidate');
 
       const pc = peerConnectionRef.current;
 
@@ -513,7 +532,7 @@ export function useCall(options: UseCallOptions = {}) {
         }
       } else {
         // Queue the candidate for later
-        console.log(
+        debugLog(
           '[useCall] Queuing ICE candidate (no remote description yet)',
         );
         pendingCandidatesRef.current.push(data.candidate);
@@ -525,7 +544,7 @@ export function useCall(options: UseCallOptions = {}) {
   // Handle call end from remote
   const handleRemoteEnd = useCallback(
     (data: { from: string; reason: string; conversationId: string }) => {
-      console.log(`[useCall] Call ended by ${data.from}: ${data.reason}`);
+      debugLog(`[useCall] Call ended by ${data.from}: ${data.reason}`);
 
       // Ignore 'User busy' if we already received ringing signal from the same user
       // This prevents race conditions where a stale 'busy' message arrives after the call started
@@ -534,7 +553,7 @@ export function useCall(options: UseCallOptions = {}) {
         receivedRingingRef.current &&
         callStateRef.current === 'connecting'
       ) {
-        console.log(
+        debugLog(
           '[useCall] Ignoring stale "User busy" message - already received ringing signal',
         );
         return;
@@ -545,27 +564,27 @@ export function useCall(options: UseCallOptions = {}) {
         setIncomingCall(null);
       }
 
-      options.onCallEnded?.(data.reason);
+      callbacksRef.current.onCallEnded?.(data.reason);
       cleanup();
     },
-    [cleanup, options, incomingCall],
+    [cleanup, incomingCall],
   );
 
   // Handle ringing notification
   const handleRinging = useCallback(
     (data: { from: string }) => {
-      console.log(`[useCall] Ringing on ${data.from}'s device`);
+      debugLog(`[useCall] Ringing on ${data.from}'s device`);
       // Mark that we received ringing signal - this means the remote user is aware of the call
       receivedRingingRef.current = true;
-      options.onRinging?.();
+      callbacksRef.current.onRinging?.();
     },
-    [options],
+    [],
   );
 
   // Handle remote mute notification
   const handleRemoteMute = useCallback(
     (data: { from: string; isMuted: boolean }) => {
-      console.log(`[useCall] Remote user ${data.from} muted: ${data.isMuted}`);
+      debugLog(`[useCall] Remote user ${data.from} muted: ${data.isMuted}`);
       setIsRemoteMuted(data.isMuted);
     },
     [],
@@ -574,7 +593,7 @@ export function useCall(options: UseCallOptions = {}) {
   // Handle remote video notification
   const handleRemoteVideo = useCallback(
     (data: { from: string; isVideoOff: boolean }) => {
-      console.log(
+      debugLog(
         `[useCall] Remote user ${data.from} video off: ${data.isVideoOff}`,
       );
       setIsRemoteVideoOff(data.isVideoOff);
@@ -586,7 +605,7 @@ export function useCall(options: UseCallOptions = {}) {
   useEffect(() => {
     if (!socket) return;
 
-    console.log('[useCall] Setting up socket listeners');
+    debugLog('[useCall] Setting up socket listeners');
 
     socket.on('call:offer', handleOffer);
     socket.on('call:answer', handleAnswer);
@@ -597,7 +616,7 @@ export function useCall(options: UseCallOptions = {}) {
     socket.on('call:video', handleRemoteVideo);
 
     return () => {
-      console.log('[useCall] Removing socket listeners');
+      debugLog('[useCall] Removing socket listeners');
       socket.off('call:offer', handleOffer);
       socket.off('call:answer', handleAnswer);
       socket.off('call:ice', handleIceCandidate);

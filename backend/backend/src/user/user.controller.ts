@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -243,9 +244,15 @@ export class UserController {
   @ApiOkResponse({ description: 'User updated.' })
   @ApiNotFoundResponse({ description: 'User not found.' })
   async updateUser(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserDto,
   ) {
+    const authenticatedDiscordId = req.user.sub;
+    if (id !== authenticatedDiscordId) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
+
     const user = await this.userService.updateUser(id, updateUserDto);
     if (!user) {
       throw new NotFoundException('User not found');
@@ -277,9 +284,17 @@ export class UserController {
   })
   @ApiResponse({ status: 400, description: 'No file provided or bad request' })
   async uploadProfilePicture(
+    @Req() req: any,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    const authenticatedDiscordId = req.user.sub;
+    if (id !== authenticatedDiscordId) {
+      throw new ForbiddenException(
+        'You can only upload your own profile picture',
+      );
+    }
+
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -311,9 +326,17 @@ export class UserController {
   })
   @ApiResponse({ status: 400, description: 'No file provided or bad request' })
   async uploadProfileBanner(
+    @Req() req: any,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    const authenticatedDiscordId = req.user.sub;
+    if (id !== authenticatedDiscordId) {
+      throw new ForbiddenException(
+        'You can only upload your own profile banner',
+      );
+    }
+
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -333,7 +356,14 @@ export class UserController {
     status: 404,
     description: 'User or profile picture not found',
   })
-  async deleteProfilePicture(@Param('id') id: string) {
+  async deleteProfilePicture(@Param('id') id: string, @Req() req: any) {
+    const authenticatedDiscordId = req.user.sub;
+    if (id !== authenticatedDiscordId) {
+      throw new ForbiddenException(
+        'You can only delete your own profile picture',
+      );
+    }
+
     return this.userService.deleteProfilePicture(id);
   }
 
@@ -349,7 +379,14 @@ export class UserController {
     status: 404,
     description: 'User or profile Banner not found',
   })
-  async deleteProfileBanner(@Param('id') id: string) {
+  async deleteProfileBanner(@Param('id') id: string, @Req() req: any) {
+    const authenticatedDiscordId = req.user.sub;
+    if (id !== authenticatedDiscordId) {
+      throw new ForbiddenException(
+        'You can only delete your own profile banner',
+      );
+    }
+
     return this.userService.deleteProfileBanner(id);
   }
 }

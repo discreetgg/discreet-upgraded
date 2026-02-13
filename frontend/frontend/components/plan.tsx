@@ -45,12 +45,15 @@ export const Plan = ({
               MRR: <span className='text-white'>{mrr}</span>
             </span>
           </span> */}
-          <span className='flex gap-2 items-center'>
-            <Icons.comment />
-            <span className='text-[15px] capitalize text-[#8A8C95]'>
-              Type: <span className='text-white'>{plan.type}</span>
-            </span>
-          </span>
+	          <span className='flex gap-2 items-center'>
+	            <Icons.comment />
+	            <span className='text-[15px] capitalize text-[#8A8C95]'>
+	              Type:{' '}
+	              <span className='text-white'>
+	                {(plan as SubscriptionPlanType & { type?: string }).type ?? 'tier'}
+	              </span>
+	            </span>
+	          </span>
           <div className='bg-[#3C3C42] w-px' />
           {/* <span className='flex gap-2 items-center'>
             <Icons.views />

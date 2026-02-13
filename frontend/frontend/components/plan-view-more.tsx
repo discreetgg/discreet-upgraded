@@ -54,7 +54,9 @@ export const PlanViewMore = ({ plan }: { plan: SubscriptionPlanType }) => {
       {showEditPlanDialog && (
         <SubscriptionsCreatePlanDialog
           editData={plan}
-          onClose={(close) => setShowEditPlanDialog(close)}
+          isUpdating
+          open={showEditPlanDialog}
+          onOpenChange={setShowEditPlanDialog}
         />
       )}
     </>

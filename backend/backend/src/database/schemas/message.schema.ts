@@ -131,4 +131,9 @@ export class Message {
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
-MessageSchema.index({ conversation: 1, createdAt: -1 });
+// Keyset pagination for large threads.
+MessageSchema.index({ conversation: 1, createdAt: -1, _id: -1 });
+// Optimizes shared-media vault scans over media-bearing message types.
+MessageSchema.index({ conversation: 1, type: 1, createdAt: -1, _id: -1 });
+// Speeds unread count aggregation by receiver across conversation list.
+MessageSchema.index({ reciever: 1, status: 1, conversation: 1 });

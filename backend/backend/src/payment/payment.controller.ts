@@ -21,10 +21,18 @@ export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Get('purchased')
+  @UseGuards(JwtAuthGuard)
   async getPurchasedMedias(
     @Query('buyerId') buyerId: string,
     @Query('sellerId') sellerId: string,
+    @Req() req: any,
   ) {
+    if (buyerId !== req.user.sub) {
+      throw new BadRequestException(
+        'Buyer identity must match the authenticated user',
+      );
+    }
+
     return await this.paymentService.getUserPaidMenu(buyerId, sellerId);
   }
 

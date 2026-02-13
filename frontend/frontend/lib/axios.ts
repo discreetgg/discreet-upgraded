@@ -12,9 +12,6 @@ const failedQueue: {
 const api = setupCache(
   axios.create({
     baseURL,
-    headers: {
-      'Content-Type': 'application/json',
-    },
     withCredentials: true,
   }),
   {
@@ -54,14 +51,35 @@ api.interceptors.request.use(
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('auth_token');
       const method = (config.method || 'get').toLowerCase();
+      const isReadOnlyRequest =
+        method === 'get' || method === 'head' || method === 'options';
+      const requestUrl = `${config.url || ''}`;
+      const isConversationHistoryRead =
+        isReadOnlyRequest &&
+        /\/chat\/conversations(?:\/|$|\?)/.test(requestUrl);
 
       // Avoid attaching Authorization on read-only requests.
       // With cookie auth + withCredentials this prevents CORS preflight for high-volume GET calls.
+      // Conversation history reads are auth-critical and can fail with cookie-only auth
+      // in cross-origin/local setups, so we force bearer auth for that path.
       const shouldAttachAuthorization =
-        method !== 'get' && method !== 'head' && method !== 'options';
+        !isReadOnlyRequest || isConversationHistoryRead;
 
       if (token && shouldAttachAuthorization) {
         config.headers.Authorization = `Bearer ${token}`;
+      }
+
+      // Do not force Content-Type on read-only requests.
+      // This helps keep cross-origin GET calls as simple requests.
+      if (isReadOnlyRequest && config.headers) {
+        const headers = config.headers as any;
+        if (typeof headers.delete === 'function') {
+          headers.delete('Content-Type');
+          headers.delete('content-type');
+        } else {
+          delete headers['Content-Type'];
+          delete headers['content-type'];
+        }
       }
     }
     return config;

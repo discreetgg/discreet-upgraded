@@ -21,6 +21,10 @@ import {
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  clearConversationRequestCaches,
+  markConversationAsReadService,
+} from '@/lib/services';
 
 type MessageContextValue = {
   receiver: AuthorType | UserType | null;
@@ -44,6 +48,17 @@ const MessageContext = createContext<MessageContextValue | null>(null);
 
 const storageKey = 'root:message';
 const MESSAGE_DEDUP_WINDOW_MS = 3000;
+const UNREAD_SYNC_CHANNEL = 'discreet:chat:unread-sync';
+const UNREAD_SYNC_STORAGE_KEY = 'discreet:chat:unread-sync:event';
+
+type ConversationReadSyncEvent = {
+  type: 'conversation_read';
+  userDiscordId: string;
+  conversationId: string;
+  participantKey?: string;
+  sourceTabId: string;
+  createdAt: number;
+};
 
 const resolveConversationIdentifier = (
   conversation: unknown,
@@ -69,6 +84,75 @@ const resolveConversationIdentifier = (
   return undefined;
 };
 
+const getAuthorIdentity = (
+  author: Partial<Pick<AuthorType, '_id' | 'discordId'>> | undefined,
+): string => {
+  if (typeof author?.discordId === 'string' && author.discordId.length > 0) {
+    return `discord:${author.discordId}`;
+  }
+  if (typeof author?._id === 'string' && author._id.length > 0) {
+    return `id:${author._id}`;
+  }
+  return '';
+};
+
+const getConversationParticipantKey = (
+  conversation: ConversationType | undefined,
+): string => {
+  if (!conversation) return '';
+
+  const participantKeys = (conversation.participants ?? [])
+    .map((participant) => getAuthorIdentity(participant))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (participantKeys.length === 2) {
+    return participantKeys.join(':');
+  }
+
+  return `conversation:${conversation._id}`;
+};
+
+const getMessageParticipantKey = (message: MessageType): string => {
+  const senderKey = getAuthorIdentity(message.sender);
+  const receiverKey = getAuthorIdentity(message.reciever);
+  const participantKeys = [senderKey, receiverKey]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (participantKeys.length === 2) {
+    return participantKeys.join(':');
+  }
+
+  return '';
+};
+
+const moveConversationToTop = (
+  conversations: ConversationType[],
+  index: number,
+  updatedConversation: ConversationType,
+): ConversationType[] => {
+  if (index === 0) {
+    return [updatedConversation, ...conversations.slice(1)];
+  }
+
+  return [
+    updatedConversation,
+    ...conversations.slice(0, index),
+    ...conversations.slice(index + 1),
+  ];
+};
+
+const decrementUnreadTotal = (
+  totalUnreadCount: unknown,
+  delta: number,
+): number | unknown => {
+  if (typeof totalUnreadCount !== 'number' || !Number.isFinite(totalUnreadCount)) {
+    return totalUnreadCount;
+  }
+  return Math.max(0, totalUnreadCount - Math.max(0, delta));
+};
+
 const MessageContextProvider = ({
   children,
 }: {
@@ -79,7 +163,13 @@ const MessageContextProvider = ({
   const { user } = useGlobal();
   const queryClient = useQueryClient();
   const didHydrate = useRef(false);
+  const previousUserDiscordIdRef = useRef<string | null>(null);
   const recentlyHandledMessageIdsRef = useRef<Map<string, number>>(new Map());
+  const conversationsRef = useRef<ConversationType[] | null>(null);
+  const unreadSyncChannelRef = useRef<BroadcastChannel | null>(null);
+  const unreadSyncTabIdRef = useRef<string>(
+    `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  );
 
   const [receiver, setReceiver] = useState<AuthorType | UserType | null>(null);
   const [conversations, setConversations] = useState<ConversationType[] | null>(
@@ -89,6 +179,310 @@ const MessageContextProvider = ({
 
   const [loading, setLoading] = useState(true);
   const { addUnreadMessage, markAsRead } = useGlobalNotification();
+  const activeConversationQueryKey = useMemo(
+    () => ['conversations', user?.discordId ?? 'guest'],
+    [user?.discordId],
+  );
+
+  const clearUnreadLocally = useCallback(
+    (conversationId: string, participantKeyHint?: string) => {
+      const conversationSnapshot = conversationsRef.current ?? [];
+      const hasParticipantKeyHint =
+        typeof participantKeyHint === 'string' && participantKeyHint.length > 0;
+      const targetConversation = conversationSnapshot.find(
+        (conversation) => conversation._id === conversationId,
+      );
+      const effectiveParticipantKey =
+        participantKeyHint ||
+        getConversationParticipantKey(targetConversation) ||
+        '';
+      const matchedConversationIds = new Set<string>();
+
+      for (const conversation of conversationSnapshot) {
+        if (conversation._id === conversationId) {
+          matchedConversationIds.add(conversation._id);
+          continue;
+        }
+
+        if (
+          hasParticipantKeyHint &&
+          getConversationParticipantKey(conversation) === effectiveParticipantKey
+        ) {
+          matchedConversationIds.add(conversation._id);
+        }
+      }
+
+      if (!matchedConversationIds.has(conversationId)) {
+        matchedConversationIds.add(conversationId);
+      }
+
+      const hasMatch = (conversation: ConversationType): boolean => {
+        if (matchedConversationIds.has(conversation._id)) {
+          return true;
+        }
+        if (!effectiveParticipantKey) {
+          return false;
+        }
+        return (
+          getConversationParticipantKey(conversation) === effectiveParticipantKey
+        );
+      };
+
+      const clearedCount = conversationSnapshot.reduce((total, conversation) => {
+        if (!hasMatch(conversation)) {
+          return total;
+        }
+        return total + (conversation.unreadCount || 0);
+      }, 0);
+
+      setConversations((prev) => {
+        if (!prev) return prev;
+        return prev.map((conversation) => {
+          if (!hasMatch(conversation)) {
+            return conversation;
+          }
+          if (!conversation.unreadCount) {
+            return conversation;
+          }
+          return {
+            ...conversation,
+            unreadCount: 0,
+          };
+        });
+      });
+
+      queryClient.setQueriesData(
+        { queryKey: activeConversationQueryKey },
+        (oldData: any) => {
+          if (!oldData) {
+            return oldData;
+          }
+
+          const clearConversationArrayUnread = (
+            sourceConversations: ConversationType[],
+          ) => {
+            let pageClearedCount = 0;
+            const nextConversations = sourceConversations.map((conversation) => {
+              if (!hasMatch(conversation)) {
+                return conversation;
+              }
+
+              const unreadCount = conversation.unreadCount || 0;
+              if (unreadCount <= 0) {
+                return conversation;
+              }
+
+              pageClearedCount += unreadCount;
+              return {
+                ...conversation,
+                unreadCount: 0,
+              };
+            });
+
+            return {
+              nextConversations,
+              pageClearedCount,
+            };
+          };
+
+          if (Array.isArray(oldData.pages)) {
+            let globalClearedCount = 0;
+            const nextPages = oldData.pages.map((page: any) => {
+              const pageConversations = Array.isArray(page?.conversations)
+                ? (page.conversations as ConversationType[])
+                : [];
+              const { nextConversations, pageClearedCount } =
+                clearConversationArrayUnread(pageConversations);
+
+              if (pageClearedCount > globalClearedCount) {
+                globalClearedCount = pageClearedCount;
+              }
+
+              return {
+                ...page,
+                conversations: nextConversations,
+              };
+            });
+
+            const effectiveDelta =
+              globalClearedCount > 0 ? globalClearedCount : clearedCount;
+            const normalizedPages = nextPages.map((page: any) => ({
+              ...page,
+              totalUnreadCount: decrementUnreadTotal(
+                page?.totalUnreadCount,
+                effectiveDelta,
+              ),
+            }));
+
+            return {
+              ...oldData,
+              pages: normalizedPages,
+            };
+          }
+
+          if (Array.isArray(oldData.conversations)) {
+            const { nextConversations, pageClearedCount } =
+              clearConversationArrayUnread(
+                oldData.conversations as ConversationType[],
+              );
+            const effectiveDelta =
+              pageClearedCount > 0 ? pageClearedCount : clearedCount;
+
+            return {
+              ...oldData,
+              conversations: nextConversations,
+              totalUnreadCount: decrementUnreadTotal(
+                oldData?.totalUnreadCount,
+                effectiveDelta,
+              ),
+            };
+          }
+
+          return oldData;
+        },
+      );
+
+      return {
+        clearedCount,
+        participantKey: effectiveParticipantKey,
+      };
+    },
+    [activeConversationQueryKey, queryClient],
+  );
+
+  const applyReadSyncEvent = useCallback(
+    (conversationId: string, participantKeyHint?: string) => {
+      const { clearedCount } = clearUnreadLocally(
+        conversationId,
+        participantKeyHint,
+      );
+      if (clearedCount > 0) {
+        markAsRead(clearedCount);
+      }
+      void queryClient.invalidateQueries({ queryKey: activeConversationQueryKey });
+    },
+    [activeConversationQueryKey, clearUnreadLocally, markAsRead, queryClient],
+  );
+
+  const publishReadSyncEvent = useCallback(
+    (payload: { conversationId: string; participantKey?: string }) => {
+      if (typeof window === 'undefined' || !user?.discordId) {
+        return;
+      }
+
+      const syncEvent: ConversationReadSyncEvent = {
+        type: 'conversation_read',
+        userDiscordId: user.discordId,
+        conversationId: payload.conversationId,
+        participantKey: payload.participantKey,
+        sourceTabId: unreadSyncTabIdRef.current,
+        createdAt: Date.now(),
+      };
+
+      try {
+        unreadSyncChannelRef.current?.postMessage(syncEvent);
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('Failed to publish unread sync event via channel', error);
+        }
+      }
+
+      try {
+        localStorage.setItem(UNREAD_SYNC_STORAGE_KEY, JSON.stringify(syncEvent));
+        localStorage.removeItem(UNREAD_SYNC_STORAGE_KEY);
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('Failed to publish unread sync event via storage', error);
+        }
+      }
+    },
+    [user?.discordId],
+  );
+
+  useEffect(() => {
+    const currentUserDiscordId = user?.discordId ?? null;
+    const previousUserDiscordId = previousUserDiscordIdRef.current;
+    const hasUserSwitch =
+      previousUserDiscordId !== null &&
+      previousUserDiscordId !== currentUserDiscordId;
+
+    if (hasUserSwitch) {
+      setReceiver(null);
+      setConversationId(null);
+      setConversations(null);
+      recentlyHandledMessageIdsRef.current.clear();
+      clearConversationRequestCaches();
+      queryClient.removeQueries({ queryKey: ['conversations'] });
+      localStorage.removeItem(storageKey);
+    }
+
+    previousUserDiscordIdRef.current = currentUserDiscordId;
+  }, [queryClient, user?.discordId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user?.discordId) {
+      return;
+    }
+
+    const handleSyncEvent = (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      const syncEvent = payload as ConversationReadSyncEvent;
+      if (syncEvent.type !== 'conversation_read') {
+        return;
+      }
+      if (syncEvent.userDiscordId !== user.discordId) {
+        return;
+      }
+      if (syncEvent.sourceTabId === unreadSyncTabIdRef.current) {
+        return;
+      }
+      if (!syncEvent.conversationId) {
+        return;
+      }
+
+      applyReadSyncEvent(syncEvent.conversationId, syncEvent.participantKey);
+    };
+
+    let unreadSyncChannel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      unreadSyncChannel = new BroadcastChannel(UNREAD_SYNC_CHANNEL);
+      unreadSyncChannelRef.current = unreadSyncChannel;
+      unreadSyncChannel.onmessage = (event) => {
+        handleSyncEvent(event.data);
+      };
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== UNREAD_SYNC_STORAGE_KEY || !event.newValue) {
+        return;
+      }
+
+      try {
+        handleSyncEvent(JSON.parse(event.newValue));
+      } catch {
+        // Ignore malformed payloads.
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (unreadSyncChannel) {
+        unreadSyncChannel.close();
+      }
+      if (unreadSyncChannelRef.current === unreadSyncChannel) {
+        unreadSyncChannelRef.current = null;
+      }
+    };
+  }, [applyReadSyncEvent, user?.discordId]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
@@ -129,6 +523,7 @@ const MessageContextProvider = ({
     ) => {
       setConversations((prev) => {
         const baseConversations = prev ?? [];
+        const messageParticipantKey = getMessageParticipantKey(message);
 
         // Helper to convert message authors to full participants
         const toAuthor = (author: MessageType['sender']): AuthorType => ({
@@ -142,9 +537,15 @@ const MessageContextProvider = ({
         });
 
         // Check if conversation already exists
-        const existingConversationIndex = baseConversations.findIndex(
+        let existingConversationIndex = baseConversations.findIndex(
           (conv) => conv._id === conversationId
         );
+        if (existingConversationIndex === -1 && messageParticipantKey) {
+          existingConversationIndex = baseConversations.findIndex(
+            (conv) =>
+              getConversationParticipantKey(conv) === messageParticipantKey,
+          );
+        }
 
         if (existingConversationIndex === -1) {
           if (!conversationId) {
@@ -167,44 +568,26 @@ const MessageContextProvider = ({
             __v: 0,
           };
 
-          const updated = [newConversation, ...baseConversations];
-
-          return updated.sort((a, b) => {
-            const aTime = a.lastMessage
-              ? new Date(a.lastMessage.updatedAt).getTime()
-              : new Date(a.updatedAt).getTime();
-            const bTime = b.lastMessage
-              ? new Date(b.lastMessage.updatedAt).getTime()
-              : new Date(b.updatedAt).getTime();
-            return bTime - aTime;
-          });
+          // Incoming message is by definition newest for that conversation.
+          return [newConversation, ...baseConversations];
         }
 
-        // Create a completely new array with updated conversation
-        const updatedConversations = baseConversations.map((conversation) => {
-          if (conversation._id === conversationId) {
-            return {
-              ...conversation,
-              lastMessage: { ...message },
-              updatedAt: message.updatedAt || new Date().toISOString(),
-              unreadCount: shouldIncrementUnread
-                ? (conversation.unreadCount || 0) + 1
-                : conversation.unreadCount || 0,
-            };
-          }
-          return conversation;
-        });
+        const existingConversation = baseConversations[existingConversationIndex];
+        const updatedConversation: ConversationType = {
+          ...existingConversation,
+          lastMessage: { ...message },
+          updatedAt: message.updatedAt || new Date().toISOString(),
+          unreadCount: shouldIncrementUnread
+            ? (existingConversation.unreadCount || 0) + 1
+            : existingConversation.unreadCount || 0,
+        };
 
-        // Sort conversations by updatedAt descending (most recent first)
-        return [...updatedConversations].sort((a, b) => {
-          const aTime = a.lastMessage
-            ? new Date(a.lastMessage.updatedAt).getTime()
-            : new Date(a.updatedAt).getTime();
-          const bTime = b.lastMessage
-            ? new Date(b.lastMessage.updatedAt).getTime()
-            : new Date(b.updatedAt).getTime();
-          return bTime - aTime;
-        });
+        // Move touched conversation to top in O(n) instead of re-sorting O(n log n).
+        return moveConversationToTop(
+          baseConversations,
+          existingConversationIndex,
+          updatedConversation,
+        );
       });
     },
     []
@@ -216,64 +599,66 @@ const MessageContextProvider = ({
       if (!prev) return [conversation];
 
       // Check if conversation already exists
-      const existingIndex = prev.findIndex(
+      let existingIndex = prev.findIndex(
         (conv) => conv._id === conversation._id
       );
+      if (existingIndex === -1) {
+        const incomingParticipantKey = getConversationParticipantKey(conversation);
+        if (incomingParticipantKey) {
+          existingIndex = prev.findIndex(
+            (conv) =>
+              getConversationParticipantKey(conv) === incomingParticipantKey,
+          );
+        }
+      }
       if (existingIndex !== -1) {
-        // Update existing conversation
-        const updated = [...prev];
-        updated[existingIndex] = conversation;
-        return updated.sort((a, b) => {
-          const aTime = a.lastMessage
-            ? new Date(a.lastMessage.updatedAt).getTime()
-            : new Date(a.updatedAt).getTime();
-          const bTime = b.lastMessage
-            ? new Date(b.lastMessage.updatedAt).getTime()
-            : new Date(b.updatedAt).getTime();
-          return bTime - aTime;
-        });
+        return moveConversationToTop(prev, existingIndex, conversation);
       }
 
-      // Add new conversation
-      const newConversations = [conversation, ...prev];
-      return newConversations.sort((a, b) => {
-        const aTime = a.lastMessage
-          ? new Date(a.lastMessage.updatedAt).getTime()
-          : new Date(a.updatedAt).getTime();
-        const bTime = b.lastMessage
-          ? new Date(b.lastMessage.updatedAt).getTime()
-          : new Date(b.updatedAt).getTime();
-        return bTime - aTime;
-      });
+      // Newly created conversations should appear first.
+      return [conversation, ...prev];
     });
   }, []);
 
   // Function to clear unread count for a conversation
   const clearUnreadCount = useCallback(
     (conversationId: string) => {
-      let clearedCount = 0;
-
-      setConversations((prev) => {
-        if (!prev) return prev;
-
-        return prev.map((conversation) => {
-          if (conversation._id === conversationId) {
-            clearedCount = conversation.unreadCount || 0;
-            return {
-              ...conversation,
-              unreadCount: 0,
-            };
-          }
-          return conversation;
-        });
-      });
+      const participantKeyHint =
+        getConversationParticipantKey(
+          conversationsRef.current?.find(
+            (conversation) => conversation._id === conversationId,
+          ),
+        ) || undefined;
+      const { clearedCount, participantKey } = clearUnreadLocally(
+        conversationId,
+        participantKeyHint,
+      );
 
       if (clearedCount > 0) {
         markAsRead(clearedCount);
-        // Note: React Query cache invalidation should be handled by the component using this
       }
+      publishReadSyncEvent({
+        conversationId,
+        participantKey,
+      });
+
+      void markConversationAsReadService(conversationId)
+        .catch((error) => {
+          console.error('Failed to persist conversation read state', error);
+        })
+        .finally(() => {
+          void queryClient.invalidateQueries({
+            queryKey: activeConversationQueryKey,
+          });
+        });
     },
-    [markAsRead]
+    [
+      activeConversationQueryKey,
+      clearUnreadLocally,
+      markAsRead,
+      publishReadSyncEvent,
+      queryClient,
+    ],
   );
 
   useEffect(() => {
@@ -314,7 +699,7 @@ const MessageContextProvider = ({
       // avoid building partial unread state from zero and instead refresh
       // authoritative server conversations.
       if (conversations === null) {
-        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        queryClient.invalidateQueries({ queryKey: activeConversationQueryKey });
         addUnreadMessage();
         return;
       }
@@ -341,6 +726,7 @@ const MessageContextProvider = ({
     };
   }, [
     addUnreadMessage,
+    activeConversationQueryKey,
     conversations,
     pathname,
     queryClient,

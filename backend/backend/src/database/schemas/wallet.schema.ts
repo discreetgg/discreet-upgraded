@@ -8,7 +8,7 @@ export type WalletDocument = mongoose.HydratedDocument<Wallet>;
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -33,3 +33,4 @@ export class Wallet {
 }
 
 export const WalletSchema = SchemaFactory.createForClass(Wallet);
+WalletSchema.index({ user: 1 }, { unique: true });

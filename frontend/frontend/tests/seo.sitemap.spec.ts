@@ -11,13 +11,16 @@ import { generateSitemapData, generateSitemapXML, getStaticRoutes } from '@/lib/
 describe('Sitemap Generation', () => {
   it('should generate static routes correctly', () => {
     const staticRoutes = getStaticRoutes();
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://discreet.gg';
     
     expect(staticRoutes).toBeDefined();
     expect(Array.isArray(staticRoutes)).toBe(true);
     expect(staticRoutes.length).toBeGreaterThan(0);
     
     // Check that homepage is included
-    const homepage = staticRoutes.find(route => route.url.endsWith('/'));
+    const homepage = staticRoutes.find(
+      (route) => route.url === siteUrl || route.url === `${siteUrl}/`
+    );
     expect(homepage).toBeDefined();
     expect(homepage?.priority).toBe(1.0);
     

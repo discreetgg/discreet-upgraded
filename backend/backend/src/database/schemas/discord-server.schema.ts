@@ -8,7 +8,7 @@ export type ServerDocument = mongoose.HydratedDocument<Server>;
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -54,3 +54,6 @@ export class Server {
 }
 
 export const ServerSchema = SchemaFactory.createForClass(Server);
+ServerSchema.index({ creator: 1, createdAt: -1 });
+ServerSchema.index({ name: 1 });
+ServerSchema.index({ tags: 1 });

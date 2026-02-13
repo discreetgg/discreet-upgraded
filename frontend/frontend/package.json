@@ -7,7 +7,7 @@
     "dev:turbo": "next dev --turbopack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next build --webpack",
     "test": "vitest",
     "test:run": "vitest run",
     "test:seo": "vitest run tests/seo.sitemap.spec.ts tests/robots.spec.ts"

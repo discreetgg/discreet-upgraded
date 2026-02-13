@@ -3,18 +3,47 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useGlobal } from '@/context/global-context-provider';
 import { useMessage } from '@/context/message-context';
+import { useSocket } from '@/context/socket-context';
 import { getConversationsService } from '@/lib/services';
-import { cn } from '@/lib/utils';
+import { cn, getUserDiscordAvatar } from '@/lib/utils';
 import type { AuthorType, ConversationType, MessageType } from '@/types/global';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { Info } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Icon } from './ui/icons';
-import { useSocket } from '@/context/socket-context';
-import { useQuery } from '@tanstack/react-query';
+
+const CONVERSATION_PAGE_SIZE = 30;
+const FALLBACK_CONVERSATION_KEY_PREFIX = 'conversation:';
+
+const getParticipantIdentity = (participant: AuthorType): string => {
+  if (participant?.discordId) return `discord:${participant.discordId}`;
+  if (participant?._id) return `id:${participant._id}`;
+  return '';
+};
+
+const getConversationParticipantKey = (
+  conversation: ConversationType,
+): string => {
+  const participantKeys = (conversation.participants ?? [])
+    .map((participant) => getParticipantIdentity(participant))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (participantKeys.length === 2) {
+    return participantKeys.join(':');
+  }
+
+  return `${FALLBACK_CONVERSATION_KEY_PREFIX}${conversation._id}`;
+};
+
+const getConversationSortTimestamp = (conversation: ConversationType): number => {
+  const updatedAt = conversation.lastMessage?.updatedAt ?? conversation.updatedAt;
+  return new Date(updatedAt).getTime();
+};
 
 export const ConversationList = () => {
   const {
@@ -26,37 +55,55 @@ export const ConversationList = () => {
   } = useMessage();
   const { user } = useGlobal();
   const { isUserOnline } = useSocket();
-
   const pathname = usePathname();
 
-  // Memoize sorted conversations to prevent unnecessary re-sorts
-  const sortConversations = useCallback((conversations: ConversationType[]) => {
-    return [...conversations].sort(
-      (a: ConversationType, b: ConversationType) => {
-        const aTime = a.lastMessage
-          ? new Date(a.lastMessage.updatedAt).getTime()
-          : new Date(a.updatedAt).getTime();
-        const bTime = b.lastMessage
-          ? new Date(b.lastMessage.updatedAt).getTime()
-          : new Date(b.updatedAt).getTime();
-        return bTime - aTime; // Most recent first
-      },
-    );
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const listRootRef = useRef<HTMLDivElement>(null);
+
+  const sortConversations = useCallback((items: ConversationType[]) => {
+    return [...items].sort((a: ConversationType, b: ConversationType) => {
+      return getConversationSortTimestamp(b) - getConversationSortTimestamp(a);
+    });
   }, []);
 
-  // Use React Query - will instantly use server-hydrated data
-  const { data: fetchedConversations, isLoading: loading } = useQuery({
-    queryKey: ['conversations'],
-    queryFn: async () => {
-      const response = await getConversationsService();
-      // Sort conversations by updatedAt or lastMessage.updatedAt
-      return sortConversations(response || []);
-    },
-    staleTime: 30 * 1000, // 30 seconds - conversations change frequently
+  const {
+    data,
+    isLoading: loading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['conversations', user?.discordId ?? 'guest', 'list'],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) =>
+      getConversationsService({
+        limit: CONVERSATION_PAGE_SIZE,
+        cursor: pageParam ?? undefined,
+      }),
+    enabled: Boolean(user?.discordId),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
   });
 
-  // Sync React Query data to message context
+  const fetchedConversations = useMemo(() => {
+    const byGroupKey = new Map<string, ConversationType>();
+    for (const page of data?.pages ?? []) {
+      for (const conversation of page.conversations ?? []) {
+        const groupKey = getConversationParticipantKey(conversation);
+        const existing = byGroupKey.get(groupKey);
+        if (
+          !existing ||
+          getConversationSortTimestamp(conversation) >=
+            getConversationSortTimestamp(existing)
+        ) {
+          byGroupKey.set(groupKey, conversation);
+        }
+      }
+    }
+    return sortConversations(Array.from(byGroupKey.values()));
+  }, [data?.pages, sortConversations]);
+
   useEffect(() => {
     if (!fetchedConversations) return;
 
@@ -65,29 +112,95 @@ export const ConversationList = () => {
         return fetchedConversations;
       }
 
-      const existingConversationIds = new Set(
-        currentConversations.map((conversation) => conversation._id),
+      const fetchedById = new Map(
+        fetchedConversations.map((conversation) => [conversation._id, conversation]),
+      );
+      const fetchedByGroupKey = new Map(
+        fetchedConversations.map((conversation) => [
+          getConversationParticipantKey(conversation),
+          conversation,
+        ]),
       );
 
-      const missingConversations = fetchedConversations.filter(
-        (conversation) => !existingConversationIds.has(conversation._id),
-      );
+      const mergedCurrent = currentConversations.flatMap((conversation) => {
+        const fetched = fetchedById.get(conversation._id);
+        if (!fetched) {
+          const groupKey = getConversationParticipantKey(conversation);
+          if (fetchedByGroupKey.has(groupKey)) {
+            return [];
+          }
+          return [conversation];
+        }
 
-      if (missingConversations.length === 0) {
-        return currentConversations;
+        fetchedById.delete(conversation._id);
+        fetchedByGroupKey.delete(getConversationParticipantKey(conversation));
+
+        const currentUpdatedAt = getConversationSortTimestamp(conversation);
+        const fetchedUpdatedAt = getConversationSortTimestamp(fetched);
+
+        const newestConversation =
+          fetchedUpdatedAt >= currentUpdatedAt ? fetched : conversation;
+
+        return [{
+          ...newestConversation,
+          // Server unread count should remain source of truth.
+          unreadCount: fetched.unreadCount ?? newestConversation.unreadCount ?? 0,
+        } as ConversationType];
+      });
+
+      const dedupedByGroupKey = new Map<string, ConversationType>();
+      for (const conversation of [
+        ...mergedCurrent,
+        ...Array.from(fetchedById.values()),
+      ]) {
+        const groupKey = getConversationParticipantKey(conversation);
+        const existing = dedupedByGroupKey.get(groupKey);
+        if (
+          !existing ||
+          getConversationSortTimestamp(conversation) >=
+            getConversationSortTimestamp(existing)
+        ) {
+          dedupedByGroupKey.set(groupKey, conversation);
+        }
       }
 
-      return sortConversations([
-        ...currentConversations,
-        ...missingConversations,
-      ]);
+      return sortConversations(Array.from(dedupedByGroupKey.values()));
     });
   }, [fetchedConversations, setConversations, sortConversations]);
+
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) {
+      return;
+    }
+
+    const target = loadMoreRef.current;
+    if (!target) {
+      return;
+    }
+
+    const root = listRootRef.current?.parentElement ?? null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting) {
+          return;
+        }
+        void fetchNextPage();
+      },
+      {
+        root,
+        rootMargin: '120px 0px',
+        threshold: 0.1,
+      },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const renderMessagePreview = (message: MessageType) => {
     const prefix = message.sender.discordId === user?.discordId ? 'You: ' : '';
 
-    // Check if this is a tip message
     const isTipMessage = message.price && message.text?.includes('Tip sent');
     if (isTipMessage) {
       return (
@@ -177,7 +290,10 @@ export const ConversationList = () => {
     return (
       <div className="space-y-4">
         {Array.from({ length: 5 }, (_, i) => i).map((index) => (
-          <div key={`loading-skeleton-${index}`} className="flex items-center gap-3 p-3">
+          <div
+            key={`loading-skeleton-${index}`}
+            className="flex items-center gap-3 p-3"
+          >
             <div className="h-12 w-12 bg-muted rounded-full animate-pulse" />
             <div className="flex-1 space-y-2">
               <div className="h-4 bg-muted rounded animate-pulse" />
@@ -188,7 +304,8 @@ export const ConversationList = () => {
       </div>
     );
   }
-  if (!conversations) {
+
+  if (!conversations || conversations.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         <p>No conversations yet</p>
@@ -198,8 +315,8 @@ export const ConversationList = () => {
   }
 
   return (
-    <div className="space-y-1">
-      {conversations?.map((conversation) => {
+    <div ref={listRootRef} className="space-y-1">
+      {conversations.map((conversation) => {
         const otherParticipant = getOtherParticipant(conversation);
         const isActive = pathname === `/messages/${conversation._id}`;
 
@@ -224,7 +341,10 @@ export const ConversationList = () => {
                 <AvatarImage
                   src={
                     otherParticipant?.profileImage?.url ??
-                    `https://cdn.discordapp.com/avatars/${otherParticipant.discordId}/${otherParticipant.discordAvatar}.png`
+                    getUserDiscordAvatar({
+                      discordId: otherParticipant.discordId,
+                      discordAvatar: otherParticipant.discordAvatar,
+                    })
                   }
                   alt={
                     otherParticipant.displayName || otherParticipant.username
@@ -283,6 +403,13 @@ export const ConversationList = () => {
           </Link>
         );
       })}
+
+      <div ref={loadMoreRef} className="h-4" />
+      {isFetchingNextPage ? (
+        <div className="py-2 text-center text-xs text-muted-foreground">
+          Loading more conversations...
+        </div>
+      ) : null}
     </div>
   );
 };

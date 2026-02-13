@@ -16,12 +16,17 @@ import { Icon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/auth-context-provider';
 import { useGlobal } from '@/context/global-context-provider';
-import { getUserService, guestSignupService } from '@/lib/services';
+import {
+  clearConversationRequestCaches,
+  getUserService,
+  guestSignupService,
+} from '@/lib/services';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 const SignUpSchema = z
   .object({
@@ -53,6 +58,7 @@ const Page = () => {
   const redirectQuery = redirectTarget
     ? `?redirect=${encodeURIComponent(redirectTarget)}`
     : '';
+  const queryClient = useQueryClient();
   const { setIsAuthenticated } = useAuth();
   const { setUser } = useGlobal();
   const [isLoading, setIsLoading] = useState(false);
@@ -88,6 +94,8 @@ const Page = () => {
         localStorage.setItem('auth_token', response.data.token);
       }
 
+      clearConversationRequestCaches();
+      queryClient.clear();
       setIsAuthenticated(true);
       localStorage.removeItem('manual_logout');
       document.cookie = 'manual_logout=; max-age=0; path=/; samesite=lax';

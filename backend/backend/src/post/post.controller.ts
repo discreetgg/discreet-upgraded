@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -105,6 +106,7 @@ export class PostController {
 
   // Create category
   @Post('category')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create a new category' })
   @ApiBody({ type: CreatePostCategoryDto })
   @ApiResponse({
@@ -114,7 +116,11 @@ export class PostController {
   })
   async createCategory(
     @Body() dto: CreatePostCategoryDto,
+    @Req() req: any,
   ): Promise<PostCategory> {
+    if (!dto.general) {
+      dto.creator = req.user.sub;
+    }
     return this.postService.createCategory(dto);
   }
 
@@ -355,7 +361,7 @@ export class PostController {
     @Req() req: any,
   ) {
     const userId = req.user.sub;
-    if ((req.user.role = Role.SELLER)) {
+    if (req.user.role !== Role.SELLER) {
       throw new BadRequestException('Only Sellers can make a post');
     }
     // Validate custom plan requirement
@@ -528,14 +534,8 @@ export class PostController {
   @ApiOperation({
     summary: 'Permanently delete a post with its media and comments',
   })
-  @ApiQuery({ name: 'discordId', required: true, type: String })
-  async deletePost(
-    @Param('id') postId: string,
-    @Query('discordId') discordId: string,
-  ) {
-    // const authorId = req.user.userId;
-
-    return this.postService.deletePost(discordId, postId);
+  async deletePost(@Param('id') postId: string, @Req() req: any) {
+    return this.postService.deletePost(req.user.sub, postId);
   }
 
   @Post('doc-schema')
@@ -567,25 +567,27 @@ export class PostController {
   }
 
   @Get('user/feed')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get visible posts for a user' })
   @ApiQuery({ name: 'discordId', required: true, type: String })
   @ApiOkResponse({ description: 'Returns Users feed' })
-  async getVisiblePostsForUser(@Query('discordId') discordId: string) {
+  async getVisiblePostsForUser(@Req() req: any) {
+    const discordId = req.user.sub;
     return this.postService.getVisiblePostsForUser(discordId);
   }
 
   @Get('user/recent-feed')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get recent feed for a user' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'discordId', required: true, type: String })
-  async getRecentFeed(
-    @Query('discordId') discordId: string,
-    @Query('limit') limit = 10,
-  ) {
+  async getRecentFeed(@Query('limit') limit = 10, @Req() req: any) {
+    const discordId = req.user.sub;
     return this.postService.getRecentFeedForUser(discordId, Number(limit));
   }
 
   @Get('user/filtered-feed')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get filtered visible posts for user' })
   @ApiQuery({ name: 'discordId', required: true, type: String })
   @ApiQuery({
@@ -596,10 +598,11 @@ export class PostController {
     description: 'Visibility type filter for posts',
   })
   async getFilteredUserPosts(
-    @Query('discordId') discordId: string,
     @Query('filter')
     filter: 'general' | 'subscribers' | 'custom_plan' | 'all' = 'all',
+    @Req() req: any,
   ) {
+    const discordId = req.user.sub;
     return this.postService.getFilteredPostsForUser(discordId, filter);
   }
 
@@ -806,7 +809,14 @@ export class PostController {
   @Post('bookmark/:discordId')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Bookmark a post' })
-  addBookmark(@Param('discordId') discordId: string, @Body() dto: BookmarkDto) {
+  addBookmark(
+    @Param('discordId') discordId: string,
+    @Body() dto: BookmarkDto,
+    @Req() req: any,
+  ) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot bookmark as another user');
+    }
     return this.postService.addBookmark(discordId, dto.postId);
   }
 
@@ -816,14 +826,21 @@ export class PostController {
   removeBookmark(
     @Param('discordId') discordId: string,
     @Param('postId') postId: string,
+    @Req() req: any,
   ) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot remove bookmarks for another user');
+    }
     return this.postService.removeBookmark(discordId, postId);
   }
 
   @Get('bookmark/:discordId')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get all bookmarks for a user' })
-  fetchBookmark(@Param('discordId') discordId: string) {
+  fetchBookmark(@Param('discordId') discordId: string, @Req() req: any) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot fetch bookmarks for another user');
+    }
     return this.postService.getBookmarks(discordId);
   }
 
@@ -836,9 +853,13 @@ export class PostController {
   async hasBookmarked(
     @Param('discordId') discordId: string,
     @Param('postId') postId: string,
-    // @Req() req: any,
+    @Req() req: any,
   ) {
-    // const userId = req.user.userId;
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException(
+        'Cannot check bookmark status for another user',
+      );
+    }
     const exists = await this.postService.hasUserBookmarked(discordId, postId);
     return { bookmarked: !!exists };
   }

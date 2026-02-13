@@ -19,7 +19,7 @@ export enum SubscriptionStatus {
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -74,6 +74,10 @@ export const UserSubscriptionSchema =
 
 UserSubscriptionSchema.index({ user: 1 });
 UserSubscriptionSchema.index({ plan: 1 });
+UserSubscriptionSchema.index(
+  { user: 1, plan: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } },
+);
 
 // @Prop({ default: true })
 // isAutoRenew: boolean;

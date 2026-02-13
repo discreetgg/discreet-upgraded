@@ -17,10 +17,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-import { guestSigninService, guestSignupService, getUserService } from '@/lib/services';
+import {
+  clearConversationRequestCaches,
+  getUserService,
+  guestSigninService,
+  guestSignupService,
+} from '@/lib/services';
 import { useState } from 'react';
 import { useAuth } from '@/context/auth-context-provider';
 import { useGlobal } from '@/context/global-context-provider';
+import { useQueryClient } from '@tanstack/react-query';
 
 const FormSchema = z.object({
   username: z.string().min(2, {
@@ -33,6 +39,7 @@ const FormSchema = z.object({
 
 const Page = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { setIsAuthenticated } = useAuth();
   const { setUser } = useGlobal();
   const [isLoading, setIsLoading] = useState(false);
@@ -57,6 +64,8 @@ const Page = () => {
           }
 
           // Update auth context immediately
+          clearConversationRequestCaches();
+          queryClient.clear();
           setIsAuthenticated(true);
 
           // Fetch user data and set in global context

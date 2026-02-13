@@ -52,7 +52,7 @@ export enum Race {
 @Schema({
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -227,3 +227,5 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index({ username: 1 });
+UserSchema.index({ displayName: 1 });

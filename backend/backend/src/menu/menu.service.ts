@@ -971,7 +971,7 @@ export class MenuService {
       const soldMenuMedia = await this.menuMediaModel
         .findOne({
           media: media._id,
-          isSold: true,
+          sold: true,
         })
         .session(session);
 

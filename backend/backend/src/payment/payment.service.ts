@@ -35,10 +35,8 @@ import { ChatGateway } from 'src/chat/chat.gateway';
 import {
   Transaction,
   TransactionStatus,
-  TransactionType,
 } from 'src/database/schemas/transaction.schema';
 import { PayCallDto } from './dto/pay-call.dto';
-import { Wallet } from 'src/database/schemas/wallet.schema';
 import { MenuMedia } from 'src/database/schemas/menu-media.schema';
 import {
   CreateNotificationDto,
@@ -71,7 +69,6 @@ export class PaymentService {
     private readonly messageModel: Model<Message>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Transaction.name) private txModel: Model<Transaction>,
-    @InjectModel(Wallet.name) private walletModel: Model<Wallet>,
   ) {}
 
   // private calcFee(amount: number) {
@@ -124,7 +121,6 @@ export class PaymentService {
     paymentTxId?: string,
     session?: ClientSession,
   ) {
-    let resTx = null;
     if (paymentTxId) {
       const newResTx = await this.walletService.reserve(
         payerId,
@@ -132,20 +128,32 @@ export class PaymentService {
         meta,
         session,
       );
-      const payment = await this.paymentModel.findOneAndUpdate(
+
+      const paymentQuery = this.paymentModel.findByIdAndUpdate(
+        paymentTxId,
         {
-          _id: paymentTxId,
-        },
-        {
-          $push: { batchDebitTx: newResTx.tx._id.toString() },
+          $push: { batchDebitTx: newResTx.tx._id },
           $inc: { amount: this.walletService.toCent(amount) },
         },
+        { new: true },
       );
+      if (session) paymentQuery.session(session);
+      const payment = await paymentQuery;
+      if (!payment) {
+        throw new NotFoundException(
+          'Call payment reservation record not found',
+        );
+      }
 
       return payment;
     } else {
       // Reserve funds from the caller’s wallet
-      resTx = await this.walletService.reserve(payerId, amount, meta, session);
+      const resTx = await this.walletService.reserve(
+        payerId,
+        amount,
+        meta,
+        session,
+      );
 
       // Safely derive receiver
       const receiverId = meta.toUser || meta.receiverId;
@@ -160,6 +168,7 @@ export class PaymentService {
         type: meta.type,
         meta: meta ?? null,
         debitTx: resTx.tx._id,
+        batchDebitTx: [resTx.tx._id],
         status: PaymentStatus.RESERVED,
       };
 
@@ -786,23 +795,28 @@ export class PaymentService {
   }
 
   async payForCall(dto: PayCallDto) {
-    const [callerWallet, calleeWallet, call, caller, callee] =
-      await Promise.all([
-        this.walletService.getWallet(dto.callerId),
-        this.walletService.getWallet(dto.calleeId),
-        this.messageModel.findById(dto.callId),
-        this.userModel.findOne({ discordId: dto.callerId }),
-        this.userModel.findOne({ discordId: dto.calleeId }),
-      ]);
+    const [call, caller, callee] = await Promise.all([
+      this.messageModel.findById(dto.callId),
+      this.userModel.findOne({ discordId: dto.callerId }),
+      this.userModel.findOne({ discordId: dto.calleeId }),
+    ]);
 
-    if (!callerWallet)
-      throw new BadRequestException('Caller does not have an active wallet');
-    if (!calleeWallet)
-      throw new BadRequestException('Callee does not have an active wallet');
     if (!call) throw new NotFoundException('Call session does not exist');
+    if (!caller) throw new NotFoundException('Caller does not exist');
+    if (!callee) throw new NotFoundException('Callee does not exist');
 
     if (call.paid && call.paymentTx) {
-      throw new BadRequestException('call session has been paid for');
+      const existingPayment = await this.paymentModel.findById(call.paymentTx);
+      if (existingPayment) {
+        const existing = existingPayment.toObject();
+        existing.amount = this.walletService.toDollar(existing.amount);
+        return {
+          success: true,
+          message: 'Call session already settled',
+          tx: existing,
+          paidCall: call,
+        };
+      }
     }
 
     const payment = await this.paymentModel.findOne({
@@ -812,99 +826,181 @@ export class PaymentService {
     if (!payment)
       throw new BadRequestException('No payment found for this call');
 
-    const duration = dto.duration;
-    const totalMinutes = Math.ceil(duration / 60);
+    if (payment.status === PaymentStatus.COMPLETED) {
+      const alreadyPaid = payment.toObject();
+      alreadyPaid.amount = this.walletService.toDollar(alreadyPaid.amount);
+      return {
+        success: true,
+        message: 'Call session already settled',
+        tx: alreadyPaid,
+        paidCall: call,
+      };
+    }
+
+    const now = Date.now();
+    const startedAt = call.callStartedAt?.getTime();
+    const fallbackDuration =
+      typeof startedAt === 'number'
+        ? Math.max(0, Math.ceil((now - startedAt) / 1000))
+        : 0;
+    const duration = Math.max(0, Math.ceil(dto.duration ?? fallbackDuration));
+    const totalMinutes = Math.max(1, Math.ceil(duration / 60));
     const expectedAmount = this.walletService.toCent(
       callee.callRate * totalMinutes,
     );
 
-    const excess = payment.amount - expectedAmount;
+    const reserveTxIds =
+      payment.batchDebitTx?.map((txId) => txId.toString()) ??
+      (payment.debitTx ? [payment.debitTx.toString()] : []);
+    if (reserveTxIds.length === 0) {
+      throw new BadRequestException(
+        'No reserve transactions found for this call',
+      );
+    }
 
     const session = await this.connection.startSession();
-    //update payment with the right amount to debit
-    await this.paymentModel.findByIdAndUpdate(payment._id, {
-      amount: expectedAmount,
-    });
+    session.startTransaction();
 
     try {
-      const result = await this.commitPayment(payment._id.toString(), session);
-      let paidCall = null;
-      if (result.status === PaymentStatus.COMPLETED) {
-        paidCall = await this.messageModel.findByIdAndUpdate(
-          call._id,
-          { paid: true, paymentTx: result._id },
-          { new: true, session },
-        );
+      const reserveTransactions = await this.txModel
+        .find({ _id: { $in: reserveTxIds } })
+        .session(session);
+      const reserveMap = new Map(
+        reserveTransactions.map((tx) => [tx._id.toString(), tx]),
+      );
 
-        if (excess) {
-          const meta = {
-            type: PaymentType.CALL_SESSION,
-            fromUser: caller._id.toString(),
-            toUser: callee._id.toString(),
-            callId: call._id.toString(),
-            callRate: callee.callRate,
-            callDuration: duration,
-            amount: dto.amount,
-            reversedAmount: excess,
-          };
-          const wallet = await this.walletModel.findById(caller._id.toString());
-          console.log('wallet :', wallet);
-          if (wallet.reservedBalance >= excess) {
-            const beforeBalance = wallet.balance;
-            wallet.reservedBalance -= excess;
-            wallet.balance += excess;
-
-            await (session ? wallet.save({ session }) : wallet.save());
-
-            await this.txModel.create(
-              [
-                {
-                  wallet: caller._id,
-                  type: TransactionType.RELEASE,
-                  amount: excess,
-                  balanceBefore: beforeBalance,
-                  balanceAfter: wallet.balance,
-                  status: TransactionStatus.COMPLETED,
-                  meta,
-                },
-              ],
-              { session },
-            );
-          }
+      const committedReservationTxIds: string[] = [];
+      for (const reserveTxId of reserveTxIds) {
+        const reserveTx = reserveMap.get(reserveTxId);
+        if (!reserveTx) {
+          throw new NotFoundException(
+            `Reserve transaction ${reserveTxId} does not exist`,
+          );
         }
 
-        // ✅ Only send notifications if payment succeeded
-        const sellerMailPayload: SendEmailDto = {
-          recipients: [callee.email],
-          subject: 'Call Payment Notification',
-          html: `<h1>Hello ${callee.username}!</h1>
-             <p>${caller.username} paid for for call session</p>`,
-        };
+        if (reserveTx.status === TransactionStatus.PENDING) {
+          const { commitTx } = await this.walletService.commitReservation(
+            reserveTxId,
+            session,
+          );
+          committedReservationTxIds.push(commitTx._id.toString());
+          continue;
+        }
 
-        const buyerMailPayload: SendEmailDto = {
-          recipients: [caller.email],
-          subject: 'Debit',
-          html: `<h1>Hello ${caller.username}!</h1>
-             <p>${result.amount} has been debited from your wallet for call with ${callee.username}.</p>`,
-        };
+        if (reserveTx.status === TransactionStatus.COMPLETED) {
+          continue;
+        }
 
-        await Promise.allSettled([
-          this.notificationService.sendEmail(sellerMailPayload),
-          this.notificationService.sendEmail(buyerMailPayload),
-        ]);
-
-        // return result;
-        result.amount = this.walletService.toDollar(result.amount);
-        return {
-          success: true,
-          message: 'Call session payment succefull',
-          tx: result,
-          paidCall,
-        };
+        throw new BadRequestException(
+          `Invalid reserve transaction status: ${reserveTx.status}`,
+        );
       }
-      return { success: false };
+
+      if (payment.amount > expectedAmount) {
+        const refundAmount = payment.amount - expectedAmount;
+        await this.walletService.credit(
+          caller._id.toString(),
+          this.walletService.toDollar(refundAmount),
+          {
+            type: PaymentType.CALL_SESSION,
+            callId: call._id.toString(),
+            fromUser: callee._id.toString(),
+            toUser: caller._id.toString(),
+            description: `Refund unused reserved call amount for ${call._id.toString()}`,
+            reservedAmount: payment.amount,
+            billedAmount: expectedAmount,
+          },
+          session,
+        );
+      } else if (expectedAmount > payment.amount) {
+        const extraAmount = expectedAmount - payment.amount;
+        await this.walletService.debit(
+          caller._id.toString(),
+          this.walletService.toDollar(extraAmount).toString(),
+          {
+            type: PaymentType.CALL_SESSION,
+            callId: call._id.toString(),
+            fromUser: caller._id.toString(),
+            toUser: callee._id.toString(),
+            description: `Additional call settlement debit for ${call._id.toString()}`,
+            reservedAmount: payment.amount,
+            billedAmount: expectedAmount,
+          },
+          session,
+        );
+      }
+
+      const creditTx = await this.walletService.credit(
+        callee._id.toString(),
+        this.walletService.toDollar(expectedAmount),
+        {
+          type: PaymentType.CALL_SESSION,
+          callId: call._id.toString(),
+          fromUser: caller._id.toString(),
+          toUser: callee._id.toString(),
+          callRate: callee.callRate,
+          callDuration: duration,
+          billedMinutes: totalMinutes,
+        },
+        session,
+      );
+
+      payment.amount = expectedAmount;
+      payment.status = PaymentStatus.COMPLETED;
+      payment.creditTx = creditTx.tx._id;
+      if (committedReservationTxIds.length > 0) {
+        payment.debitTx = new Types.ObjectId(
+          committedReservationTxIds[committedReservationTxIds.length - 1],
+        );
+      }
+      payment.meta = {
+        ...(payment.meta ?? {}),
+        callDuration: duration,
+        billedMinutes: totalMinutes,
+      };
+      await payment.save({ session });
+
+      const paidCall = await this.messageModel.findByIdAndUpdate(
+        call._id,
+        { paid: true, paymentTx: payment._id },
+        { new: true, session },
+      );
+
+      await session.commitTransaction();
+
+      // Notify both parties after transaction commit.
+      const sellerMailPayload: SendEmailDto = {
+        recipients: [callee.email],
+        subject: 'Call Payment Notification',
+        html: `<h1>Hello ${callee.username}!</h1>
+             <p>${caller.username} paid for call session.</p>`,
+      };
+
+      const buyerMailPayload: SendEmailDto = {
+        recipients: [caller.email],
+        subject: 'Debit',
+        html: `<h1>Hello ${caller.username}!</h1>
+             <p>$${this.walletService.toDollar(expectedAmount)} has been debited from your wallet for call with ${callee.username}.</p>`,
+      };
+
+      await Promise.allSettled([
+        this.notificationService.sendEmail(sellerMailPayload),
+        this.notificationService.sendEmail(buyerMailPayload),
+      ]);
+
+      const paymentResponse = payment.toObject();
+      paymentResponse.amount = this.walletService.toDollar(
+        paymentResponse.amount,
+      );
+
+      return {
+        success: true,
+        message: 'Call session payment successful',
+        tx: paymentResponse,
+        paidCall,
+      };
     } catch (err) {
-      // await session.abortTransaction();
+      await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();

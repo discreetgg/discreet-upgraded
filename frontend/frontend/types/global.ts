@@ -240,6 +240,19 @@ export type ConversationType = {
   __v: number;
 };
 
+export type PaginatedConversationsResponseType = {
+  conversations: ConversationType[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalUnreadCount: number;
+};
+
+export type PaginatedConversationMessagesResponseType = {
+  messages: MessageType[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
 export type Tag = {
   id: string;
   text: string;

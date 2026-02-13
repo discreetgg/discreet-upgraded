@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   forwardRef,
   HttpException,
   Inject,
@@ -7,8 +8,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import mongoose, { Connection, Model } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+import mongoose, { Model } from 'mongoose';
 import { Conversation } from 'src/database/schemas/conversation.schema';
 import {
   CallStatus,
@@ -27,13 +28,45 @@ import {
 import { FileUploaderService } from 'src/file-uploader/file-uploader.service';
 import { Media } from 'src/database/schemas/media.schema';
 import { User } from 'src/database/schemas/user.schema';
-import { AcceptCallDto, EndCallDto, StartCallDto } from './dto/call.dto';
+import { EndCallDto, StartCallDto } from './dto/call.dto';
 import { WalletService } from 'src/wallet/wallet.service';
 import { PaymentService } from 'src/payment/payment.service';
 import { NoteDto } from './dto/note.dto';
 import { ChatNote } from 'src/database/schemas/chat-note.schema';
 import { InMessageMedia } from 'src/database/schemas/in-message-media.schema';
 import { MediaMetaDto } from 'src/menu/dto/create-menu.dto';
+
+const DEFAULT_MESSAGE_PAGE_SIZE = 50;
+const MAX_MESSAGE_PAGE_SIZE = 100;
+const DEFAULT_SHARED_MEDIA_PAGE_SIZE = 80;
+const MAX_SHARED_MEDIA_PAGE_SIZE = 200;
+const DEFAULT_CONVERSATION_PAGE_SIZE = 30;
+const MAX_CONVERSATION_PAGE_SIZE = 100;
+const SEARCHED_CONVERSATION_USER_SCAN_LIMIT = 500;
+
+type KeysetCursor = {
+  date: Date;
+  id: mongoose.Types.ObjectId;
+};
+
+type ConversationMessagePage = {
+  messages: any[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+type ConversationListPage = {
+  conversations: any[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalUnreadCount: number;
+};
+
+type ConversationListOptions = {
+  limit?: number;
+  cursor?: string;
+  search?: string;
+};
 
 @Injectable()
 export class ChatService {
@@ -52,8 +85,173 @@ export class ChatService {
     private readonly walletService: WalletService,
     @Inject(forwardRef(() => PaymentService))
     private readonly paymentService: PaymentService,
-    @InjectConnection() private readonly connection: Connection,
   ) {}
+
+  private normalizeLimit(
+    requestedLimit: number | undefined,
+    defaults: { fallback: number; max: number },
+  ) {
+    if (!Number.isFinite(requestedLimit)) {
+      return defaults.fallback;
+    }
+    return Math.max(
+      1,
+      Math.min(Math.floor(requestedLimit as number), defaults.max),
+    );
+  }
+
+  private encodeKeysetCursor(
+    date: Date | string,
+    id: mongoose.Types.ObjectId | string,
+  ): string {
+    const normalizedDate = new Date(date);
+    const payload = {
+      d: normalizedDate.toISOString(),
+      i: id.toString(),
+    };
+    return Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64url');
+  }
+
+  private decodeKeysetCursor(cursor?: string): KeysetCursor | null {
+    if (!cursor) {
+      return null;
+    }
+
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf-8'),
+      ) as { d?: string; i?: string };
+      if (!decoded?.d || !decoded?.i) {
+        return null;
+      }
+
+      const date = new Date(decoded.d);
+      if (Number.isNaN(date.getTime())) {
+        return null;
+      }
+
+      return {
+        date,
+        id: new mongoose.Types.ObjectId(decoded.i),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private escapeRegex(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private stripMediaUrlsFromMessage<T>(message: T): T {
+    if (!message || typeof message !== 'object') {
+      return message;
+    }
+
+    const mutable = message as any;
+    if (Array.isArray(mutable.media)) {
+      mutable.media = mutable.media.map((item: any) => {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          delete item.url;
+        }
+        return item;
+      });
+    }
+
+    if (mutable.replyTo && typeof mutable.replyTo === 'object') {
+      this.stripMediaUrlsFromMessage(mutable.replyTo);
+    }
+
+    return mutable as T;
+  }
+
+  public sanitizeMessageForClient<T>(message: T): T {
+    return this.stripMediaUrlsFromMessage(message);
+  }
+
+  private toObjectId(
+    value: string | mongoose.Types.ObjectId | { toString(): string },
+  ) {
+    if (value instanceof mongoose.Types.ObjectId) {
+      return value;
+    }
+    return new mongoose.Types.ObjectId(value.toString());
+  }
+
+  private buildDirectConversationKey(
+    participants: Array<
+      string | mongoose.Types.ObjectId | { toString(): string }
+    >,
+  ): string {
+    return participants
+      .map((participant) => participant.toString())
+      .sort((a, b) => a.localeCompare(b))
+      .join(':');
+  }
+
+  private async getDirectConversationFamily(
+    participantA: string | mongoose.Types.ObjectId | { toString(): string },
+    participantB: string | mongoose.Types.ObjectId | { toString(): string },
+  ) {
+    const participantAObjectId = this.toObjectId(participantA);
+    const participantBObjectId = this.toObjectId(participantB);
+    const participantKey = this.buildDirectConversationKey([
+      participantAObjectId,
+      participantBObjectId,
+    ]);
+
+    return this.conversationModel
+      .find({
+        $or: [
+          { participantKey },
+          {
+            participants: {
+              $all: [participantAObjectId, participantBObjectId],
+              $size: 2,
+            },
+          },
+        ],
+      })
+      .sort({ updatedAt: -1, _id: -1 });
+  }
+
+  private async getOrCreateDirectConversation(
+    participantA: string | mongoose.Types.ObjectId | { toString(): string },
+    participantB: string | mongoose.Types.ObjectId | { toString(): string },
+  ) {
+    const conversationFamily = await this.getDirectConversationFamily(
+      participantA,
+      participantB,
+    );
+    if (conversationFamily.length > 0) {
+      return conversationFamily[0];
+    }
+
+    const participantAObjectId = this.toObjectId(participantA);
+    const participantBObjectId = this.toObjectId(participantB);
+    const participantKey = this.buildDirectConversationKey([
+      participantAObjectId,
+      participantBObjectId,
+    ]);
+
+    try {
+      return await this.conversationModel.create({
+        participants: [participantAObjectId, participantBObjectId],
+        participantKey,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        const retryFamily = await this.getDirectConversationFamily(
+          participantAObjectId,
+          participantBObjectId,
+        );
+        if (retryFamily.length > 0) {
+          return retryFamily[0];
+        }
+      }
+      throw error;
+    }
+  }
 
   async sendMessage(
     senderId: string,
@@ -70,15 +268,10 @@ export class ChatService {
       if (!dto.text)
         throw new BadRequestException('Message must have content or media');
 
-      let conversation = await this.conversationModel.findOne({
-        participants: { $all: [sender._id, receiver._id] },
-      });
-
-      if (!conversation) {
-        conversation = await this.conversationModel.create({
-          participants: [sender._id, receiver._id],
-        });
-      }
+      const conversation = await this.getOrCreateDirectConversation(
+        sender._id,
+        receiver._id,
+      );
 
       // Remove sender/receiver from dto
       const {
@@ -100,7 +293,7 @@ export class ChatService {
         lastMessage: message._id,
       });
 
-      return await message.populate([
+      const populatedMessage = await message.populate([
         { path: 'media' },
         {
           path: 'sender',
@@ -117,6 +310,7 @@ export class ChatService {
           select: 'id participants lastMessage',
         },
       ]);
+      return this.sanitizeMessageForClient(populatedMessage as any);
     } catch (error) {
       this.logger.error(error);
       if (error instanceof HttpException) throw error;
@@ -130,9 +324,7 @@ export class ChatService {
     files: Express.Multer.File[] = [],
     mediaMeta: MessageMediaMetaDto[] = [],
   ): Promise<Message> {
-    // console.log('HEREEE :', dto);
     try {
-      console.log(files);
       let finalMessage: Message | null = null;
       const sender = await this.userModel.findOne({ discordId: senderId });
 
@@ -141,9 +333,10 @@ export class ChatService {
         discordId: dto.reciever,
       });
       if (!reciever) throw new NotFoundException('Reciever not found');
-      let conversation = await this.conversationModel.findOne({
-        participants: { $all: [sender._id, reciever._id] },
-      });
+      const conversation = await this.getOrCreateDirectConversation(
+        sender._id,
+        reciever._id,
+      );
 
       if (dto.type !== MessageType.MEDIA) {
         throw new BadRequestException('message type must be a media');
@@ -153,12 +346,6 @@ export class ChatService {
         throw new BadRequestException(
           'message must include at least one media file',
         );
-      }
-
-      if (!conversation) {
-        conversation = await this.conversationModel.create({
-          participants: [sender._id, reciever._id],
-        });
       }
 
       // to ignore sender and reciever from dto
@@ -192,7 +379,6 @@ export class ChatService {
           const meta = (mediaMeta && mediaMeta[i]) || {};
           let upload;
 
-          console.log(meta);
           if (meta.type === 'image') {
             upload = await this.fileUploaderService.uploadImage(file);
           } else if (meta.type === 'video') {
@@ -240,7 +426,7 @@ export class ChatService {
           .lean();
       }
 
-      return finalMessage;
+      return this.sanitizeMessageForClient(finalMessage as any);
     } catch (error) {
       this.logger.error(error);
       if (error instanceof HttpException) {
@@ -257,8 +443,6 @@ export class ChatService {
     mediaMeta: MediaMetaDto[] = [],
   ): Promise<Message> {
     // console.log('HEREEE :', dto);
-    const session = await this.connection.startSession();
-    session.startTransaction();
     try {
       // console.log(files);
 
@@ -269,20 +453,15 @@ export class ChatService {
         discordId: dto.reciever,
       });
       if (!reciever) throw new NotFoundException('Reciever not found');
-      let conversation = await this.conversationModel.findOne({
-        participants: { $all: [sender._id, reciever._id] },
-      });
+      const conversation = await this.getOrCreateDirectConversation(
+        sender._id,
+        reciever._id,
+      );
 
       if (files.length === 0) {
         throw new BadRequestException(
           'message must include at least one media file',
         );
-      }
-
-      if (!conversation) {
-        conversation = await this.conversationModel.create({
-          participants: [sender._id, reciever._id],
-        });
       }
 
       // to ignore sender and reciever from dto
@@ -403,7 +582,7 @@ export class ChatService {
         ])
         .lean();
 
-      return populatedMessage;
+      return this.sanitizeMessageForClient(populatedMessage as any);
     } catch (error) {
       this.logger.error(error);
       if (error instanceof HttpException) {
@@ -415,17 +594,10 @@ export class ChatService {
 
   async sendMenu(dto: CreateMessageMenuDto): Promise<MessageDocument> {
     try {
-      // Find existing conversation between sender and receiver
-      let conversation = await this.conversationModel.findOne({
-        participants: { $all: [dto.sender, dto.reciever] },
-      });
-
-      // Create a new conversation if it doesn’t exist
-      if (!conversation) {
-        conversation = await this.conversationModel.create({
-          participants: [dto.sender, dto.reciever],
-        });
-      }
+      const conversation = await this.getOrCreateDirectConversation(
+        dto.sender,
+        dto.reciever,
+      );
 
       // Create the message
       const message = await this.messageModel.create({
@@ -509,44 +681,72 @@ export class ChatService {
 
   async fetchConversation(
     conversationId: string,
-    limit = 50,
+    requesterUserId: string,
+    limit = DEFAULT_MESSAGE_PAGE_SIZE,
+    cursor?: string,
     from?: Date,
     to?: Date,
-  ) {
-    const query: any = { conversation: conversationId };
-    const safeLimit = Number.isFinite(limit)
-      ? Math.max(1, Math.min(limit, 200))
-      : 50;
-
-    // Add date range filter if provided
-    if (from && to) {
-      query.createdAt = { $gte: from, $lte: to };
-    } else if (from) {
-      query.createdAt = { $gte: from };
-    } else if (to) {
-      query.createdAt = { $lte: to };
+  ): Promise<ConversationMessagePage> {
+    const conversation = await this.conversationModel.findOne({
+      _id: conversationId,
+      participants: requesterUserId,
+    });
+    if (!conversation) {
+      throw new ForbiddenException('Conversation not found or access denied');
     }
 
-    // return this.messageModel
-    //   .find(query)
-    //   .sort({ createdAt: -1 })
-    //   .populate(
-    //     'sender',
-    //     'id discordId username displayName discordAvatar role profileImage',
-    //   )
-    //   .populate(
-    //     'reciever',
-    //     'id discordId username displayName discordAvatar role profileImage',
-    //   )
-    //   .populate('media')
-    //   .populate('replyTo')
-    //   .limit(limit)
-    //   .exec();
+    const safeLimit = this.normalizeLimit(limit, {
+      fallback: DEFAULT_MESSAGE_PAGE_SIZE,
+      max: MAX_MESSAGE_PAGE_SIZE,
+    });
+    const cursorFilter = this.decodeKeysetCursor(cursor);
 
-    return this.messageModel
+    let conversationIds: mongoose.Types.ObjectId[] = [conversation._id];
+    if (
+      Array.isArray(conversation.participants) &&
+      conversation.participants.length === 2
+    ) {
+      const directConversationFamily = await this.getDirectConversationFamily(
+        conversation.participants[0],
+        conversation.participants[1],
+      );
+      if (directConversationFamily.length > 0) {
+        conversationIds = directConversationFamily.map((item) => item._id);
+      }
+    }
+
+    const filters: Record<string, any>[] = [
+      {
+        conversation: { $in: conversationIds },
+      },
+    ];
+
+    if (from && to) {
+      filters.push({ createdAt: { $gte: from, $lte: to } });
+    } else if (from) {
+      filters.push({ createdAt: { $gte: from } });
+    } else if (to) {
+      filters.push({ createdAt: { $lte: to } });
+    }
+
+    if (cursorFilter) {
+      filters.push({
+        $or: [
+          { createdAt: { $lt: cursorFilter.date } },
+          {
+            createdAt: cursorFilter.date,
+            _id: { $lt: cursorFilter.id },
+          },
+        ],
+      });
+    }
+
+    const query = filters.length === 1 ? filters[0] : { $and: filters };
+
+    const messageBatch = await this.messageModel
       .find(query)
-      .sort({ createdAt: -1 })
-      .limit(safeLimit)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(safeLimit + 1)
       .populate({
         path: 'sender',
         select:
@@ -569,6 +769,184 @@ export class ChatService {
       })
       .lean()
       .exec();
+
+    const hasMore = messageBatch.length > safeLimit;
+    const messages = hasMore ? messageBatch.slice(0, safeLimit) : messageBatch;
+    const sanitizedMessages = messages.map((message) =>
+      this.sanitizeMessageForClient(message),
+    );
+    const oldestVisibleMessage = messages[messages.length - 1] as
+      | { createdAt?: string | Date; _id?: string | mongoose.Types.ObjectId }
+      | undefined;
+    const nextCursor =
+      hasMore && oldestVisibleMessage?.createdAt && oldestVisibleMessage?._id
+        ? this.encodeKeysetCursor(
+            oldestVisibleMessage.createdAt,
+            oldestVisibleMessage._id,
+          )
+        : null;
+
+    return {
+      messages: sanitizedMessages,
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  async fetchConversationSharedMedia(
+    conversationId: string,
+    requesterUserId: string,
+    limit = DEFAULT_SHARED_MEDIA_PAGE_SIZE,
+    cursor?: string,
+  ): Promise<ConversationMessagePage> {
+    const conversation = await this.conversationModel.findOne({
+      _id: conversationId,
+      participants: requesterUserId,
+    });
+    if (!conversation) {
+      throw new ForbiddenException('Conversation not found or access denied');
+    }
+
+    const safeLimit = this.normalizeLimit(limit, {
+      fallback: DEFAULT_SHARED_MEDIA_PAGE_SIZE,
+      max: MAX_SHARED_MEDIA_PAGE_SIZE,
+    });
+    const cursorFilter = this.decodeKeysetCursor(cursor);
+
+    let conversationIds: mongoose.Types.ObjectId[] = [conversation._id];
+    if (
+      Array.isArray(conversation.participants) &&
+      conversation.participants.length === 2
+    ) {
+      const directConversationFamily = await this.getDirectConversationFamily(
+        conversation.participants[0],
+        conversation.participants[1],
+      );
+      if (directConversationFamily.length > 0) {
+        conversationIds = directConversationFamily.map((item) => item._id);
+      }
+    }
+
+    const filters: Record<string, any>[] = [
+      {
+        conversation: { $in: conversationIds },
+      },
+      {
+        type: {
+          $in: [
+            MessageType.MEDIA,
+            MessageType.MENU,
+            MessageType.IN_MESSAGE_MEDIA,
+          ],
+        },
+      },
+      {
+        media: { $exists: true, $ne: [] },
+      },
+    ];
+
+    if (cursorFilter) {
+      filters.push({
+        $or: [
+          { createdAt: { $lt: cursorFilter.date } },
+          {
+            createdAt: cursorFilter.date,
+            _id: { $lt: cursorFilter.id },
+          },
+        ],
+      });
+    }
+
+    const query = filters.length === 1 ? filters[0] : { $and: filters };
+
+    const messageBatch = await this.messageModel
+      .find(query)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(safeLimit + 1)
+      .select(
+        '_id conversation sender reciever type media isPayable price paid title text createdAt updatedAt',
+      )
+      .populate({
+        path: 'sender',
+        select:
+          'id discordId username displayName discordAvatar role profileImage',
+      })
+      .populate({
+        path: 'reciever',
+        select:
+          'id discordId username displayName discordAvatar role profileImage',
+      })
+      .populate({
+        path: 'media',
+        select:
+          '_id url public_id type caption price isPayable paid post owner uploadedAt createdAt updatedAt __v',
+      })
+      .lean()
+      .exec();
+
+    const hasMore = messageBatch.length > safeLimit;
+    const messages = hasMore ? messageBatch.slice(0, safeLimit) : messageBatch;
+    const sanitizedMessages = messages.map((message) =>
+      this.sanitizeMessageForClient(message),
+    );
+    const oldestVisibleMessage = messages[messages.length - 1] as
+      | { createdAt?: string | Date; _id?: string | mongoose.Types.ObjectId }
+      | undefined;
+    const nextCursor =
+      hasMore && oldestVisibleMessage?.createdAt && oldestVisibleMessage?._id
+        ? this.encodeKeysetCursor(
+            oldestVisibleMessage.createdAt,
+            oldestVisibleMessage._id,
+          )
+        : null;
+
+    return {
+      messages: sanitizedMessages,
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  async markConversationAsRead(
+    conversationId: string,
+    requesterUserId: string,
+  ): Promise<{ updated: number }> {
+    const conversation = await this.conversationModel.findOne({
+      _id: conversationId,
+      participants: requesterUserId,
+    });
+    if (!conversation) {
+      throw new ForbiddenException('Conversation not found or access denied');
+    }
+
+    let conversationIds: mongoose.Types.ObjectId[] = [conversation._id];
+    if (
+      Array.isArray(conversation.participants) &&
+      conversation.participants.length === 2
+    ) {
+      const directConversationFamily = await this.getDirectConversationFamily(
+        conversation.participants[0],
+        conversation.participants[1],
+      );
+      if (directConversationFamily.length > 0) {
+        conversationIds = directConversationFamily.map((item) => item._id);
+      }
+    }
+
+    const result = await this.messageModel.updateMany(
+      {
+        conversation: { $in: conversationIds },
+        reciever: requesterUserId,
+        status: { $ne: MessageStatus.READ },
+      },
+      {
+        $set: { status: MessageStatus.READ },
+      },
+    );
+
+    return {
+      updated: result.modifiedCount ?? 0,
+    };
   }
 
   async getUsersConversationsUsingIds(discordIds: string[]): Promise<any> {
@@ -582,10 +960,19 @@ export class ChatService {
     if (!user2)
       throw new BadRequestException(`User ${discordIds[1]} does not exist`);
 
-    return this.conversationModel
-      .findOne({
-        participants: { $all: [user1._id, user2._id] },
+    const participantKey = this.buildDirectConversationKey([
+      user1._id,
+      user2._id,
+    ]);
+    const conversation = await this.conversationModel
+      .find({
+        $or: [
+          { participantKey },
+          { participants: { $all: [user1._id, user2._id], $size: 2 } },
+        ],
       })
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(1)
       .populate(
         'participants',
         'id discordId username displayName discordAvatar role profileImage',
@@ -611,7 +998,14 @@ export class ChatService {
           },
         ],
       })
-      .lean();
+      .lean()
+      .then((rows) => rows[0] ?? null);
+
+    if (conversation?.lastMessage) {
+      this.sanitizeMessageForClient(conversation.lastMessage);
+    }
+
+    return conversation;
   }
 
   // async getUserConversations(userId: string): Promise<any> {
@@ -636,10 +1030,71 @@ export class ChatService {
   //     .lean();
   // }
 
-  async getUserConversations(userId: string): Promise<any> {
-    // 1️⃣ Fetch conversations
-    const conversations = await this.conversationModel
-      .find({ participants: userId })
+  async getUserConversations(
+    userId: string,
+    options: ConversationListOptions = {},
+  ): Promise<ConversationListPage> {
+    const safeLimit = this.normalizeLimit(options.limit, {
+      fallback: DEFAULT_CONVERSATION_PAGE_SIZE,
+      max: MAX_CONVERSATION_PAGE_SIZE,
+    });
+    const mongoUserId = new mongoose.Types.ObjectId(userId);
+    const totalUnreadCountPromise = this.messageModel.countDocuments({
+      reciever: mongoUserId,
+      status: { $ne: MessageStatus.READ },
+    });
+    const cursorFilter = this.decodeKeysetCursor(options.cursor);
+    const filters: Record<string, any>[] = [{ participants: mongoUserId }];
+    const trimmedSearch = options.search?.trim();
+
+    if (trimmedSearch) {
+      const searchRegex = new RegExp(
+        `^${this.escapeRegex(trimmedSearch)}`,
+        'i',
+      );
+      const matchingUsers = await this.userModel
+        .find({
+          _id: { $ne: mongoUserId },
+          $or: [{ displayName: searchRegex }, { username: searchRegex }],
+        })
+        .select('_id')
+        .limit(SEARCHED_CONVERSATION_USER_SCAN_LIMIT)
+        .lean();
+
+      if (matchingUsers.length === 0) {
+        return {
+          conversations: [],
+          nextCursor: null,
+          hasMore: false,
+          totalUnreadCount: await totalUnreadCountPromise,
+        };
+      }
+
+      filters.push({
+        participants: { $in: matchingUsers.map((user) => user._id) },
+      });
+    }
+
+    if (cursorFilter) {
+      filters.push({
+        $or: [
+          { updatedAt: { $lt: cursorFilter.date } },
+          {
+            updatedAt: cursorFilter.date,
+            _id: { $lt: cursorFilter.id },
+          },
+        ],
+      });
+    }
+
+    const conversationQuery =
+      filters.length === 1 ? filters[0] : { $and: filters };
+    const rawConversationLimit = Math.min(
+      safeLimit * 5,
+      MAX_CONVERSATION_PAGE_SIZE * 5,
+    );
+    const conversationBatch = await this.conversationModel
+      .find(conversationQuery)
       .populate(
         'participants',
         'id discordId username displayName discordAvatar role profileImage takingCams takingCalls',
@@ -665,22 +1120,117 @@ export class ChatService {
           },
         ],
       })
-      .sort({ updatedAt: -1 })
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(rawConversationLimit + 1)
       .lean();
 
-    if (!conversations.length) return [];
+    if (!conversationBatch.length) {
+      return {
+        conversations: [],
+        nextCursor: null,
+        hasMore: false,
+        totalUnreadCount: await totalUnreadCountPromise,
+      };
+    }
 
-    const mongoUserId =
-      typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+    const resolveParticipantId = (participant: any): string => {
+      if (!participant) return '';
+      if (participant instanceof mongoose.Types.ObjectId) {
+        return participant.toString();
+      }
+      if (typeof participant === 'string') {
+        return participant;
+      }
+      if (typeof participant === 'object') {
+        if (participant._id) return participant._id.toString();
+        if (participant.id) return participant.id.toString();
+      }
+      return '';
+    };
 
-    // 2️⃣ Get unread counts per conversation
+    const getConversationGroupKey = (conversation: any): string => {
+      const participantIds = (conversation?.participants ?? [])
+        .map((participant: any) => resolveParticipantId(participant))
+        .filter(Boolean)
+        .sort((a: string, b: string) => a.localeCompare(b));
+
+      if (participantIds.length === 2) {
+        return this.buildDirectConversationKey(participantIds);
+      }
+
+      return `conversation:${conversation?._id?.toString?.() ?? ''}`;
+    };
+
+    const groupedConversationsMap = new Map<
+      string,
+      {
+        groupKey: string;
+        conversation: any;
+        familyConversationIds: mongoose.Types.ObjectId[];
+      }
+    >();
+
+    for (const conversation of conversationBatch) {
+      const groupKey = getConversationGroupKey(conversation);
+      const existing = groupedConversationsMap.get(groupKey);
+
+      if (!existing) {
+        groupedConversationsMap.set(groupKey, {
+          groupKey,
+          conversation,
+          familyConversationIds: [conversation._id],
+        });
+        continue;
+      }
+
+      existing.familyConversationIds.push(conversation._id);
+
+      const existingUpdatedAt = new Date(
+        existing.conversation.updatedAt,
+      ).getTime();
+      const candidateUpdatedAt = new Date(
+        (conversation as any).updatedAt,
+      ).getTime();
+      if (
+        candidateUpdatedAt > existingUpdatedAt ||
+        (candidateUpdatedAt === existingUpdatedAt &&
+          conversation._id.toString() > existing.conversation._id.toString())
+      ) {
+        existing.conversation = conversation;
+      }
+    }
+
+    const groupedConversations = Array.from(
+      groupedConversationsMap.values(),
+    ).sort((a, b) => {
+      const updatedAtDelta =
+        new Date(b.conversation.updatedAt).getTime() -
+        new Date(a.conversation.updatedAt).getTime();
+      if (updatedAtDelta !== 0) return updatedAtDelta;
+      return b.conversation._id
+        .toString()
+        .localeCompare(a.conversation._id.toString());
+    });
+
+    const hasMore =
+      groupedConversations.length > safeLimit ||
+      conversationBatch.length > rawConversationLimit;
+    const visibleConversationGroups = hasMore
+      ? groupedConversations.slice(0, safeLimit)
+      : groupedConversations;
+    const visibleConversations = visibleConversationGroups.map(
+      (item) => item.conversation,
+    );
+
     const unreadCounts = await this.messageModel.aggregate([
       {
         $match: {
           reciever: mongoUserId,
           status: { $ne: MessageStatus.READ },
           conversation: {
-            $in: conversations.map((c) => c._id),
+            $in: visibleConversationGroups.flatMap(
+              (item) => item.familyConversationIds,
+            ),
           },
         },
       },
@@ -692,15 +1242,58 @@ export class ChatService {
       },
     ]);
 
-    // 3️⃣ Map unread counts for quick lookup
-    const unreadMap = new Map<string, number>();
-    unreadCounts.forEach((u) => unreadMap.set(u._id.toString(), u.count));
+    const conversationIdToGroupKey = new Map<string, string>();
+    for (const group of visibleConversationGroups) {
+      for (const conversationObjectId of group.familyConversationIds) {
+        conversationIdToGroupKey.set(
+          conversationObjectId.toString(),
+          group.groupKey,
+        );
+      }
+    }
 
-    // 4️⃣ Attach unreadCount to each conversation
-    return conversations.map((conv) => ({
-      ...conv,
-      unreadCount: unreadMap.get(conv._id.toString()) || 0,
-    }));
+    const unreadCountByGroupKey = new Map<string, number>();
+    for (const unreadEntry of unreadCounts) {
+      const groupKey = conversationIdToGroupKey.get(unreadEntry._id.toString());
+      if (!groupKey) continue;
+      const current = unreadCountByGroupKey.get(groupKey) ?? 0;
+      unreadCountByGroupKey.set(groupKey, current + unreadEntry.count);
+    }
+
+    const conversationsWithUnreadCount = visibleConversationGroups.map(
+      (group) => {
+        const nextConversation = {
+          ...group.conversation,
+          unreadCount: unreadCountByGroupKey.get(group.groupKey) || 0,
+        };
+        if ((nextConversation as any)?.lastMessage) {
+          this.sanitizeMessageForClient((nextConversation as any).lastMessage);
+        }
+        return nextConversation;
+      },
+    );
+
+    const oldestVisibleConversation = visibleConversations[
+      visibleConversations.length - 1
+    ] as
+      | { updatedAt?: string | Date; _id?: string | mongoose.Types.ObjectId }
+      | undefined;
+    const nextCursor =
+      hasMore &&
+      oldestVisibleConversation?.updatedAt &&
+      oldestVisibleConversation?._id
+        ? this.encodeKeysetCursor(
+            oldestVisibleConversation.updatedAt,
+            oldestVisibleConversation._id,
+          )
+        : null;
+
+    return {
+      conversations: conversationsWithUnreadCount,
+      nextCursor,
+      hasMore,
+      totalUnreadCount: await totalUnreadCountPromise,
+    };
   }
 
   // async getUserConversations(userId: string): Promise<any> {
@@ -772,8 +1365,16 @@ export class ChatService {
     });
   }
 
-  async deleteNote(id: string) {
-    const result = await this.chatNoteModel.findByIdAndDelete(id);
+  async deleteNote(id: string, requesterDiscordId: string) {
+    const requester = await this.userModel
+      .findOne({ discordId: requesterDiscordId })
+      .select('_id');
+    if (!requester) throw new NotFoundException('User not found');
+
+    const result = await this.chatNoteModel.findOneAndDelete({
+      _id: id,
+      $or: [{ seller: requester._id }, { buyer: requester._id }],
+    });
     if (!result) throw new NotFoundException('Note not found');
 
     return { message: 'Deleted successfully' };
@@ -806,15 +1407,10 @@ export class ChatService {
       );
     }
 
-    let conversation = await this.conversationModel.findOne({
-      participants: { $all: [caller._id, callee._id] },
-    });
-
-    if (!conversation) {
-      conversation = await this.conversationModel.create({
-        participants: [caller._id, callee._id],
-      });
-    }
+    const conversation = await this.getOrCreateDirectConversation(
+      caller._id,
+      callee._id,
+    );
 
     // Create message (acts as call log entry)
     const callMessage = await this.messageModel.create({
@@ -861,31 +1457,95 @@ export class ChatService {
     return call;
   }
 
+  async markCallOngoingForParticipant(
+    callId: string,
+    requesterDiscordId: string,
+  ): Promise<Message> {
+    const call = await this.messageModel
+      .findById(callId)
+      .populate<{ sender?: { discordId?: string } }>('sender', 'discordId')
+      .populate<{ reciever?: { discordId?: string } }>('reciever', 'discordId');
+
+    if (!call) throw new NotFoundException('Call not found');
+
+    const callerDiscordId = call.sender?.discordId;
+    const calleeDiscordId = call.reciever?.discordId;
+    if (
+      requesterDiscordId !== callerDiscordId &&
+      requesterDiscordId !== calleeDiscordId
+    ) {
+      throw new ForbiddenException('Not authorized for this call');
+    }
+
+    if (call.callStatus === CallStatus.ONGOING) {
+      const ongoing = await this.messageModel.findById(callId);
+      if (!ongoing) throw new NotFoundException('Call not found');
+      return ongoing;
+    }
+
+    const updated = await this.messageModel.findByIdAndUpdate(
+      callId,
+      { callStatus: CallStatus.ONGOING, callStartedAt: new Date() },
+      { new: true },
+    );
+    if (!updated) throw new NotFoundException('Call not found');
+    return updated;
+  }
+
   /**
    * End the call and finalize billing
    */
-  async endCall(dto: EndCallDto) {
-    const call = await this.messageModel.findById(dto.callId);
+  async endCall(dto: EndCallDto, requesterDiscordId?: string) {
+    const call = await this.messageModel
+      .findById(dto.callId)
+      .populate<{ sender?: { discordId?: string } }>('sender', 'discordId')
+      .populate<{ reciever?: { discordId?: string } }>('reciever', 'discordId');
     if (!call) throw new NotFoundException('Call session not found');
 
+    const callerDiscordId = call.sender?.discordId;
+    const calleeDiscordId = call.reciever?.discordId;
+    if (!callerDiscordId || !calleeDiscordId) {
+      throw new BadRequestException('Call participants are invalid');
+    }
+
+    if (
+      requesterDiscordId &&
+      requesterDiscordId !== callerDiscordId &&
+      requesterDiscordId !== calleeDiscordId
+    ) {
+      throw new ForbiddenException('Not authorized to end this call');
+    }
+
+    if (call.callStatus === CallStatus.ENDED && call.paid && call.paymentTx) {
+      return call;
+    }
+
+    const callEndTime = new Date();
+    const startedAt = call.callStartedAt?.getTime();
+    const computedDurationInSeconds =
+      typeof startedAt === 'number'
+        ? Math.max(0, Math.ceil((callEndTime.getTime() - startedAt) / 1000))
+        : 0;
+    const durationInSeconds = Math.max(
+      0,
+      Math.ceil(dto.duration ?? computedDurationInSeconds),
+    );
+
     if (dto.callStatus === CallStatus.ENDED) {
-      const callEndTime = new Date();
-      const durationInSeconds =
-        (callEndTime.getTime() - call.callStartedAt.getTime()) / 1000;
-
-      const totalMinutes = dto.duration || Math.ceil(durationInSeconds / 60);
-      const rate = parseFloat(call.price);
-      const totalCost = totalMinutes * rate;
-
       const paymentTx = await this.paymentService.payForCall({
-        callerId: dto.callerId,
-        calleeId: dto.calleeId,
+        callerId: callerDiscordId,
+        calleeId: calleeDiscordId,
         callId: dto.callId,
-        amount: totalCost,
-        duration: dto.duration,
+        amount: 0,
+        duration: durationInSeconds,
       });
 
-      console.log('this is payment :', paymentTx);
+      const paymentId = paymentTx?.tx?._id?.toString?.();
+      if (!paymentId) {
+        throw new BadRequestException(
+          'Call payment settlement did not return an id',
+        );
+      }
 
       const UpdatedCall = await this.messageModel.findByIdAndUpdate(
         call._id.toString(),
@@ -894,7 +1554,7 @@ export class ChatService {
           durationInSeconds: durationInSeconds,
           callStatus: CallStatus.ENDED,
           paid: true,
-          paymentTx: paymentTx.tx._id.toString(),
+          paymentTx: paymentId,
         },
         { new: true },
       );
@@ -905,6 +1565,9 @@ export class ChatService {
         dto.callId,
         {
           callStatus: dto.callStatus,
+          callEndedAt: callEndTime,
+          durationInSeconds,
+          missed: dto.callStatus === CallStatus.MISSED,
         },
         { new: true },
       );

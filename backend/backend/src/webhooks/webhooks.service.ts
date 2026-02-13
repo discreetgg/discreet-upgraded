@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class WebhooksService {
@@ -40,6 +41,48 @@ export class WebhooksService {
     }
 
     return true;
+  }
+
+  validateHmacSignature(payload: any, signatureHeader: string) {
+    if (!this.HMAC_SECRET) {
+      throw new UnauthorizedException('Webhook HMAC secret is not configured');
+    }
+
+    if (!signatureHeader) {
+      throw new UnauthorizedException('Missing webhook signature');
+    }
+
+    const received = signatureHeader.replace(/^sha256=/i, '').trim();
+    const expected = createHmac('sha256', this.HMAC_SECRET)
+      .update(JSON.stringify(payload))
+      .digest('hex');
+
+    const receivedBuffer = Buffer.from(received, 'hex');
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    if (
+      receivedBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(receivedBuffer, expectedBuffer)
+    ) {
+      throw new UnauthorizedException('Invalid webhook signature');
+    }
+
+    return true;
+  }
+
+  validateWebhookRequest(
+    payload: any,
+    authHeader?: string,
+    signature?: string,
+  ) {
+    if (this.HMAC_SECRET) {
+      return this.validateHmacSignature(payload, signature);
+    }
+
+    if (this.BASIC_USER && this.BASIC_PASS) {
+      return this.validateBasicAuth(authHeader);
+    }
+
+    throw new UnauthorizedException('Webhook authentication is not configured');
   }
 
   /**

@@ -41,6 +41,7 @@ import {
 import { getConversationBetweenUsersService } from "@/lib/services";
 import { useMessage } from "@/context/message-context";
 import { useWallet } from "@/context/wallet-context-provider";
+import { isAxiosError } from "axios";
 
 export default function ProfileSideAdCard({
 	description,
@@ -102,13 +103,16 @@ export default function ProfileSideAdCard({
 			});
 			setOpenSuccessModal(true);
 		},
-		onError: (error) => {
-			console.error("Error buying menu item:", error);
-			toast.error("Failed to buy menu item. Please try again.");
-			if (error?.response?.data?.message === "Insufficient funds") {
-				toast.error("Not enough balance");
-				setIsFundWalletDialogOpen(true);
-			}
+			onError: (error) => {
+				console.error("Error buying menu item:", error);
+				toast.error("Failed to buy menu item. Please try again.");
+				if (
+					isAxiosError(error) &&
+					error.response?.data?.message === "Insufficient funds"
+				) {
+					toast.error("Not enough balance");
+					setIsFundWalletDialogOpen(true);
+				}
 		},
 	});
 	const { mutateAsync: deleteMenuMutation, isPending: isDeleting } =

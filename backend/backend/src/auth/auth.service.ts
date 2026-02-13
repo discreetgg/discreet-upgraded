@@ -17,10 +17,10 @@ import { DiscordUser } from '../user/interfaces/userAuth.interface';
 import * as bcrypt from 'bcrypt';
 import * as OTPAuth from 'otpauth';
 import { generateRandomBase32 } from './utils/base32.utils';
-import { nanoid } from 'nanoid';
 import { GenerateJWTDto } from './dto/jwt.dto';
 import { CreatGuestUserDto } from './dto/guest-user';
 import { generateUniqueGuestDiscordId } from './utils/generate-guest-id';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -174,12 +174,12 @@ export class AuthService {
 
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_SECRET,
-      expiresIn: process.env.JWT_ACCESS_EXPIRES,
+      expiresIn: (process.env.JWT_ACCESS_EXPIRES ?? '15m') as any,
     });
 
     const refreshToken = await this.jwtService.signAsync(payload, {
       secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: process.env.JWT_REFRESH_EXPIRES,
+      expiresIn: (process.env.JWT_REFRESH_EXPIRES ?? '30d') as any,
     });
 
     return {
@@ -428,7 +428,7 @@ export class AuthService {
     const hashedCodes: string[] = [];
 
     for (let i = 0; i < 10; i++) {
-      const code = nanoid(10); // short, unique
+      const code = randomBytes(8).toString('base64url').slice(0, 10);
       rawCodes.push(code);
       hashedCodes.push(await bcrypt.hash(code, 10));
     }

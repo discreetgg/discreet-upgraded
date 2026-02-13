@@ -339,7 +339,6 @@ export class PostService {
     if (dto.visibleToPlan) {
       const plan = await this.subscriptionPlanModel.findById(dto.visibleToPlan);
       if (!plan) throw new BadRequestException('Subscription plan not found');
-      return;
     }
 
     const updatedPost = await this.postModel
@@ -376,7 +375,7 @@ export class PostService {
       throw new NotFoundException('Post not found');
     }
 
-    if (post.author.toString() !== userId) {
+    if (post.author.toString() !== user.id) {
       throw new ForbiddenException('You are not allowed to update this post');
     }
 
@@ -384,7 +383,6 @@ export class PostService {
     if (dto.visibleToPlan) {
       const plan = await this.subscriptionPlanModel.findById(dto.visibleToPlan);
       if (!plan) throw new BadRequestException('Subscription plan not found');
-      return;
     }
 
     const uploadedMedia = [];

@@ -10,6 +10,20 @@ export interface SitemapData {
   totalUrls: number;
 }
 
+function getApiBaseUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_BASE_API_URL || 'https://api.discreet.fans';
+  const trimmed = raw.replace(/\/+$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
+
+function toArray<T = any>(payload: any): T[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.posts)) return payload.posts;
+  if (Array.isArray(payload?.profiles)) return payload.profiles;
+  return [];
+}
+
 /**
  * Get static routes for the sitemap
  */
@@ -94,11 +108,10 @@ export function getStaticRoutes(): SitemapUrl[] {
  */
 export async function getDynamicPosts(): Promise<SitemapUrl[]> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://discreet.gg';
-  const apiUrl = process.env.NEXT_PUBLIC_BASE_API_URL || 'https://api.discreet.fans';
+  const apiBaseUrl = getApiBaseUrl();
   
   try {
-    // Fetch posts from your API
-    const response = await fetch(`${apiUrl}/api/posts/public`, {
+    const response = await fetch(`${apiBaseUrl}/post/recent?limit=200`, {
       headers: {
         'Cache-Control': 'no-cache',
       },
@@ -109,11 +122,11 @@ export async function getDynamicPosts(): Promise<SitemapUrl[]> {
       return [];
     }
 
-    const data = await response.json();
-    const posts = data.posts || [];
+    const payload = await response.json();
+    const posts = toArray(payload);
 
     return posts.map((post: any) => ({
-      url: `${siteUrl}/feed/${post._id}`,
+      url: `${siteUrl}/feed/${post._id || post.id}`,
       lastModified: new Date(post.updatedAt || post.createdAt),
       changeFrequency: 'weekly' as const,
       priority: 0.6,
@@ -129,11 +142,10 @@ export async function getDynamicPosts(): Promise<SitemapUrl[]> {
  */
 export async function getDynamicProfiles(): Promise<SitemapUrl[]> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://discreet.gg';
-  const apiUrl = process.env.NEXT_PUBLIC_BASE_API_URL || 'https://api.discreet.fans';
+  const apiBaseUrl = getApiBaseUrl();
   
   try {
-    // Fetch public profiles from your API
-    const response = await fetch(`${apiUrl}/api/users/public-profiles`, {
+    const response = await fetch(`${apiBaseUrl}/user/creators`, {
       headers: {
         'Cache-Control': 'no-cache',
       },
@@ -144,11 +156,11 @@ export async function getDynamicProfiles(): Promise<SitemapUrl[]> {
       return [];
     }
 
-    const data = await response.json();
-    const profiles = data.profiles || [];
+    const payload = await response.json();
+    const profiles = toArray(payload);
 
     return profiles.map((profile: any) => ({
-      url: `${siteUrl}/${profile.username}`,
+      url: `${siteUrl}/${profile.username || profile.discordId}`,
       lastModified: new Date(profile.updatedAt || profile.createdAt),
       changeFrequency: 'weekly' as const,
       priority: 0.5,

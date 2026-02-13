@@ -47,9 +47,19 @@ export class DiscordBotService {
       ],
       partials: [Partials.Message, Partials.Channel],
     });
-    this.logger.log('this is client ' + this.client.token);
-    this.client.login(token);
-    this.registerCommands();
+    const shouldStartBot =
+      process.env.NODE_ENV !== 'test' && !!this.token && !!this.botId;
+    if (!shouldStartBot) {
+      this.logger.warn(
+        'Skipping Discord bot startup (missing token/botId or running tests)',
+      );
+      return;
+    }
+
+    void this.client.login(this.token).catch((error) => {
+      this.logger.error('Failed to login Discord bot:', error);
+    });
+    void this.registerCommands();
     this.client.once('ready', this.onReady);
     this.client.on('warn', this.onWarn);
     this.client.on('messageCreate', this.handleRecievedMessages);
@@ -66,6 +76,13 @@ export class DiscordBotService {
   };
 
   registerCommands = async () => {
+    if (!this.token || !this.botId) {
+      this.logger.warn(
+        'Skipping command registration due to missing bot config',
+      );
+      return;
+    }
+
     this.logger.log('Registering commands...');
     this.logger.log(`Token: ${this.token.slice(0, 10)}...`); // Partial token for security
     this.logger.log(`Bot ID: ${this.botId}`);
@@ -197,7 +214,7 @@ export class DiscordBotService {
   handleInteraction = async (interaction: Interaction) => {
     // console.log(interaction);
     // Handle slash commands
-    if (interaction.isCommand()) {
+    if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
       switch (commandName) {

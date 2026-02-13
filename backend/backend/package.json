@@ -31,7 +31,9 @@
     "@nestjs/platform-socket.io": "^11.1.6",
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^11.2.0",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.1.6",
+    "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "check-disk-space": "^3.4.0",
     "class-transformer": "^0.5.1",
@@ -40,7 +42,9 @@
     "cookie-parser": "^1.4.7",
     "discord.js": "^14.19.3",
     "dotenv": "^16.5.0",
+    "helmet": "^8.1.0",
     "hi-base32": "^0.5.1",
+    "ioredis": "^5.9.3",
     "mongoose": "^8.15.1",
     "multer": "^2.0.1",
     "nanoid": "^5.1.5",
@@ -87,6 +91,13 @@
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
+    },
+    "moduleDirectories": [
+      "node_modules",
+      "<rootDir>"
+    ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],

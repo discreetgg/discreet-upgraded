@@ -2,11 +2,11 @@
 
 import { useMessageSearch } from '@/context/message-search-context';
 import { useMessageReadTracker } from '@/hooks/use-message-read-tracker';
-import { cn, getEmojiSizeClass } from '@/lib/utils';
+import { cn, getEmojiSizeClass, getUserDiscordAvatar } from '@/lib/utils';
 import type { MessageType } from '@/types/global';
 import { format } from 'date-fns';
 import Image from 'next/image';
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageMedia } from './message-media';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { MessageMediaPaid } from './message-media-paid';
@@ -82,6 +82,48 @@ const MessageItemComponent = ({
   }, [isOwn, message._id, message.status, observeMessage]);
 
   const mediaArray = message.media || [];
+  const hasHeavyMedia =
+    ((message.type === 'media' || message.type === 'menu') &&
+      mediaArray.length > 0) ||
+    message.type === 'in_message_media';
+  const [shouldRenderHeavyMedia, setShouldRenderHeavyMedia] = useState(
+    !hasHeavyMedia || isOwn || message.status === 'sending' || isCurrentMatch,
+  );
+
+  useEffect(() => {
+    const shouldEagerLoad =
+      !hasHeavyMedia || isOwn || message.status === 'sending' || isCurrentMatch;
+
+    if (shouldEagerLoad) {
+      setShouldRenderHeavyMedia(true);
+      return;
+    }
+
+    setShouldRenderHeavyMedia(false);
+
+    const node = messageRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting) {
+          setShouldRenderHeavyMedia(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '700px 0px',
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasHeavyMedia, isCurrentMatch, isOwn, message._id, message.status]);
 
   // Check if this is a tip message (has price and text contains "Tip sent")
   const isTipMessage = message.price && message.text?.includes('Tip sent');
@@ -109,7 +151,10 @@ const MessageItemComponent = ({
                   <AvatarImage
                     src={
                       message.sender?.profileImage?.url ??
-                      `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                      getUserDiscordAvatar({
+                        discordId: message.sender.discordId,
+                        discordAvatar: message.sender.discordAvatar,
+                      })
                     }
                     alt={message.sender.displayName || message.sender.username}
                   />
@@ -144,7 +189,10 @@ const MessageItemComponent = ({
                     <AvatarImage
                       src={
                         message.sender?.profileImage?.url ??
-                        `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                        getUserDiscordAvatar({
+                          discordId: message.sender.discordId,
+                          discordAvatar: message.sender.discordAvatar,
+                        })
                       }
                       alt={
                         message.sender.displayName || message.sender.username
@@ -264,7 +312,10 @@ const MessageItemComponent = ({
                     <AvatarImage
                       src={
                         message.sender?.profileImage?.url ??
-                        `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                        getUserDiscordAvatar({
+                          discordId: message.sender.discordId,
+                          discordAvatar: message.sender.discordAvatar,
+                        })
                       }
                       alt={message.sender.displayName || message.sender.username}
                     />
@@ -391,32 +442,42 @@ const MessageItemComponent = ({
               {(message.type === 'media' || message.type === 'menu') &&
                 mediaArray.length > 0 && (
                   <div className="mt-2">
-                    {message.isPayable && !message.paid ? (
-                      <MessageMediaPaid
-                        media={mediaArray}
-                        buyerId={user?.discordId}
-                        sellerId={message.sender.discordId}
-                        conversationId={message.conversation}
-                        messageId={message._id}
-                        price={message.price}
-                      />
+                    {!shouldRenderHeavyMedia ? (
+                      <div className="h-[180px] w-full rounded-xl bg-[#1A1C1F] animate-pulse" />
                     ) : (
-                      <MessageMedia
-                        media={mediaArray}
-                        isLoading={message.status === 'sending'}
-                      />
+                      <>
+                        {message.isPayable && !message.paid ? (
+                          <MessageMediaPaid
+                            media={mediaArray}
+                            buyerId={user?.discordId}
+                            sellerId={message.sender.discordId}
+                            conversationId={message.conversation}
+                            messageId={message._id}
+                            price={message.price}
+                          />
+                        ) : (
+                          <MessageMedia
+                            media={mediaArray}
+                            isLoading={message.status === 'sending'}
+                          />
+                        )}
+                      </>
                     )}
                   </div>
                 )}
 
               {message.type === 'in_message_media' && (
                 <div className="mt-2">
-                  <DMMenuPreview 
-                    mediaArray={message.media} 
-                    message={message}
-                    onReloadMessages={onReloadMessages}
-                    onSendUnlockMessage={onSendUnlockMessage}
-                  />
+                  {!shouldRenderHeavyMedia ? (
+                    <div className="h-[180px] w-full rounded-xl bg-[#1A1C1F] animate-pulse" />
+                  ) : (
+                    <DMMenuPreview
+                      mediaArray={message.media}
+                      message={message}
+                      onReloadMessages={onReloadMessages}
+                      onSendUnlockMessage={onSendUnlockMessage}
+                    />
+                  )}
                 </div>
               )}
 

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -40,14 +41,22 @@ export class SubscriptionController {
   // }
 
   @Post('cancel-subscriptions')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'cancel a user from a plan',
   })
-  async unsubscribeUser(@Body() dto: SubscribeUserDto) {
+  async unsubscribeUser(@Body() dto: SubscribeUserDto, @Req() req: any) {
+    if (dto.buyerId && dto.buyerId !== req.user.sub) {
+      throw new ForbiddenException(
+        'You can only cancel subscriptions for your own account',
+      );
+    }
+    dto.buyerId = req.user.sub;
     return this.subscriptionService.cancelUserSubscription(dto);
   }
 
   @Get('user/:discordId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get a user’s subscriptions' })
   @ApiQuery({
     name: 'active',
@@ -57,13 +66,21 @@ export class SubscriptionController {
   })
   async getUserSubscriptions(
     @Param('discordId') discordId: string,
+    @Req() req: any,
     @Query('active') active?: string, // comes in as string from query
   ) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException(
+        'You can only access subscriptions for your own account',
+      );
+    }
+
     const getActive = active === 'true'; // convert to boolean
     return this.subscriptionService.getUserSubscriptions(discordId, getActive);
   }
 
   @Get('user/:discordId/creators')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Get all creators a user has subscribed to',
   })
@@ -73,7 +90,15 @@ export class SubscriptionController {
     required: true,
     type: String,
   })
-  async getCreatorsUserIsSubscribedTo(@Param('discordId') discordId: string) {
+  async getCreatorsUserIsSubscribedTo(
+    @Param('discordId') discordId: string,
+    @Req() req: any,
+  ) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException(
+        'You can only access subscriptions for your own account',
+      );
+    }
     return this.subscriptionService.getCreatorsSubscribedTo(discordId);
   }
 
@@ -99,8 +124,14 @@ export class SubscriptionController {
   async createSubscriptionPlan(
     @Param('creatorId') creatorId: string,
     @Body() dto: CreateSubscriptionPlanDto,
+    @Req() req: any,
   ) {
-    //TODO:check if is a creators
+    if (creatorId !== req.user.sub) {
+      throw new ForbiddenException(
+        'You can only create subscription plans for your own account',
+      );
+    }
+
     return this.subscriptionService.createSubscriptionPlan(creatorId, dto);
   }
 
@@ -143,20 +174,34 @@ export class SubscriptionController {
     description: 'Subscription plan deleted',
   })
   @HttpCode(HttpStatus.OK)
-  async deleteSubscriptionPlan(@Param('id') id: string) {
-    return this.subscriptionService.deleteSubscriptionPlan(id);
+  async deleteSubscriptionPlan(@Param('id') id: string, @Req() req: any) {
+    return this.subscriptionService.deleteSubscriptionPlan(id, req.user.userId);
   }
 
   @Get('plan/:planId/subscribers')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get subscribers for a specific plan' })
-  async getSubscribersForPlan(@Param('planId') planId: string) {
-    return this.subscriptionService.getSubscribersForPlan(planId);
+  async getSubscribersForPlan(
+    @Param('planId') planId: string,
+    @Req() req: any,
+  ) {
+    return this.subscriptionService.getSubscribersForPlan(
+      planId,
+      req.user.userId,
+    );
   }
 
   @Get('plan/:planId/count')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get subscriber count for a specific plan' })
-  async getPlanSubscribersCount(@Param('planId') planId: string) {
-    return this.subscriptionService.getPlanSubscribersCount(planId);
+  async getPlanSubscribersCount(
+    @Param('planId') planId: string,
+    @Req() req: any,
+  ) {
+    return this.subscriptionService.getPlanSubscribersCount(
+      planId,
+      req.user.userId,
+    );
   }
 
   @Get('plans/:creatorId')

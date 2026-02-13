@@ -3,7 +3,11 @@ import axios from "axios";
 import type { AxiosProgressEvent } from "axios";
 import { baseURL } from "./data";
 import type {
+	ConversationType,
+	MessageType,
 	NotificationsResponseType,
+	PaginatedConversationMessagesResponseType,
+	PaginatedConversationsResponseType,
 	TipPayload,
 	UserType,
 	WalletTransactionType,
@@ -898,19 +902,53 @@ export const deleteAdminPostService = async (postId: string) => {
 	}
 };
 
-export const getConversationsService = async () => {
+export const getConversationsService = async (params?: {
+	force?: boolean;
+	limit?: number;
+	cursor?: string;
+	search?: string;
+}) => {
 	try {
-		// Use uncached request for unread accuracy.
+		const normalizedLimit =
+			typeof params?.limit === "number" && Number.isFinite(params.limit)
+				? Math.max(1, Math.min(Math.floor(params.limit), 100))
+				: 30;
+		const normalizedParams = {
+			limit: normalizedLimit,
+			...(params?.cursor ? { cursor: params.cursor } : {}),
+			...(params?.search ? { search: params.search } : {}),
+			...(params?.force ? { _t: Date.now() } : {}),
+		};
 		const response = await axios.get(`${baseURL}/chat/conversations`, {
 			withCredentials: true,
-			headers: {
-				"Content-Type": "application/json",
-				"Cache-Control": "no-cache",
-				Pragma: "no-cache",
-			},
-			params: { _t: Date.now() },
+			params: normalizedParams,
 		});
-		return response.data;
+
+		const payload = response.data;
+		if (Array.isArray(payload)) {
+			return {
+				conversations: payload as ConversationType[],
+				nextCursor: null,
+				hasMore: false,
+				totalUnreadCount: (payload as ConversationType[]).reduce(
+					(total, conversation) => total + (conversation.unreadCount || 0),
+					0
+				),
+			} satisfies PaginatedConversationsResponseType;
+		}
+
+		return {
+			conversations: Array.isArray(payload?.conversations)
+				? (payload.conversations as ConversationType[])
+				: [],
+			nextCursor:
+				typeof payload?.nextCursor === "string" ? payload.nextCursor : null,
+			hasMore: Boolean(payload?.hasMore),
+			totalUnreadCount:
+				typeof payload?.totalUnreadCount === "number"
+					? payload.totalUnreadCount
+					: 0,
+		} satisfies PaginatedConversationsResponseType;
 	} catch (error: any) {
 		if (error.response) {
 			throw {
@@ -931,9 +969,52 @@ const DEFAULT_CONVERSATION_LIMIT = 50;
 const CONVERSATION_RESPONSE_TTL_MS = 5000;
 const conversationRequestCache = new Map<
 	string,
-	{ expiresAt: number; data: any }
+	{ expiresAt: number; data: PaginatedConversationMessagesResponseType }
 >();
-const inFlightConversationRequests = new Map<string, Promise<any>>();
+const inFlightConversationRequests = new Map<
+	string,
+	Promise<PaginatedConversationMessagesResponseType>
+>();
+const sharedMediaRequestCache = new Map<
+	string,
+	{ expiresAt: number; data: PaginatedConversationMessagesResponseType }
+>();
+const inFlightSharedMediaRequests = new Map<
+	string,
+	Promise<PaginatedConversationMessagesResponseType>
+>();
+
+const getConversationCacheScope = (): string => {
+	if (typeof window === "undefined") {
+		return "server";
+	}
+
+	try {
+		const rawGlobalState = localStorage.getItem("root:global");
+		if (!rawGlobalState) {
+			return "anonymous";
+		}
+
+		const parsedState = JSON.parse(rawGlobalState) as {
+			user?: { discordId?: string };
+		};
+		const discordId = parsedState?.user?.discordId;
+		if (typeof discordId === "string" && discordId.length > 0) {
+			return discordId;
+		}
+	} catch {
+		// No-op: fallback to anonymous scope.
+	}
+
+	return "anonymous";
+};
+
+export const clearConversationRequestCaches = () => {
+	conversationRequestCache.clear();
+	inFlightConversationRequests.clear();
+	sharedMediaRequestCache.clear();
+	inFlightSharedMediaRequests.clear();
+};
 
 const pruneConversationRequestCache = (now: number) => {
 	for (const [key, value] of conversationRequestCache.entries()) {
@@ -941,21 +1022,55 @@ const pruneConversationRequestCache = (now: number) => {
 			conversationRequestCache.delete(key);
 		}
 	}
+
+	for (const [key, value] of sharedMediaRequestCache.entries()) {
+		if (value.expiresAt <= now) {
+			sharedMediaRequestCache.delete(key);
+		}
+	}
 };
 
 const buildConversationRequestKey = (
 	id: string,
-	params?: { from?: string; to?: string; limit?: number; force?: boolean }
+	params?: {
+		from?: string;
+		to?: string;
+		limit?: number;
+		cursor?: string;
+		force?: boolean;
+	}
 ) => {
+	const scope = getConversationCacheScope();
 	const normalizedLimit = params?.limit ?? DEFAULT_CONVERSATION_LIMIT;
 	const normalizedFrom = params?.from ?? "";
 	const normalizedTo = params?.to ?? "";
-	return `${id}|${normalizedLimit}|${normalizedFrom}|${normalizedTo}`;
+	const normalizedCursor = params?.cursor ?? "";
+	return `${scope}|${id}|${normalizedLimit}|${normalizedFrom}|${normalizedTo}|${normalizedCursor}`;
+};
+
+const buildSharedMediaRequestKey = (
+	id: string,
+	params?: {
+		limit?: number;
+		cursor?: string;
+		force?: boolean;
+	}
+) => {
+	const scope = getConversationCacheScope();
+	const normalizedLimit = params?.limit ?? DEFAULT_CONVERSATION_LIMIT;
+	const normalizedCursor = params?.cursor ?? "";
+	return `${scope}|${id}|${normalizedLimit}|${normalizedCursor}`;
 };
 
 export const getConversationByIdService = async (
 	id: string,
-	params?: { from?: string; to?: string; limit?: number; force?: boolean }
+	params?: {
+		from?: string;
+		to?: string;
+		limit?: number;
+		cursor?: string;
+		force?: boolean;
+	}
 ) => {
 	try {
 		const requestKey = buildConversationRequestKey(id, params);
@@ -975,26 +1090,75 @@ export const getConversationByIdService = async (
 			}
 		}
 
+		const normalizedLimit =
+			typeof params?.limit === "number" && Number.isFinite(params.limit)
+				? Math.max(1, Math.min(Math.floor(params.limit), 100))
+				: DEFAULT_CONVERSATION_LIMIT;
+		const legacyCursorDate =
+			typeof params?.cursor === "string" && params.cursor.startsWith("legacy:")
+				? params.cursor.slice("legacy:".length)
+				: null;
 		const normalizedParams = {
-			limit: params?.limit ?? DEFAULT_CONVERSATION_LIMIT,
+			limit: normalizedLimit,
+			...(params?.cursor && !legacyCursorDate ? { cursor: params.cursor } : {}),
 			...(params?.from ? { from: params.from } : {}),
+			...(legacyCursorDate ? { to: legacyCursorDate } : {}),
 			...(params?.to ? { to: params.to } : {}),
 			...(shouldBypassCache ? { _t: Date.now() } : {}),
 		};
 
 		const requestPromise = axios
-			.get(`${baseURL}/chat/conversations/${id}`, {
-				params: normalizedParams,
-				withCredentials: true,
-				headers: { "Content-Type": "application/json" },
-			})
-			.then((response) => {
-				conversationRequestCache.set(requestKey, {
-					data: response.data,
-					expiresAt: Date.now() + CONVERSATION_RESPONSE_TTL_MS,
-				});
-				return response.data;
-			})
+				.get(`${baseURL}/chat/conversations/${id}`, {
+					params: normalizedParams,
+					withCredentials: true,
+				})
+				.then((response) => {
+					const payload = response.data;
+					const normalizedPayload: PaginatedConversationMessagesResponseType =
+						Array.isArray(payload)
+							? (() => {
+									const messages = payload as MessageType[];
+									let oldestCreatedAt: string | null = null;
+									let oldestTimestamp = Number.POSITIVE_INFINITY;
+
+									for (const message of messages) {
+										const createdAt = message?.createdAt;
+										if (typeof createdAt !== "string" || createdAt.length === 0) {
+											continue;
+										}
+										const timestamp = new Date(createdAt).getTime();
+										if (!Number.isFinite(timestamp)) {
+											continue;
+										}
+										if (timestamp < oldestTimestamp) {
+											oldestTimestamp = timestamp;
+											oldestCreatedAt = createdAt;
+										}
+									}
+
+									return {
+										messages,
+										nextCursor: oldestCreatedAt ? `legacy:${oldestCreatedAt}` : null,
+										hasMore: messages.length >= normalizedLimit,
+									};
+								})()
+							: {
+									messages: Array.isArray(payload?.messages)
+										? (payload.messages as MessageType[])
+										: [],
+									nextCursor:
+										typeof payload?.nextCursor === "string"
+											? payload.nextCursor
+											: null,
+									hasMore: Boolean(payload?.hasMore),
+								};
+
+					conversationRequestCache.set(requestKey, {
+						data: normalizedPayload,
+						expiresAt: Date.now() + CONVERSATION_RESPONSE_TTL_MS,
+					});
+					return normalizedPayload;
+				})
 			.finally(() => {
 				inFlightConversationRequests.delete(requestKey);
 			});
@@ -1006,6 +1170,88 @@ export const getConversationByIdService = async (
 		if (error.response) {
 			throw {
 				message: error.response.data?.message || "Failed to fetch conversation",
+				status: error.response.status,
+				data: error.response.data,
+			};
+		}
+		if (error.request) {
+			throw { message: "No response from server", status: null };
+		}
+		throw { message: error.message || "Unexpected error", status: null };
+	}
+};
+
+export const getConversationSharedMediaService = async (
+	id: string,
+	params?: {
+		limit?: number;
+		cursor?: string;
+		force?: boolean;
+	}
+) => {
+	try {
+		const requestKey = buildSharedMediaRequestKey(id, params);
+		const now = Date.now();
+		pruneConversationRequestCache(now);
+		const shouldBypassCache = params?.force === true;
+
+		if (!shouldBypassCache) {
+			const cached = sharedMediaRequestCache.get(requestKey);
+			if (cached && cached.expiresAt > now) {
+				return cached.data;
+			}
+
+			const existingRequest = inFlightSharedMediaRequests.get(requestKey);
+			if (existingRequest) {
+				return await existingRequest;
+			}
+		}
+
+		const normalizedLimit =
+			typeof params?.limit === "number" && Number.isFinite(params.limit)
+				? Math.max(1, Math.min(Math.floor(params.limit), 200))
+				: 80;
+		const normalizedParams = {
+			limit: normalizedLimit,
+			...(params?.cursor ? { cursor: params.cursor } : {}),
+			...(shouldBypassCache ? { _t: Date.now() } : {}),
+		};
+
+		const requestPromise = axios
+			.get(`${baseURL}/chat/conversations/${id}/shared-media`, {
+				params: normalizedParams,
+				withCredentials: true,
+			})
+			.then((response) => {
+				const payload = response.data;
+				const normalizedPayload: PaginatedConversationMessagesResponseType = {
+					messages: Array.isArray(payload?.messages)
+						? (payload.messages as MessageType[])
+						: [],
+					nextCursor:
+						typeof payload?.nextCursor === "string"
+							? payload.nextCursor
+							: null,
+					hasMore: Boolean(payload?.hasMore),
+				};
+
+				sharedMediaRequestCache.set(requestKey, {
+					data: normalizedPayload,
+					expiresAt: Date.now() + CONVERSATION_RESPONSE_TTL_MS,
+				});
+				return normalizedPayload;
+			})
+			.finally(() => {
+				inFlightSharedMediaRequests.delete(requestKey);
+			});
+
+		inFlightSharedMediaRequests.set(requestKey, requestPromise);
+		return await requestPromise;
+	} catch (error: any) {
+		if (error.response) {
+			throw {
+				message:
+					error.response.data?.message || "Failed to fetch shared media",
 				status: error.response.status,
 				data: error.response.data,
 			};
@@ -1036,6 +1282,27 @@ export const getConversationBetweenUsersService = async (
 				message:
 					error.response.data?.message ||
 					"Failed to fetch conversation between users",
+				status: error.response.status,
+				data: error.response.data,
+			};
+		}
+		if (error.request) {
+			throw { message: "No response from server", status: null };
+		}
+		throw { message: error.message || "Unexpected error", status: null };
+	}
+};
+
+export const markConversationAsReadService = async (conversationId: string) => {
+	try {
+		const response = await api.patch(`/chat/conversations/${conversationId}/read`);
+		return response.data;
+	} catch (error: any) {
+		if (error.response) {
+			throw {
+				message:
+					error.response.data?.message ||
+					"Failed to mark conversation as read",
 				status: error.response.status,
 				data: error.response.data,
 			};

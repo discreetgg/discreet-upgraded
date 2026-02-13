@@ -41,3 +41,4 @@
 Thumbs.db
 **/.cursor/
 **/.cursor/extensions/
+.playwright-cli/

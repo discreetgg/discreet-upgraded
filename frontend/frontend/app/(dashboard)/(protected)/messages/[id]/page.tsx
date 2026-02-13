@@ -13,6 +13,7 @@ import { useEffect, useMemo } from 'react';
 import { NotesContainer } from '@/components/notes-container';
 import type { AuthorType } from '@/types/global';
 import { TabLoadingSkeleton } from '@/components/tab-loading-skeleton';
+import { getConversationByIdService } from '@/lib/services';
 
 const ConversationPage = () => {
   const { user } = useGlobal();
@@ -34,6 +35,54 @@ const ConversationPage = () => {
     );
   }, [conversations, conversationId, user?.discordId]);
   const activeReceiver = receiver ?? inferredReceiver;
+
+  useEffect(() => {
+    if (!conversationId || activeReceiver || !user?.discordId) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const fetchFallbackReceiver = async () => {
+      try {
+        const response = await getConversationByIdService(conversationId, {
+          limit: 1,
+          force: true,
+        });
+        const firstMessage = response?.messages?.[0];
+        if (!firstMessage || isCancelled) {
+          return;
+        }
+
+        const counterpart =
+          firstMessage.sender.discordId === user.discordId
+            ? firstMessage.reciever
+            : firstMessage.sender;
+
+        if (!counterpart) {
+          return;
+        }
+
+        setReceiver({
+          _id: counterpart.id ?? counterpart.discordId,
+          discordId: counterpart.discordId,
+          displayName: counterpart.displayName ?? counterpart.username ?? '',
+          discordAvatar: counterpart.discordAvatar ?? '',
+          profileImage: counterpart.profileImage ?? null,
+          username: counterpart.username ?? '',
+          role: counterpart.role ?? '',
+          takingCams: counterpart.takingCams ?? false,
+        });
+      } catch (error) {
+        console.error('Failed to resolve conversation participant', error);
+      }
+    };
+
+    void fetchFallbackReceiver();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeReceiver, conversationId, setReceiver, user?.discordId]);
 
   useEffect(() => {
     if (!receiver && inferredReceiver) {

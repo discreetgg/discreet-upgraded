@@ -16,3 +16,4 @@ export class ChatNote {
 }
 
 export const ChatNoteSchema = SchemaFactory.createForClass(ChatNote);
+ChatNoteSchema.index({ seller: 1, buyer: 1 }, { unique: true });

@@ -1,6 +1,5 @@
 'use client';
 
-import { PROFILE_MENU_ADS } from '@/constants/mock-data';
 import { useAuth } from '@/context/auth-context-provider';
 import Image from 'next/image';
 import { AuthPromptDialog } from '../auth-prompt-dialog';
@@ -8,7 +7,6 @@ import { PostCommentButton } from '../post-comment-button';
 import { PostLikeButton } from '../post-like-button';
 import { PostViewMore } from '../post-view-more';
 import { Icon } from '../ui/icons';
-import ProfileSideAdCard from './profile-side-ad-card';
 
 interface Props {
   id: number;
@@ -30,7 +28,6 @@ export default function ProfilePostCard({
   quotedId,
 }: Props) {
   const { isAuthenticated } = useAuth();
-  const qoutedMenu = PROFILE_MENU_ADS.find((ad) => ad.id === quotedId);
   return (
     <article className='border-[#1E1E21] bg-background border shadow-[2px_2px_0_0_#1E1E21] hover:shadow-[4px_4px_0_0_#1E1E21] hover:bg-[#1E1E21]/10 transition-all duration-200  p-4 rounded-[8px] space-y-4 relative cursor-pointer'>
       <div className='flex items-center justify-between'>
@@ -53,14 +50,6 @@ export default function ProfilePostCard({
       </div>
       <div className='flex flex-col gap-y-4'>
         <p className='max-w-[489.72px] text-[15px] text-[#F8F8F8]'>{content}</p>
-        {qoutedMenu && (
-          <ProfileSideAdCard
-            censored
-            isPost
-            key={qoutedMenu.id}
-            {...qoutedMenu}
-          />
-        )}
       </div>
 
       <div className='flex items-center justify-between'>

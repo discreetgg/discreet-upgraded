@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -33,6 +34,8 @@ import { ChatGateway } from './chat.gateway';
 import { AcceptCallDto, EndCallDto, StartCallDto } from './dto/call.dto';
 import { NoteDto } from './dto/note.dto';
 import { GetConversationDto } from './dto/get-conversation.dto';
+import { GetConversationListDto } from './dto/get-conversation-list.dto';
+import { GetConversationMessagesDto } from './dto/get-conversation-messages.dto';
 
 @Controller('chat')
 export class ChatController {
@@ -44,7 +47,7 @@ export class ChatController {
   // ----------------- Conversations ------------------
 
   @Get('conversations-between')
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Get conversation between two Discord users',
   })
@@ -55,8 +58,23 @@ export class ChatController {
   @ApiQuery({
     name: 'discordIds',
   })
-  async getUsersConversation(@Query() query: GetConversationDto) {
+  async getUsersConversation(
+    @Req() req: any,
+    @Query() query: GetConversationDto,
+  ) {
     const { discordIds } = query;
+    const requesterDiscordId: string | undefined = req?.user?.sub;
+
+    if (
+      !requesterDiscordId ||
+      !Array.isArray(discordIds) ||
+      !discordIds.includes(requesterDiscordId)
+    ) {
+      throw new ForbiddenException(
+        'You can only request conversations that include your account',
+      );
+    }
+
     return this.chatService.getUsersConversationsUsingIds(discordIds);
   }
 
@@ -64,14 +82,25 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get all conversations for the logged-in user' })
   @ApiResponse({ status: 200, description: 'List of conversations' })
-  async getConversationList(@Req() req: any) {
-    return this.chatService.getUserConversations(req.user.userId);
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 30 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  async getConversationList(
+    @Req() req: any,
+    @Query() query: GetConversationListDto,
+  ) {
+    return this.chatService.getUserConversations(req.user.userId, {
+      limit: query.limit,
+      cursor: query.cursor,
+      search: query.search,
+    });
   }
 
   @Get('conversations/:id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get a single conversation with messages' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 50 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
   @ApiQuery({
     name: 'from',
     required: false,
@@ -91,15 +120,59 @@ export class ChatController {
   async getConversation(
     @Req() req: any,
     @Param('id') conversationId: string,
-    @Query('limit') limit = 50,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
+    @Query() query: GetConversationMessagesDto,
+  ): Promise<any> {
     return this.chatService.fetchConversation(
       conversationId,
-      Number(limit),
-      from ? new Date(from) : undefined,
-      to ? new Date(to) : undefined,
+      req.user.userId,
+      query.limit,
+      query.cursor,
+      query.from ? new Date(query.from) : undefined,
+      query.to ? new Date(query.to) : undefined,
+    );
+  }
+
+  @Get('conversations/:id/shared-media')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get paginated media-only messages for shared media vault',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 80 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  @ApiResponse({
+    status: 200,
+    description: 'Conversation shared media payload',
+  })
+  async getConversationSharedMedia(
+    @Req() req: any,
+    @Param('id') conversationId: string,
+    @Query() query: GetConversationMessagesDto,
+  ): Promise<any> {
+    return this.chatService.fetchConversationSharedMedia(
+      conversationId,
+      req.user.userId,
+      query.limit,
+      query.cursor,
+    );
+  }
+
+  @Patch('conversations/:id/read')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'Mark all unread messages in conversation as read for current user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Unread messages marked as read',
+  })
+  async markConversationAsRead(
+    @Req() req: any,
+    @Param('id') conversationId: string,
+  ) {
+    return this.chatService.markConversationAsRead(
+      conversationId,
+      req.user.userId,
     );
   }
 
@@ -118,10 +191,8 @@ export class ChatController {
     @Body() dto: CreateMessageWithMediaDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    console.log(dto.mediaMeta);
-
     return this.chatService.sendMessageWithMedia(
-      dto.sender,
+      req.user.sub,
       dto,
       files,
       dto.mediaMeta,
@@ -159,7 +230,7 @@ export class ChatController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     return this.chatService.sendMessageWithMedia_likeMenu(
-      dto.sender,
+      req.user.sub,
       dto,
       files,
       dto.mediaMeta ?? [],
@@ -170,7 +241,7 @@ export class ChatController {
   @Get('online-users')
   @ApiOperation({ summary: 'Get all online users' })
   @ApiResponse({ status: 200, description: 'List of users' })
-  getOnlineUsers() {
+  async getOnlineUsers() {
     return this.chatGateway.getOnlineUsers();
   }
 
@@ -182,6 +253,9 @@ export class ChatController {
     summary: 'start a call session',
   })
   async startCallSession(@Req() req: any, @Body() dto: StartCallDto) {
+    if (dto.callerId !== req.user.sub) {
+      throw new ForbiddenException('Caller mismatch');
+    }
     return this.chatService.createCallSession(dto);
   }
 
@@ -191,7 +265,10 @@ export class ChatController {
     summary: 'set Ongoing call session ',
   })
   async setOngoinCall(@Req() req: any, @Body() dto: AcceptCallDto) {
-    return this.chatService.markCallOngoing(dto.callId);
+    return this.chatService.markCallOngoingForParticipant(
+      dto.callId,
+      req.user.sub,
+    );
   }
 
   @Patch('call-end')
@@ -200,7 +277,10 @@ export class ChatController {
     summary: 'end call session ',
   })
   async endCallSession(@Req() req: any, @Body() dto: EndCallDto) {
-    return this.chatService.endCall(dto);
+    if (dto.callerId !== req.user.sub && dto.calleeId !== req.user.sub) {
+      throw new ForbiddenException('Not authorized to end this call');
+    }
+    return this.chatService.endCall(dto, req.user.sub);
   }
 
   // ----------------- notes ------------------
@@ -211,7 +291,10 @@ export class ChatController {
     summary: 'Create/update a chat note between seller and buyer',
   })
   @ApiResponse({ status: 201, description: 'Note created' })
-  note(@Body() dto: NoteDto) {
+  note(@Body() dto: NoteDto, @Req() req: any) {
+    if (dto.seller !== req.user.sub && dto.buyer !== req.user.sub) {
+      throw new ForbiddenException('Not authorized to update this note');
+    }
     return this.chatService.upsertNote(dto);
   }
 
@@ -221,7 +304,14 @@ export class ChatController {
   @ApiQuery({ name: 'seller', required: true })
   @ApiQuery({ name: 'buyer', required: true })
   @ApiResponse({ status: 200, description: 'note returned' })
-  fetchNote(@Query('seller') seller: string, @Query('buyer') buyer: string) {
+  fetchNote(
+    @Query('seller') seller: string,
+    @Query('buyer') buyer: string,
+    @Req() req: any,
+  ) {
+    if (seller !== req.user.sub && buyer !== req.user.sub) {
+      throw new ForbiddenException('Not authorized to access this note');
+    }
     return this.chatService.getNotes(seller, buyer);
   }
 
@@ -230,8 +320,8 @@ export class ChatController {
   @ApiOperation({ summary: 'Delete a chat note' })
   @ApiParam({ name: 'id', description: 'Note ID' })
   @ApiResponse({ status: 200, description: 'Note deleted' })
-  removeNote(@Param('id') id: string) {
-    return this.chatService.deleteNote(id);
+  removeNote(@Param('id') id: string, @Req() req: any) {
+    return this.chatService.deleteNote(id, req.user.sub);
   }
 
   //   @Post('messages')

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
@@ -34,6 +35,21 @@ export class SubscriptionService {
   // ─────────────────────────────────────────────────────────────
   // SUBSCRIPTION PLANS
   // ─────────────────────────────────────────────────────────────
+
+  private async assertPlanOwnership(planId: string, creatorUserId: string) {
+    const plan = await this.subscriptionPlanModel
+      .findById(planId)
+      .select('creator');
+    if (!plan) {
+      throw new NotFoundException('Subscription plan not found');
+    }
+
+    if (plan.creator?.toString() !== creatorUserId) {
+      throw new ForbiddenException(
+        'You are not authorized to access this subscription plan',
+      );
+    }
+  }
 
   async createSubscriptionPlan(
     creatorId: string,
@@ -164,10 +180,17 @@ export class SubscriptionService {
     };
   }
 
-  async deleteSubscriptionPlan(id: string): Promise<{
+  async deleteSubscriptionPlan(
+    id: string,
+    creatorUserId?: string,
+  ): Promise<{
     deleted: boolean;
     archived?: boolean;
   }> {
+    if (creatorUserId) {
+      await this.assertPlanOwnership(id, creatorUserId);
+    }
+
     const plan = await this.subscriptionPlanModel.findById(id);
     if (!plan) {
       throw new NotFoundException('Subscription plan not found');
@@ -209,7 +232,14 @@ export class SubscriptionService {
     return { deleted: true, archived: false };
   }
 
-  async getSubscribersForPlan(planId: string): Promise<any[]> {
+  async getSubscribersForPlan(
+    planId: string,
+    creatorUserId?: string,
+  ): Promise<any[]> {
+    if (creatorUserId) {
+      await this.assertPlanOwnership(planId, creatorUserId);
+    }
+
     const subscriptions = await this.userSubscriptionModel
       .find({ plan: planId, isActive: true })
       .populate({
@@ -224,7 +254,12 @@ export class SubscriptionService {
 
   async getPlanSubscribersCount(
     planId: string,
+    creatorUserId?: string,
   ): Promise<{ planId: string; count: number }> {
+    if (creatorUserId) {
+      await this.assertPlanOwnership(planId, creatorUserId);
+    }
+
     const count = await this.userSubscriptionModel.countDocuments({
       plan: planId,
       isActive: true,

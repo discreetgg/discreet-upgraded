@@ -1,10 +1,10 @@
 'use client';
 
 import type { MediaType, MessageType } from '@/types/global';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ComponentLoader } from './ui/component-loader';
 import { useParams } from 'next/navigation';
-import { getConversationByIdService } from '@/lib/services';
+import { getConversationSharedMediaService } from '@/lib/services';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSharedMediaTab } from '@/hooks/use-shared-media-tab';
@@ -28,6 +28,8 @@ const validTabs = [
 type SharedMediaTab = (typeof validTabs)[number];
 
 const mediaMessageTypes = new Set(['media', 'menu', 'in_message_media']);
+const SHARED_MEDIA_PAGE_LIMIT = 80;
+const SHARED_MEDIA_MAX_PAGES = 100;
 
 type SharedMediaItem = {
   media: MediaType;
@@ -102,37 +104,131 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
 
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isBackfillingHistory, setIsBackfillingHistory] = useState(false);
+  const sharedMediaRequestIdRef = useRef(0);
+
+  const appendUniqueMessages = useCallback(
+    (currentMessages: MessageType[], incomingMessages: MessageType[]) => {
+      if (incomingMessages.length === 0) {
+        return currentMessages;
+      }
+
+      const seenMessageIds = new Set(
+        currentMessages
+          .map((message) => message?._id)
+          .filter((messageId): messageId is string => Boolean(messageId)),
+      );
+      const mergedMessages = [...currentMessages];
+
+      for (const incoming of incomingMessages) {
+        if (!incoming?._id || seenMessageIds.has(incoming._id)) {
+          continue;
+        }
+        seenMessageIds.add(incoming._id);
+        mergedMessages.push(incoming);
+      }
+
+      return mergedMessages;
+    },
+    [],
+  );
 
   const fetchConversationMessages = useCallback(
-    async (background = false) => {
+    async () => {
       if (!conversationId) {
         setMessages([]);
         return;
       }
 
+      const requestId = sharedMediaRequestIdRef.current + 1;
+      sharedMediaRequestIdRef.current = requestId;
+      let hasRenderedMessages = false;
+
       try {
-        if (!background) {
-          setLoading(true);
+        setLoading(true);
+        setIsBackfillingHistory(false);
+
+        const dedupeBatch = (batch: MessageType[]) => {
+          const uniqueMessages: MessageType[] = [];
+          const seenMessageIds = new Set<string>();
+          for (const message of batch) {
+            if (!message?._id || seenMessageIds.has(message._id)) {
+              continue;
+            }
+            seenMessageIds.add(message._id);
+            uniqueMessages.push(message);
+          }
+          return uniqueMessages;
+        };
+
+        const firstPage = await getConversationSharedMediaService(conversationId, {
+          limit: SHARED_MEDIA_PAGE_LIMIT,
+        });
+        if (sharedMediaRequestIdRef.current !== requestId) {
+          return;
         }
 
-        const response = await getConversationByIdService(conversationId, {
-          limit: 200,
-          force: true,
-        });
+        const firstBatch = dedupeBatch(firstPage?.messages ?? []);
+        setMessages(firstBatch);
+        hasRenderedMessages = firstBatch.length > 0;
 
-        setMessages(Array.isArray(response) ? response : []);
+        let nextCursor: string | undefined = undefined;
+        let hasMore = Boolean(firstPage?.hasMore && firstPage?.nextCursor);
+        nextCursor = firstPage?.nextCursor ?? undefined;
+        let page = 1;
+
+        if (hasMore) {
+          setIsBackfillingHistory(true);
+        }
+
+        while (hasMore && page < SHARED_MEDIA_MAX_PAGES && nextCursor) {
+          const response = await getConversationSharedMediaService(conversationId, {
+            limit: SHARED_MEDIA_PAGE_LIMIT,
+            cursor: nextCursor,
+          });
+          if (sharedMediaRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          const batch = dedupeBatch(response?.messages ?? []);
+          if (batch.length > 0) {
+            setMessages((currentMessages) =>
+              appendUniqueMessages(currentMessages, batch),
+            );
+          }
+
+          hasMore = Boolean(response?.hasMore && response?.nextCursor);
+          nextCursor = response?.nextCursor ?? undefined;
+          page += 1;
+        }
+
+        if (sharedMediaRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        if (hasMore) {
+          toast.info('Loaded partial shared media history', {
+            description:
+              'Scroll in chat to load older history if you need very old media.',
+          });
+        }
       } catch (error: any) {
-        setMessages([]);
-        toast.error('Error fetching shared media', {
-          description: error?.message ?? 'Something went wrong.',
-        });
+        if (!hasRenderedMessages) {
+          setMessages([]);
+          toast.error('Error fetching shared media', {
+            description: error?.message ?? 'Something went wrong.',
+          });
+        } else {
+          toast.warning('Some older shared media could not be loaded');
+        }
       } finally {
-        if (!background) {
+        if (sharedMediaRequestIdRef.current === requestId) {
           setLoading(false);
+          setIsBackfillingHistory(false);
         }
       }
     },
-    [conversationId],
+    [appendUniqueMessages, conversationId],
   );
 
   useEffect(() => {
@@ -286,6 +382,11 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
   return (
     <div className="px-1.5">
       {showTitle && <h3 className="py-0 text-sm font-medium">Shared Media</h3>}
+      {isBackfillingHistory && (
+        <p className="text-[11px] text-muted-foreground py-1">
+          Loading older shared media...
+        </p>
+      )}
 
       <div className={cn('space-y-3', showTitle ? 'pt-3' : 'pt-0')}>
         <Tabs

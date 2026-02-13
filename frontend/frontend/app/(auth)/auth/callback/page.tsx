@@ -3,10 +3,11 @@
 import { PageLoader } from '@/components/ui/page-loader';
 import { useAuth } from '@/context/auth-context-provider';
 import { useGlobal } from '@/context/global-context-provider';
-import { getUserService } from '@/lib/services';
+import { clearConversationRequestCaches, getUserService } from '@/lib/services';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 /**
  * OAuth Callback Handler
@@ -24,6 +25,7 @@ import { toast } from 'sonner';
 const Page = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { setIsAuthenticated } = useAuth();
   const { setUser } = useGlobal();
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,8 @@ const Page = () => {
         
         if (response?.data) {
           // Successfully authenticated
+          clearConversationRequestCaches();
+          queryClient.clear();
           setUser(response.data);
           setIsAuthenticated(true);
           
@@ -94,7 +98,7 @@ const Page = () => {
     };
 
     checkAuthAndRedirect();
-  }, [router, searchParams, setIsAuthenticated, setUser]);
+  }, [queryClient, router, searchParams, setIsAuthenticated, setUser]);
 
   if (error) {
     return (

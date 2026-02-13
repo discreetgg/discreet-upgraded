@@ -94,6 +94,7 @@ const Page = () => {
                 onReloadMessages={reload}
                 onSendUnlockMessage={sendUnlockMessage}
                 scrollRootRef={scrollContainerRef}
+                conversationKey={`new:${receiver?.discordId ?? 'unknown'}`}
               />
               <div ref={messagesEndRef} />
             </>
@@ -143,7 +144,7 @@ const Page = () => {
 
           <div className="absolute bottom-10 flex items-center gap-2 text-[#71717A] text-xs">
             <Icon.lock className="w-3 h-3" />
-            <span>Your personal messages are end-to-end encrypted</span>
+            <span>Your messages are protected in transit</span>
           </div>
         </>
       )}
