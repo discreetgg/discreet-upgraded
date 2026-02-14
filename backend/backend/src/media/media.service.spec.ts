@@ -19,6 +19,14 @@ const makeMessageQuery = (value: any) => ({
   }),
 });
 
+const makeMessageReferenceQuery = (value: any) => ({
+  sort: jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue(value),
+    }),
+  }),
+});
+
 describe('MediaService.assertCanReadMedia', () => {
   const mediaModel = {
     findById: jest.fn(),
@@ -28,6 +36,7 @@ describe('MediaService.assertCanReadMedia', () => {
   };
   const messageModel = {
     findById: jest.fn(),
+    findOne: jest.fn(),
   };
   const paymentModel = {
     exists: jest.fn(),
@@ -84,6 +93,7 @@ describe('MediaService.assertCanReadMedia', () => {
         payer: buyerId,
       }),
     );
+    expect(messageModel.findOne).not.toHaveBeenCalled();
   });
 
   it('blocks receiver without entitlement even if message.paid is true globally', async () => {
@@ -116,6 +126,7 @@ describe('MediaService.assertCanReadMedia', () => {
     await expect(
       service.assertCanReadMedia(mediaId.toString(), 'buyer-discord-id'),
     ).rejects.toThrow(new ForbiddenException('This media is locked'));
+    expect(messageModel.findOne).not.toHaveBeenCalled();
   });
 
   it('preserves buyer isolation under concurrent access checks', async () => {
@@ -198,5 +209,41 @@ describe('MediaService.assertCanReadMedia', () => {
         'This media is locked',
       );
     }
+  });
+
+  it('allows access for menu media referenced by a buyer-visible message even when media.chat is empty', async () => {
+    const sellerId = new mongoose.Types.ObjectId();
+    const buyerId = new mongoose.Types.ObjectId();
+    const mediaId = new mongoose.Types.ObjectId();
+    const messageId = new mongoose.Types.ObjectId();
+
+    mediaModel.findById.mockReturnValue(
+      makeMediaQuery({
+        _id: mediaId,
+        owner: sellerId,
+        chat: undefined,
+        caption: 'menu item preview',
+      }),
+    );
+    userModel.findOne.mockReturnValue(makeUserQuery({ _id: buyerId }));
+    messageModel.findOne.mockReturnValue(
+      makeMessageReferenceQuery({
+        _id: messageId,
+        sender: sellerId,
+        reciever: buyerId,
+        isPayable: false,
+        paid: false,
+        type: MessageType.MENU,
+      }),
+    );
+
+    const result = await service.assertCanReadMedia(
+      mediaId.toString(),
+      'buyer-discord-id',
+    );
+
+    expect((result as any)._id).toEqual(mediaId);
+    expect(messageModel.findById).not.toHaveBeenCalled();
+    expect(paymentModel.exists).not.toHaveBeenCalled();
   });
 });

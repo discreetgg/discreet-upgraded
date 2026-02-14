@@ -31,14 +31,12 @@ import { useState, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
 import { toast } from 'sonner';
 import { ComponentLoader } from './ui/component-loader';
-import type { Tag } from '@/types/global';
 import { createPostService } from '@/lib/services';
 import { createMenuCategory } from '@/actions/menu-item';
 import { useMenuCategories } from '@/hooks/queries/use-menu-categories';
 import { toastPresets } from '@/lib/toast-presets';
 import { PostComposerUnlockMediaPanel } from './post-composer-unlock-media-panel';
 import { PostComposerLivePreview } from './post-composer-live-preview';
-
 const MAX_POST_CONTENT_LENGTH = 560;
 
 const FormSchema = z
@@ -438,7 +436,6 @@ export const ContentCreatorAddPostDialog = ({
             className=" w-full space-y-[27px]"
             onSubmit={form.handleSubmit(onSubmit)}
           >
-
             <div className="bg-black rounded-2xl border border-[#232323] overflow-hidden">
               <div className="overflow-y-auto max-h-[calc(100vh-200px)] sm:max-h-[650px] space-y-4 sm:space-y-8 p-3 sm:p-4">
                 <FormField
@@ -534,7 +531,6 @@ export const ContentCreatorAddPostDialog = ({
                       cat.text.toLowerCase().includes(hashtagQuery.toLowerCase())
                     );
                     const contentLength = field.value?.length ?? 0;
-                    
                     return (
                       <FormItem className="relative">
                         <FormControl>
@@ -568,8 +564,7 @@ export const ContentCreatorAddPostDialog = ({
                                   }
                                 }
                               }}
-                            />
-                            
+                              />
                             {showHashtagSuggestions && filteredHashtagCategories.length > 0 && (
                               <div
                                 className="absolute z-50 bg-[#0A0A0A] border border-[#1F2227] rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -838,10 +833,31 @@ export const ContentCreatorAddPostDialog = ({
                                         });
 
                                         if (response.data) {
-                                          queryClient.invalidateQueries({
+                                          const createdCategoryId =
+                                            response.data?._id ||
+                                            response.data?.id ||
+                                            '';
+                                          if (createdCategoryId) {
+                                            const currentlySelected =
+                                              form.getValues('categories') || [];
+                                            form.setValue(
+                                              'categories',
+                                              Array.from(
+                                                new Set([
+                                                  ...currentlySelected,
+                                                  createdCategoryId,
+                                                ])
+                                              ),
+                                              { shouldValidate: true }
+                                            );
+                                          }
+
+                                          await queryClient.invalidateQueries({
                                             queryKey: ['menu_categories', user.discordId],
                                           });
-
+                                          await queryClient.refetchQueries({
+                                            queryKey: ['menu_categories', user.discordId],
+                                          });
                                           field.onChange('');
                                           setShowTagInput(false);
                                           toast.success(
@@ -873,10 +889,20 @@ export const ContentCreatorAddPostDialog = ({
                     control={form.control}
                     name="categories"
                     render={() => {
-                      const displayCategories = (menuCategories ?? []).slice(-5);
+                      const selectedValues = form.getValues('categories') || [];
+                      const displayCategories = [...(menuCategories ?? [])].sort(
+                        (first, second) => {
+                          const firstSelected = selectedValues.includes(first.id);
+                          const secondSelected = selectedValues.includes(second.id);
+                          if (firstSelected !== secondSelected) {
+                            return firstSelected ? -1 : 1;
+                          }
+                          return first.text.localeCompare(second.text);
+                        }
+                      );
                       
                       return (
-                        <FormItem className="flex gap-2 flex-wrap">
+                        <FormItem className="flex gap-2 flex-wrap max-h-[180px] overflow-y-auto pr-1">
                           {displayCategories.map((item) => (
                           <FormField
                             key={item.id}

@@ -139,32 +139,9 @@ export class MenuController {
     },
   })
   @ApiResponse({ status: 201, description: 'Menu created successfully.' })
-  async createMenu(
-    @Req() req: any,
-    @Body() dto: any,
-    @Body('mediaMeta') mediaMetaRaw: string,
-    @UploadedFiles() files?: Express.Multer.File[],
-  ) {
-    console.log(dto);
-    // Parse mediaMeta safely
-    let mediaMeta: MediaMetaDto[] = [];
-    try {
-      if (mediaMetaRaw && typeof mediaMetaRaw === 'string') {
-        mediaMeta = JSON.parse(mediaMetaRaw);
-      } else if (Array.isArray(mediaMetaRaw)) {
-        mediaMeta = mediaMetaRaw as MediaMetaDto[];
-      }
-    } catch {
-      throw new BadRequestException(
-        'Invalid mediaMeta format. Must be valid JSON.',
-      );
-    }
-
-    return this.menuService.createMenu(
-      req.user?.sub,
-      dto,
-      files ?? [],
-      mediaMeta ?? [],
+  async createMenu() {
+    throw new BadRequestException(
+      'Direct menu creation is disabled. Publish an unlockable feed post to create a menu listing.',
     );
   }
 

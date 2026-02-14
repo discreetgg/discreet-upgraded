@@ -126,6 +126,8 @@ declare global {
     priceToView: string;
     itemCount: number;
     itemSold: number;
+    imageCount?: number;
+    videoCount?: number;
     noteToBuyer: string;
     discount: string;
     promo?: {
@@ -147,6 +149,12 @@ declare global {
       url: string;
       _id: string;
     };
+    previewMedia?: Array<{
+      url: string;
+      public_id: string;
+      type: "image" | "video";
+    }>;
+    sourcePost?: string;
     media: MenuMediaType[];
     type: "single" | "bundles";
     createdAt: string;

@@ -12,6 +12,8 @@ import { Icon } from './ui/icons';
 type UnlockOverlay = {
   priceLabel: string;
   lockedCount: number;
+  compositionLabel?: string;
+  isUnlocked?: boolean;
   onUnlock?: () => void;
 };
 
@@ -115,27 +117,30 @@ export const PostMedia = ({
           />
         </MediaDialog>
       ) : item.type === 'video' ? (
-        <MediaDialog
-          content={content}
-          media={media}
-          activeMediaIndex={index}
-          activeMedia={item}
-        >
-          <video
-            src={item.url}
-            className="h-full w-full object-contain"
-            muted
-            playsInline
-            preload="metadata"
-            onLoadedMetadata={(event) =>
-              setPreviewAspect(
-                item.url,
-                event.currentTarget.videoWidth,
-                event.currentTarget.videoHeight
-              )
+        <video
+          src={item.url}
+          className="h-full w-full object-contain"
+          controls
+          muted
+          playsInline
+          preload="metadata"
+          onClick={(event) => {
+            event.stopPropagation();
+            const video = event.currentTarget;
+            if (video.paused) {
+              void video.play().catch(() => undefined);
+            } else {
+              video.pause();
             }
-          />
-        </MediaDialog>
+          }}
+          onLoadedMetadata={(event) =>
+            setPreviewAspect(
+              item.url,
+              event.currentTarget.videoWidth,
+              event.currentTarget.videoHeight
+            )
+          }
+        />
       ) : null}
 
       {failedImages.has(item.url) && (
@@ -164,11 +169,15 @@ export const PostMedia = ({
       key={`locked-slot-${slot}`}
       onClick={(event) => {
         event.stopPropagation();
-        unlockOverlay?.onUnlock?.();
+        if (!unlockOverlay?.isUnlocked) {
+          unlockOverlay?.onUnlock?.();
+        }
       }}
-      disabled={!unlockOverlay?.onUnlock}
+      disabled={!unlockOverlay?.onUnlock || unlockOverlay?.isUnlocked}
       className={`relative overflow-hidden rounded-[10px] border border-[#242934] bg-[linear-gradient(135deg,#171D28_0%,#0D121B_100%)] text-left ${className} ${
-        unlockOverlay?.onUnlock ? 'cursor-pointer' : 'cursor-default'
+        unlockOverlay?.onUnlock && !unlockOverlay?.isUnlocked
+          ? 'cursor-pointer'
+          : 'cursor-default'
       }`}
       style={tileStyle}
     >
@@ -179,9 +188,18 @@ export const PostMedia = ({
         </div>
       </div>
       {showUnlockAction && unlockOverlay?.priceLabel && (
-        <div className="absolute inset-x-2 bottom-2 rounded-md border border-[#2F3440] bg-[#141925]/95 px-2 py-1 text-center text-[11px] font-medium text-[#E6EAF2]">
-          Unlock {unlockOverlay.priceLabel}
-        </div>
+        <>
+          {unlockOverlay?.compositionLabel && (
+            <div className="absolute inset-x-2 bottom-9 rounded-md border border-[#2F3440] bg-[#0F1420]/90 px-2 py-1 text-center text-[10px] font-medium text-[#BFC8D9]">
+              {unlockOverlay.compositionLabel}
+            </div>
+          )}
+          <div className="absolute inset-x-2 bottom-2 rounded-md border border-[#2F3440] bg-[#141925]/95 px-2 py-1 text-center text-[11px] font-medium text-[#E6EAF2]">
+            {unlockOverlay?.isUnlocked
+              ? 'Unlocked'
+              : `Unlock ${unlockOverlay.priceLabel}`}
+          </div>
+        </>
       )}
       {showOverflowOverlay && overflowCount > 0 && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#090C12]/70 text-xl font-semibold text-[#F8F8F8]">
@@ -218,14 +236,18 @@ export const PostMedia = ({
 
   const getSlotAspect = (slot: number, fallback: number) => {
     if (slot < previewCount) {
-      return Math.max(1.1, Math.min(getPreviewAspect(slot), 1.85));
+      const minAspect = displayCount <= 2 ? 0.56 : 0.85;
+      return Math.max(minAspect, Math.min(getPreviewAspect(slot), 1.85));
     }
     return fallback;
   };
 
   const primaryWideAspect = getSlotAspect(0, 1.45);
   const secondaryWideAspect = Math.max(1.15, Math.min(primaryWideAspect, 1.45));
-  const singleLockedAspect = Math.max(1.1, Math.min(primaryWideAspect, 1.55));
+  const singleLockedAspect =
+    displayCount <= 2
+      ? Math.max(0.75, Math.min(primaryWideAspect, 1.25))
+      : Math.max(1.1, Math.min(primaryWideAspect, 1.55));
 
   const singlePreviewTileStyle: CSSProperties | undefined =
     previewCount === 1 && lockedCount === 0

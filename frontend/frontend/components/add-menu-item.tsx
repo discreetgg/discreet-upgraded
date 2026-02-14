@@ -979,10 +979,10 @@ export const AddMenuItem = ({
 								className="!bg-transparent p-0 w-full border-0 !ring-0  resize-none placeholder:text-[#3C3C42] h-full"
 							/>
 						</div>
-						<p className="text-accent-color font-medium">
-							Note: Once an item has been purchased, this menu can’t be edited.
-							However, you can still edit
-						</p>
+							<p className="text-accent-color font-medium">
+								Note: Keep pricing and messaging clear. Buyers unlock the full
+								listing (single or full bundle) in one purchase.
+							</p>
 					</div>
 				</motion.div>
 				<DeleteMediaDialog

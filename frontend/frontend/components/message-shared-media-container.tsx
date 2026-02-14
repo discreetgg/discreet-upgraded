@@ -143,6 +143,7 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
       const requestId = sharedMediaRequestIdRef.current + 1;
       sharedMediaRequestIdRef.current = requestId;
       let hasRenderedMessages = false;
+      let isPrimaryPageLoaded = false;
 
       try {
         setLoading(true);
@@ -171,6 +172,8 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
         const firstBatch = dedupeBatch(firstPage?.messages ?? []);
         setMessages(firstBatch);
         hasRenderedMessages = firstBatch.length > 0;
+        isPrimaryPageLoaded = true;
+        setLoading(false);
 
         let nextCursor: string | undefined = undefined;
         let hasMore = Boolean(firstPage?.hasMore && firstPage?.nextCursor);
@@ -223,7 +226,9 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
         }
       } finally {
         if (sharedMediaRequestIdRef.current === requestId) {
-          setLoading(false);
+          if (!isPrimaryPageLoaded) {
+            setLoading(false);
+          }
           setIsBackfillingHistory(false);
         }
       }

@@ -1,6 +1,6 @@
 import { useAuth } from '@/context/auth-context-provider';
 import type { CommentType, PostType } from '@/types/global';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AuthPromptDialog } from './auth-prompt-dialog';
 import { FeedPostAddComment } from './feed-post-add-comment';
 import { FeedPostAllComments } from './feed-post-all-comments';
@@ -15,8 +15,8 @@ import TipDialog from './tip-modal';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
 import { PublicPostViewMore } from './public-post-view-more';
-import { useRouter } from '@bprogress/next/app';
-import { resolveMenuPrice } from '@/lib/menu-pricing';
+import { usePostMenuUnlock } from '@/hooks/use-post-menu-unlock';
+import { PostMenuUnlockDialog } from './post-menu-unlock-dialog';
 
 export const FeedPost = ({ post }: { post: PostType }) => {
   const [showAllLikes, setShowAllLikes] = useState(false);
@@ -33,12 +33,21 @@ export const FeedPost = ({ post }: { post: PostType }) => {
 
   const { isAuthenticated } = useAuth();
   const { user: currentUser } = useGlobal();
-  const router = useRouter();
 
   const isAuthor = post?.author?.discordId === currentUser?.discordId;
-  const linkedMenuPricing = post?.linkedMenu
-    ? resolveMenuPrice(post.linkedMenu.priceToView, post.linkedMenu.promo)
-    : null;
+  const {
+    unlockOverlay,
+    linkedMenu,
+    menuPricing,
+    menuSummary,
+    isConfirmOpen,
+    setIsConfirmOpen,
+    dialogState,
+    isResolvingConversation,
+    openUnlockedConversation,
+    confirmUnlock,
+    isUnlocking,
+  } = usePostMenuUnlock(post);
 
   // Handle when someone clicks reply on a comment
   const handleSetReplyToComment = (comment: CommentType | null) => {
@@ -75,11 +84,6 @@ export const FeedPost = ({ post }: { post: PostType }) => {
     </button>
   );
 
-  const handleOpenLinkedMenu = () => {
-    const profilePath = post?.author?.username ? `/${post.author.username}` : '/';
-    router.push(`${profilePath}?menuTab=menu`);
-  };
-
   return (
     <section className="flex md:flex-row flex-col gap-10">
       <article
@@ -107,17 +111,7 @@ export const FeedPost = ({ post }: { post: PostType }) => {
             <PostMedia
               content={post}
               media={post.media || []}
-              unlockOverlay={
-                post?.linkedMenu && linkedMenuPricing
-                  ? {
-                      priceLabel: formatPostCurrency(
-                        linkedMenuPricing.effectiveUnitPrice
-                      ),
-                      lockedCount: post.linkedMenu.itemCount || 0,
-                      onUnlock: handleOpenLinkedMenu,
-                    }
-                  : undefined
-              }
+              unlockOverlay={unlockOverlay}
             />
           </div>
         )}
@@ -213,6 +207,21 @@ export const FeedPost = ({ post }: { post: PostType }) => {
         <PostAllLikes
           likeCount={post?.likesCount ?? 0}
           onClose={() => setShowAllLikes(false)}
+        />
+      )}
+      {linkedMenu && menuPricing && (
+        <PostMenuUnlockDialog
+          open={isConfirmOpen}
+          onOpenChange={setIsConfirmOpen}
+          onConfirm={confirmUnlock}
+          isPending={isUnlocking}
+          state={dialogState}
+          isResolvingConversation={isResolvingConversation}
+          onOpenMessages={openUnlockedConversation}
+          menuTitle={linkedMenu.title}
+          itemCount={menuSummary.totalCount}
+          compositionLabel={menuSummary.compositionLabel}
+          totalPriceLabel={formatPostCurrency(menuPricing.effectiveUnitPrice)}
         />
       )}
     </section>

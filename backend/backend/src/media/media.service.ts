@@ -15,6 +15,15 @@ import {
   PaymentType,
 } from 'src/database/schemas/payment.schema';
 
+type MediaAccessMessage = {
+  _id: unknown;
+  sender?: unknown;
+  reciever?: unknown;
+  isPayable?: boolean;
+  paid?: boolean;
+  type?: MessageType;
+};
+
 @Injectable()
 export class MediaService {
   private logger = new Logger(MediaService.name);
@@ -36,6 +45,45 @@ export class MediaService {
     return (
       normalized.includes('free preview') || normalized.includes('cover image')
     );
+  }
+
+  private async evaluateMessageMediaAccess(
+    message: MediaAccessMessage | null,
+    requesterId: string,
+    requesterObjectId: unknown,
+    mediaCaption?: string,
+  ): Promise<'allow' | 'locked' | 'deny'> {
+    if (!message) {
+      return 'deny';
+    }
+
+    const isSender = message.sender?.toString() === requesterId;
+    const isReceiver = message.reciever?.toString() === requesterId;
+
+    if (!isSender && !isReceiver) {
+      return 'deny';
+    }
+
+    if (isSender || !message.isPayable) {
+      return 'allow';
+    }
+
+    if (message.type !== MessageType.IN_MESSAGE_MEDIA) {
+      return message.paid ? 'allow' : 'locked';
+    }
+
+    if (this.isFreePreviewCaption(mediaCaption)) {
+      return 'allow';
+    }
+
+    const hasPaidEntitlement = await this.paymentModel.exists({
+      type: PaymentType.MEDIA_PURCHASE,
+      status: PaymentStatus.COMPLETED,
+      payer: requesterObjectId,
+      'meta.MessageAsset': message._id.toString(),
+    });
+
+    return hasPaidEntitlement ? 'allow' : 'locked';
   }
 
   async assertCanReadMedia(
@@ -68,45 +116,40 @@ export class MediaService {
         .select('_id sender reciever isPayable paid type')
         .lean();
 
-      if (!message) {
-        throw new ForbiddenException('Media access denied');
-      }
-
-      const isSender = message.sender?.toString() === requesterId;
-      const isReceiver = message.reciever?.toString() === requesterId;
-
-      if (!isSender && !isReceiver) {
-        throw new ForbiddenException('Media access denied');
-      }
-
-      if (isSender || !message.isPayable) {
+      const mediaAccess = await this.evaluateMessageMediaAccess(
+        message as MediaAccessMessage | null,
+        requesterId,
+        requester._id,
+        media.caption,
+      );
+      if (mediaAccess === 'allow') {
         return media;
       }
-
-      if (message.type !== MessageType.IN_MESSAGE_MEDIA) {
-        if (message.paid) {
-          return media;
-        }
+      if (mediaAccess === 'locked') {
         throw new ForbiddenException('This media is locked');
       }
+    }
 
-      if (
-        message.type === MessageType.IN_MESSAGE_MEDIA &&
-        this.isFreePreviewCaption(media.caption)
-      ) {
-        return media;
-      }
+    // Menu/feed purchases can reference media on a message while leaving media.chat unset.
+    const referencedMessage = await this.messageModel
+      .findOne({
+        media: media._id,
+        $or: [{ sender: requester._id }, { reciever: requester._id }],
+      })
+      .sort({ createdAt: -1, _id: -1 })
+      .select('_id sender reciever isPayable paid type')
+      .lean();
 
-      const hasPaidEntitlement = await this.paymentModel.exists({
-        type: PaymentType.MEDIA_PURCHASE,
-        status: PaymentStatus.COMPLETED,
-        payer: requester._id,
-        'meta.MessageAsset': message._id.toString(),
-      });
-      if (hasPaidEntitlement) {
-        return media;
-      }
-
+    const referencedAccess = await this.evaluateMessageMediaAccess(
+      referencedMessage as MediaAccessMessage | null,
+      requesterId,
+      requester._id,
+      media.caption,
+    );
+    if (referencedAccess === 'allow') {
+      return media;
+    }
+    if (referencedAccess === 'locked') {
       throw new ForbiddenException('This media is locked');
     }
 

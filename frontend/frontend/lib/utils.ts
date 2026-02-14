@@ -2,7 +2,7 @@ import type { ThemeColors } from '@/types/theme-color-types';
 import { type ClassValue, clsx } from 'clsx';
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns';
 import { twMerge } from 'tailwind-merge';
-import { themeColors } from './data';
+import { baseURL, themeColors } from './data';
 import getSymbolFromCurrency from 'currency-symbol-map';
 import { getUserByIdService } from './services';
 import { UserType } from '@/types/global';
@@ -343,7 +343,7 @@ export const getProxiedMediaUrl = (
   originalUrl?: string,
 ): string => {
   if (mediaId) {
-    return `https://api.discreet.fans/api/media/${mediaId}`;
+    return `${baseURL}/media/${mediaId}`;
   }
   return originalUrl || '';
 };

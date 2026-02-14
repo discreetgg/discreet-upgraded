@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { BadRequestException } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import {
   PaymentStatus,
@@ -223,92 +222,60 @@ describe('PaymentService - menu purchase plan', () => {
     );
   });
 
-  it('rejects quantity > 1 for single-item menu purchases', () => {
-    expect(() =>
-      (service as any).getMenuPurchasePlan(
-        {
-          collectionType: CollectionType.SINGLE,
-          itemCount: 1,
-          itemSold: 0,
-          priceToView: '15',
-        },
-        2,
-      ),
-    ).toThrow(
-      new BadRequestException(
-        'Single-item menu purchases require quantity 1. Remove bundle quantity and try again.',
-      ),
-    );
+  it('forces single-item menus to quantity 1', () => {
+    const plan = (service as any).getMenuPurchasePlan({
+      collectionType: CollectionType.SINGLE,
+      itemCount: 1,
+      priceToView: '15',
+    });
+
+    expect(plan.mode).toBe('single');
+    expect(plan.quantity).toBe(1);
+    expect(plan.totalPrice).toBe(15);
   });
 
-  it('computes deterministic totals for bundle purchases', () => {
-    const plan = (service as any).getMenuPurchasePlan(
-      {
-        collectionType: CollectionType.BUNDLES,
-        itemCount: 6,
-        itemSold: 2,
-        priceToView: '12.5',
-      },
-      3,
-    );
+  it('charges the full bundle for multi-item menus', () => {
+    const plan = (service as any).getMenuPurchasePlan({
+      collectionType: CollectionType.BUNDLES,
+      itemCount: 4,
+      priceToView: '12.5',
+    });
 
     expect(plan).toEqual({
       mode: 'bundle',
-      quantity: 3,
-      availableCount: 4,
+      quantity: 4,
+      itemCount: 4,
       baseUnitPrice: 12.5,
       unitPrice: 12.5,
       discountPerItem: 0,
       promoApplied: false,
       promoMetadata: null,
-      totalPrice: 37.5,
+      totalPrice: 12.5,
     });
-  });
-
-  it('rejects bundle quantities above available inventory', () => {
-    expect(() =>
-      (service as any).getMenuPurchasePlan(
-        {
-          collectionType: CollectionType.BUNDLES,
-          itemCount: 4,
-          itemSold: 3,
-          priceToView: '9',
-        },
-        2,
-      ),
-    ).toThrow(
-      new BadRequestException(
-        'Only 1 bundle item(s) are available, but 2 were requested.',
-      ),
-    );
   });
 
   it('applies active percentage promo to bundle totals', () => {
     const startsAt = new Date(Date.now() - 60_000);
     const endsAt = new Date(Date.now() + 60_000);
 
-    const plan = (service as any).getMenuPurchasePlan(
-      {
-        collectionType: CollectionType.BUNDLES,
-        itemCount: 5,
-        itemSold: 0,
-        priceToView: '20',
-        promo: {
-          isEnabled: true,
-          type: 'percentage',
-          value: '25',
-          startsAt,
-          endsAt,
-          message: 'Weekend',
-        },
+    const plan = (service as any).getMenuPurchasePlan({
+      collectionType: CollectionType.BUNDLES,
+      itemCount: 5,
+      priceToView: '20',
+      promo: {
+        isEnabled: true,
+        type: 'percentage',
+        value: '25',
+        startsAt,
+        endsAt,
+        message: 'Weekend',
       },
-      2,
-    );
+    });
 
     expect(plan.unitPrice).toBe(15);
     expect(plan.baseUnitPrice).toBe(20);
     expect(plan.discountPerItem).toBe(5);
-    expect(plan.totalPrice).toBe(30);
+    expect(plan.totalPrice).toBe(15);
     expect(plan.promoApplied).toBe(true);
     expect(plan.promoMetadata).toEqual(
       expect.objectContaining({
@@ -320,27 +287,23 @@ describe('PaymentService - menu purchase plan', () => {
   });
 
   it('ignores expired promo and uses base unit price', () => {
-    const plan = (service as any).getMenuPurchasePlan(
-      {
-        collectionType: CollectionType.BUNDLES,
-        itemCount: 5,
-        itemSold: 0,
-        priceToView: '18',
-        promo: {
-          isEnabled: true,
-          type: 'fixed',
-          value: '4',
-          startsAt: new Date(Date.now() - 120_000),
-          endsAt: new Date(Date.now() - 60_000),
-          message: 'Expired',
-        },
+    const plan = (service as any).getMenuPurchasePlan({
+      collectionType: CollectionType.BUNDLES,
+      itemCount: 5,
+      priceToView: '18',
+      promo: {
+        isEnabled: true,
+        type: 'fixed',
+        value: '4',
+        startsAt: new Date(Date.now() - 120_000),
+        endsAt: new Date(Date.now() - 60_000),
+        message: 'Expired',
       },
-      2,
-    );
+    });
 
     expect(plan.unitPrice).toBe(18);
     expect(plan.discountPerItem).toBe(0);
-    expect(plan.totalPrice).toBe(36);
+    expect(plan.totalPrice).toBe(18);
     expect(plan.promoApplied).toBe(false);
   });
 });

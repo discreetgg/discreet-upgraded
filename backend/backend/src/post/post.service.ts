@@ -229,6 +229,56 @@ export class PostService {
         { session },
       );
 
+      if (linkedMenuId) {
+        let previewMediaPayload: Array<{
+          url: string;
+          public_id: string;
+          type: 'image' | 'video';
+        }> = [];
+        if (uploadedMediaIds.length > 0) {
+          const previewMediaDocs = await this.mediaModel
+            .find({
+              _id: {
+                $in: uploadedMediaIds.map((id) => new Types.ObjectId(id)),
+              },
+              owner: user._id,
+            })
+            .select('_id url public_id type')
+            .session(session)
+            .lean();
+
+          const previewMediaById = new Map(
+            previewMediaDocs.map((doc) => [doc._id.toString(), doc]),
+          );
+          previewMediaPayload = uploadedMediaIds
+            .map((id) => previewMediaById.get(id))
+            .filter((doc): doc is (typeof previewMediaDocs)[number] =>
+              Boolean(doc),
+            )
+            .map((doc) => ({
+              url: doc.url,
+              public_id: doc.public_id,
+              type: doc.type === 'video' ? 'video' : 'image',
+            }));
+        }
+
+        const menuUpdate: Record<string, any> = {
+          sourcePost: post._id,
+        };
+        if (previewMediaPayload.length > 0) {
+          menuUpdate.coverImage = {
+            url: previewMediaPayload[0].url,
+            public_id: previewMediaPayload[0].public_id,
+          };
+          menuUpdate.previewMedia = previewMediaPayload;
+        }
+        await this.menuModel.updateOne(
+          { _id: linkedMenuId, owner: user._id },
+          { $set: menuUpdate },
+          { session },
+        );
+      }
+
       // Step 3: commit transaction
       await session.commitTransaction();
       session.endSession();
@@ -245,7 +295,7 @@ export class PostService {
         .populate({
           path: 'linkedMenu',
           select:
-            '_id title priceToView collectionType coverImage promo itemCount itemSold',
+            '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
         })
         .lean();
 
@@ -447,7 +497,15 @@ export class PostService {
     // 2. Delete all comments associated with the post
     await this.commentModel.deleteMany({ post: postId });
 
-    // 3. Delete the post itself
+    // 3. Hide linked menu listing if this post created one.
+    if (post.linkedMenu) {
+      await this.menuModel.updateOne(
+        { _id: post.linkedMenu, owner: user._id },
+        { $set: { isArchived: true } },
+      );
+    }
+
+    // 4. Delete the post itself
     await this.postModel.findByIdAndDelete(postId);
 
     return { deleted: true };
@@ -466,7 +524,7 @@ export class PostService {
       .populate({
         path: 'linkedMenu',
         select:
-          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+          '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
       })
       .lean();
 
@@ -503,7 +561,7 @@ export class PostService {
       .populate({
         path: 'linkedMenu',
         select:
-          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+          '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
       })
       .lean()
       .sort({ createdAt: -1 });
@@ -549,7 +607,7 @@ export class PostService {
       .populate({
         path: 'linkedMenu',
         select:
-          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+          '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
       })
       .lean()
       .sort({ createdAt: -1 });
@@ -740,7 +798,7 @@ export class PostService {
       .populate({
         path: 'linkedMenu',
         select:
-          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+          '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
       })
       .populate('visibleToPlan')
       .lean()
@@ -829,7 +887,7 @@ export class PostService {
       .populate({
         path: 'linkedMenu',
         select:
-          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+          '_id title priceToView collectionType coverImage promo itemCount itemSold imageCount videoCount',
       })
       .populate('visibleToPlan');
   }

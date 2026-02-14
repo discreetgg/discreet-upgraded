@@ -14,7 +14,8 @@ type MenuCardPricingMetaProps = {
     message?: string;
   };
   mediaCount: number;
-  mediaLeft: number;
+  imageCount: number;
+  videoCount: number;
 };
 
 const formatMoney = (amount: number | string) => {
@@ -31,7 +32,8 @@ export const MenuCardPricingMeta = ({
   priceToView,
   promo,
   mediaCount,
-  mediaLeft,
+  imageCount,
+  videoCount,
 }: MenuCardPricingMetaProps) => {
   const [now, setNow] = useState(() => new Date());
 
@@ -78,21 +80,16 @@ export const MenuCardPricingMeta = ({
         </p>
       )}
 
-      <div className="flex items-center gap-x-2 text-xs text-accent-text">
-        {mediaCount > 1 ? (
-          <>
-            <span className="text-sm font-medium text-off-white">
-              {isNaN(mediaLeft) ? "..." : mediaLeft}/{mediaCount}
-            </span>
-            <span>items left</span>
-          </>
-        ) : (
-          <>
-            <span className="text-sm font-medium text-off-white">
-              {isNaN(mediaLeft) ? "..." : mediaLeft}
-            </span>
-            <span>item left</span>
-          </>
+      <div className="flex flex-wrap items-center gap-x-2 text-xs text-accent-text">
+        <span className="text-sm font-medium text-off-white">
+          {mediaCount} {mediaCount === 1 ? "piece" : "pieces"}
+        </span>
+        {(imageCount > 0 || videoCount > 0) && (
+          <span>
+            {imageCount > 0 && `${imageCount} image${imageCount > 1 ? "s" : ""}`}
+            {imageCount > 0 && videoCount > 0 && " • "}
+            {videoCount > 0 && `${videoCount} video${videoCount > 1 ? "s" : ""}`}
+          </span>
         )}
       </div>
     </div>

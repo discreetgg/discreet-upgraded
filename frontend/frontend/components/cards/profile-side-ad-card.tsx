@@ -2,15 +2,13 @@ import { Button } from "../ui/button";
 import { AddMenuItem } from "../add-menu-item";
 import { UserType } from "@/types/global";
 import { ImageWithFallback } from "../miscellaneous/image-with-fallback";
-import { Dispatch, SetStateAction, useMemo, useState } from "react";
-import { Icon } from "../ui/icons";
-import {
-  AnimatedNumber,
-  AnimatedNumberAdvanced,
-} from "../miscellaneous/animated-number";
-import { cn } from "@/lib/utils";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { buyMenuItem, deleteMenuItem } from "@/actions/menu-item";
+import {
+  buyMenuItem,
+  deleteMenuItem,
+  getPurchasedMenuEntitlements,
+} from "@/actions/menu-item";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth-context-provider";
 import {
@@ -30,14 +28,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { DeleteMenuItemDialog } from "../delete-menu-item-dialog";
 import { useRouter } from "@bprogress/next/app";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getConversationBetweenUsersService } from "@/lib/services";
 import { useMessage } from "@/context/message-context";
 import { useWallet } from "@/context/wallet-context-provider";
@@ -45,18 +38,61 @@ import { isAxiosError } from "axios";
 import { resolveMenuPrice } from "@/lib/menu-pricing";
 import { MenuPromoDialog } from "@/components/menu-promo-dialog";
 import { MenuCardPricingMeta } from "@/components/menu-card-pricing-meta";
+import { getMenuMediaSummary } from "@/lib/menu-media-summary";
+import { MenuDetailsDialog } from "@/components/menu-details-dialog";
+
+type NormalizedMenuPreviewMedia = {
+  _id: string;
+  url: string;
+  type: "image" | "video";
+};
+
+const isVideoMediaUrl = (url: string) => {
+  const lower = (url || "").toLowerCase();
+  return (
+    lower.includes("/video/upload/") ||
+    lower.includes(".mp4") ||
+    lower.includes(".mov") ||
+    lower.includes(".webm") ||
+    lower.includes(".m4v")
+  );
+};
+
+const normalizeMenuPreviewMedia = (
+  entries:
+    | Array<{
+        _id?: string;
+        url?: string;
+        type?: string;
+        media?: { _id?: string; url?: string; type?: string };
+      }>
+    | undefined,
+): NormalizedMenuPreviewMedia[] => {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry: any) => {
+      const source = entry?.url ? entry : entry?.media;
+      if (!source?.url) return null;
+      const url = String(source.url);
+      const type = source.type === "video" || isVideoMediaUrl(url)
+        ? "video"
+        : "image";
+      return {
+        _id: String(source._id || entry?._id || url),
+        url,
+        type,
+      } satisfies NormalizedMenuPreviewMedia;
+    })
+    .filter((entry): entry is NormalizedMenuPreviewMedia => Boolean(entry));
+};
+
 export default function ProfileSideAdCard({
   description,
-  canBeUpdated,
   title,
-  category,
   collectionType,
   coverImage,
-  discount,
+  sourcePost,
   itemCount,
-  itemSold,
   media,
-  noteToBuyer,
   priceToView,
   defaultValues,
   currentUser,
@@ -64,32 +100,90 @@ export default function ProfileSideAdCard({
   _id,
 }: MenuItemType & { defaultValues: MenuItemType; currentUser: UserType }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { setIsFundWalletDialogOpen } = useWallet();
 
   const [openSuccessModal, setOpenSuccessModal] = useState(false);
-  const [openPreviewModal, setOpenPreviewModal] = useState(false);
+  const [openDetailsModal, setOpenDetailsModal] = useState(false);
   const [confirmPurchase, setConfirmPurchase] = useState(false);
   const [deleteMenu, setDeleteMenu] = useState(false);
-  const [errorImage, setErrorImage] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
-  const [quantity, setQuantity] = useState(1);
   const isCurrentUser = currentUser.discordId === author.discordId;
-  const mediaCount = media.length;
-  const mediaLeft = mediaCount - itemSold;
   const isSingle = collectionType === "single";
-  const isFullStack = mediaCount === mediaLeft;
-  const isSoldOut = itemCount === itemSold || mediaLeft <= 0;
   const isOptimistic = _id.startsWith("temp_");
-  const maxPurchasable = Math.max(1, mediaLeft);
-  const purchaseQuantity = isSingle
-    ? 1
-    : Math.max(1, Math.min(quantity, maxPurchasable));
+  const highQualityCoverImage = useMemo(
+    () => getHighestQualityImageUrl(coverImage?.url || ""),
+    [coverImage?.url],
+  );
+  const mediaSummary = useMemo(
+    () =>
+      getMenuMediaSummary({
+        itemCount: itemCount || media.length,
+        imageCount: media.filter((entry) => entry.type === "image").length,
+        videoCount: media.filter((entry) => entry.type === "video").length,
+        collectionType,
+      }),
+    [collectionType, itemCount, media],
+  );
+  const normalizedPreviewMedia = useMemo(
+    () => {
+      const previewList = normalizeMenuPreviewMedia(
+        defaultValues.previewMedia as any,
+      );
+      if (previewList.length > 0) {
+        return previewList;
+      }
+      if (!highQualityCoverImage) {
+        return [];
+      }
+      return [
+        {
+          _id: "cover-preview",
+          url: highQualityCoverImage,
+          type: isVideoMediaUrl(highQualityCoverImage) ? "video" : "image",
+        } satisfies NormalizedMenuPreviewMedia,
+      ];
+    },
+    [defaultValues.previewMedia, highQualityCoverImage],
+  );
+  const activePreview = normalizedPreviewMedia[previewIndex] ?? null;
+  const canCyclePreview = normalizedPreviewMedia.length > 1;
+
+  useEffect(() => {
+    setPreviewIndex((current) => {
+      if (normalizedPreviewMedia.length === 0) return 0;
+      return Math.min(current, normalizedPreviewMedia.length - 1);
+    });
+  }, [normalizedPreviewMedia.length]);
+  const purchaseQuantity = mediaSummary.isBundle ? mediaSummary.totalCount : 1;
   const pricing = useMemo(
     () => resolveMenuPrice(priceToView, defaultValues?.promo),
     [defaultValues?.promo, priceToView],
   );
-  const purchaseTotal = pricing.effectiveUnitPrice * purchaseQuantity;
+  const purchaseTotal = pricing.effectiveUnitPrice;
+  const purchasedMenusQueryKey = [
+    "menu_purchased_ids",
+    currentUser.discordId,
+    author.discordId,
+  ];
+
+  const { data: purchasedMenuIds = [] } = useQuery({
+    queryKey: purchasedMenusQueryKey,
+    queryFn: async () => {
+      const entitlement = await getPurchasedMenuEntitlements({
+        buyerId: currentUser.discordId,
+        sellerId: author.discordId,
+      });
+      return entitlement.menuIds || [];
+    },
+    enabled:
+      isAuthenticated && !isCurrentUser && Boolean(currentUser?.discordId),
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const isAlreadyPurchased = purchasedMenuIds.includes(_id);
 
   const { mutateAsync: buyItem, isPending } = useMutation({
     mutationKey: ["buy_menu_item", currentUser.discordId],
@@ -101,35 +195,47 @@ export default function ProfileSideAdCard({
       const purchasedCount = Number(
         summary?.quantity ?? variables.itemCount ?? 1,
       );
-      const modeLabel = summary?.mode === "bundle" ? "bundle" : "single item";
       const totalPaid = Number(
         summary?.totalPrice ??
-          pricing.effectiveUnitPrice * Math.max(1, purchasedCount),
+          pricing.effectiveUnitPrice,
       );
-      toast.success(
-        `Purchased ${purchasedCount} ${modeLabel}${
-          purchasedCount > 1 ? "s" : ""
-        } for ${formatPurchaseAmount(totalPaid)}.`,
-      );
-      const cacheKey = ["menu_item", author?.discordId];
-
-      queryClient.setQueryData<MenuItemType[] | undefined>(cacheKey, (old) => {
-        if (!Array.isArray(old)) return old;
-        return old.map((it) =>
-          it._id === _id
-            ? {
-                ...it,
-                itemSold: (it.itemSold ?? 0) + purchasedCount,
-                updatedAt: new Date().toISOString(),
-              }
-            : it,
+      if (response?.alreadyUnlocked) {
+        toast.info("This item is already unlocked for you.");
+      } else {
+        toast.success(
+          `Unlocked ${purchasedCount} item${
+            purchasedCount > 1 ? "s" : ""
+          } for ${formatPurchaseAmount(totalPaid)}.`,
         );
-      });
-      setQuantity(1);
+      }
+      queryClient.setQueryData<string[] | undefined>(
+        purchasedMenusQueryKey,
+        (old) => {
+          const existing = Array.isArray(old) ? old : [];
+          if (existing.includes(_id)) return existing;
+          return [...existing, _id];
+        },
+      );
       setOpenSuccessModal(true);
     },
     onError: (error) => {
       console.error("Error buying menu item:", error);
+      if (
+        isAxiosError(error) &&
+        error.response?.data?.message === "Menu already unlocked"
+      ) {
+        queryClient.setQueryData<string[] | undefined>(
+          purchasedMenusQueryKey,
+          (old) => {
+            const existing = Array.isArray(old) ? old : [];
+            if (existing.includes(_id)) return existing;
+            return [...existing, _id];
+          },
+        );
+        toast.info("This item is already unlocked for you.");
+        setOpenSuccessModal(true);
+        return;
+      }
       toast.error("Failed to buy menu item. Please try again.");
       if (
         isAxiosError(error) &&
@@ -185,8 +291,8 @@ export default function ProfileSideAdCard({
   const handleBuyItem = () => {
     setConfirmPurchase(false);
 
-    if (isSoldOut) {
-      toast.error("This item is sold out.");
+    if (isAlreadyPurchased) {
+      setOpenSuccessModal(true);
       return;
     }
     if (!isAuthenticated) {
@@ -243,10 +349,12 @@ export default function ProfileSideAdCard({
       ? candidate
       : undefined;
   }, [conversationBetweenUsers]);
-  const highQualityCoverImage = useMemo(
-    () => getHighestQualityImageUrl(coverImage.url),
-    [coverImage.url],
-  );
+  const normalizedDescription = description?.trim() || "No description provided.";
+  const canOpenSourcePost = Boolean(sourcePost);
+  const openSourcePost = () => {
+    if (!sourcePost) return;
+    router.push(`/feed/${sourcePost}`);
+  };
 
   return (
     <>
@@ -264,6 +372,7 @@ export default function ProfileSideAdCard({
         quantity={purchaseQuantity}
         unitPrice={pricing.effectiveUnitPrice}
         totalPrice={purchaseTotal}
+        mediaComposition={mediaSummary.compositionLabel}
       />
       <SuccessMenuDialog
         open={openSuccessModal}
@@ -275,248 +384,206 @@ export default function ProfileSideAdCard({
         conversationId={conversationId}
         isLoadingConversation={isFetchingConversation}
       />
-      <MenuImagePreviewDialog
-        open={openPreviewModal}
-        onOpenChange={setOpenPreviewModal}
+      <MenuDetailsDialog
+        open={openDetailsModal}
+        onOpenChange={setOpenDetailsModal}
         title={title}
+        description={normalizedDescription}
+        media={normalizedPreviewMedia}
         coverImage={highQualityCoverImage}
+        sourcePostId={sourcePost}
+        onOpenSourcePost={openSourcePost}
+        mediaComposition={mediaSummary.compositionLabel}
+        totalPriceLabel={formatPurchaseAmount(purchaseTotal)}
       />
       <div
-        data-empty={isSoldOut}
         data-delete={isDeleting}
-        className="flex w-full max-w-[370px] isolate sm:max-w-[405px] data-[delete=true]:blur-[2px] data-[delete=true]:opacity-50 h-[186px] border border-accent-gray/30 rounded-xl pl-2 py-2 border-r-4 border-b-4 data-[empty=false]:hover:border-b-[6px] data-[empty=false]:hover:border-r-[6px] transition-all duration-150 justify-between overflow-hidden gap-x-4 relative"
+        className="w-full max-w-[370px] isolate sm:max-w-[405px] data-[delete=true]:blur-[2px] data-[delete=true]:opacity-50 border border-accent-gray/30 rounded-xl p-3 border-r-4 border-b-4 hover:border-b-[6px] hover:border-r-[6px] transition-all duration-150 relative space-y-3"
       >
-        {isSoldOut && !isCurrentUser && (
-          <div className="absolute size-full inset-0 flex items-center justify-center rounded-xl z-20 bg-black/70 pointer-events-none">
-            <div className="flex justify-center items-center uppercase text-xl md:text-3xl bg-black/30 backdrop-blur-xl size-full ">
-              SOLD OUT!
-            </div>
-          </div>
-        )}
-        {isSoldOut && isCurrentUser && (
-          <div className="uppercase font-inter font-bold px-4 w-[166px] top-10 bg-black text-accent-color absolute z-[99] -right-10 rotate-45 text-center">
-            sold out!
-          </div>
-        )}
-        <div className="flex flex-col gap-y-2 h-full justify-between relative">
-          <div className="flex flex-col gap-y-2">
-            <p className="text-sm font-inter font-semibold">{title}</p>
-            <p className="text-sm text-accent-text/90 overflow-y-auto leading-5">
-              {description}
-            </p>
-          </div>
-          <div className="flex flex-col gap-y-3">
-            <MenuCardPricingMeta
-              priceToView={priceToView}
-              promo={defaultValues?.promo}
-              mediaCount={mediaCount}
-              mediaLeft={mediaLeft}
-            />
-            {isCurrentUser ? (
-              <div className="flex items-center gap-x-2">
-                {isFullStack || isOptimistic ? (
-                  <AddMenuItem defaultValues={defaultValues} isUpdating>
-                    <Button
-                      disabled={!isFullStack || isDeleting}
-                      className="px-4 w-fit text-xs py-1.5 rounded-2xl border-none text-white bg-accent-gray"
-                      size={"ghost"}
-                    >
-                      {isOptimistic ? (
-                        <span>Uploading</span>
-                      ) : (
-                        <span>Update</span>
-                      )}
-                    </Button>
-                  </AddMenuItem>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="px-4 w-fit text-xs py-1.5 rounded-2xl border-none text-white bg-accent-gray opacity-50"
-                        size={"ghost"}
-                      >
-                        Locked
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-[150px] px-1 text-center">
-                      {isSoldOut ? (
-                        <p>
-                          This Menu item can&apos;t be updated because its sold
-                          out!
-                        </p>
-                      ) : (
-                        <p>
-                          This Menu item can&apos;t be updated because one or
-                          more items as been bought
-                        </p>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                <Button
-                  disabled={isDeleting || isOptimistic}
-                  onClick={() => setDeleteMenu(true)}
-                  className="px-4 w-fit text-xs py-1.5 rounded-2xl text-red-400 bg-red-600/10 border border-red-700"
-                  size={"ghost"}
-                >
-                  Delete
-                </Button>
-                <MenuPromoDialog
-                  menuId={_id}
-                  ownerDiscordId={author.discordId}
-                  basePrice={pricing.baseUnitPrice}
-                  defaultPromo={defaultValues.promo}
-                >
-                  <Button
-                    disabled={isDeleting || isOptimistic}
-                    className="px-4 w-fit text-xs py-1.5 rounded-2xl text-[#34D399] bg-[#34D399]/10 border border-[#34D399]/40"
-                    size={"ghost"}
-                  >
-                    Promo
-                  </Button>
-                </MenuPromoDialog>
-              </div>
-            ) : isSingle ? (
-              <Button
-                onClick={() => setConfirmPurchase(true)}
-                className="px-4 md:px-8 w-fit text-xs py-1.5 rounded-md border-none text-primary bg-off-white relative"
-                variant={"ghost"}
-                size={"ghost"}
-              >
-                <span
-                  data-hidden={isPending}
-                  className="block payment_loader absolute  w-full data-[hidden=false]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=true]:opacity-100"
-                />
-
-                <span
-                  data-hidden={isPending}
-                  className="data-[hidden=true]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=false]:opacity-100"
-                >
-                  Buy
-                </span>
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2 h-6">
-                <div className="flex items-stretch  gap-x-0.5 h-full">
-                  <Button
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    data-disabled={quantity === 1}
-                    variant={"ghost"}
-                    size={"ghost"}
-                    className="px-2  data-[disabled=true]:bg-charcoal disabled:opacity-100 rounded-none rounded-tl-md rounded-bl-md data-[disabled=true]:text-muted-foreground text-black hover:text-foreground transition-colors bg-off-white "
-                  >
-                    −
-                  </Button>
-                  <div className="bg-charcoal w-7 justify-center flex items-center font-medium text-off-white  text-xs ">
-                    {mediaCount > 9 ? (
-                      <AnimatedNumberAdvanced
-                        value={quantity}
-                        animationType="fade"
-                        duration={0.3}
-                        className="w-full text-center flex justify-center"
-                      />
-                    ) : (
-                      <AnimatedNumber
-                        value={quantity}
-                        animationType="slide"
-                        duration={0.2}
-                        className="w-full text-center flex justify-center"
-                      />
-                    )}
-                  </div>
-                  <Button
-                    onClick={() =>
-                      setQuantity(Math.min(maxPurchasable, quantity + 1))
-                    }
-                    disabled={maxPurchasable === quantity}
-                    variant={"ghost"}
-                    size={"ghost"}
-                    className="px-2 bg-off-white disabled:bg-charcoal disabled:opacity-100 rounded-none rounded-tr-md rounded-br-md disabled:text-muted-foreground text-black hover:text-foreground transition-colors "
-                  >
-                    <Icon.add />
-                  </Button>
-                </div>
-                <Button
-                  onClick={() => setConfirmPurchase(true)}
-                  className="px-4 md:px-8 w-fit text-xs py-1.5 rounded-md border-none text-primary bg-off-white relative"
-                  variant={"ghost"}
-                  size={"ghost"}
-                >
-                  <span
-                    data-hidden={isPending}
-                    className="block payment_loader absolute  w-full data-[hidden=false]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=true]:opacity-100"
-                  />
-
-                  <span
-                    data-hidden={isPending}
-                    className="data-[hidden=true]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=false]:opacity-100"
-                  >
-                    Buy
-                  </span>
-                </Button>
-              </div>
-            )}
-          </div>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm font-inter font-semibold break-words">{title}</p>
+          <span className="shrink-0 rounded-md bg-[#111822] px-2 py-1 text-[10px] text-[#D1DAE9]">
+            {mediaSummary.typeBadge}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpenPreviewModal(true)}
-          className="w-[140px] sm:w-[154px] h-full flex-shrink-0 overflow-hiddenx relative pr-1 isolate bg-transparent border-0 p-0 text-left cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-color/70 rounded-md"
-          aria-label={`Open ${title} preview image`}
-        >
-          <div
-            data-bundle={!isSingle}
-            className="absolute data-[bundle=true]:bottom-1 data-[bundle=true]:-left-0.5 p-1 px-1.5 z-20 bg-black/50 backdrop-blur-xl rounded-md bottom-1 left-1 flex items-center text-off-white gap-x-1.5 text-xs font-inter"
-          >
-            {!isSingle ? (
-              <Icon.bundle className=" size-4 text-accent-color" />
+
+        <div className="relative overflow-hidden rounded-[10px] border border-[#1D2230] bg-black">
+          {activePreview ? (
+            activePreview.type === "video" ? (
+              <video
+                src={activePreview.url}
+                className="w-full max-h-[360px] object-contain bg-black"
+                controls
+                muted
+                playsInline
+                preload="metadata"
+              />
             ) : (
-              <Icon.single className=" size-4 " />
-            )}
-            {isSingle ? <span>Single</span> : <span>Bundle</span>}
-          </div>
-          {!isSingle && !errorImage ? (
-            <div className="relative size-full">
-              {[1, 2, 3].map((item) => (
-                <ImageWithFallback
-                  key={item}
-                  src={highQualityCoverImage}
-                  alt={title}
-                  width={200}
-                  height={300}
-                  sizes="(max-width: 768px) 140px, 154px"
-                  quality={100}
-                  unoptimized
-                  data-index={item}
-                  className="size-full object-cover object-center rounded-md absolute inset-0 z-[8] "
-                  containerClassName={cn(
-                    "absolute rounded-md shadow-[3px_4px_4px_0px_#00000040]  ",
-                    {
-                      "-translate-x-2 z-10": item === 1,
-                      "-translate-x-1 sh z-[9]": item === 2,
-                    },
-                  )}
-                  priority
-                  setErrorImage={setErrorImage}
-                />
-              ))}
-            </div>
+              <ImageWithFallback
+                src={getHighestQualityImageUrl(activePreview.url)}
+                alt={title}
+                width={1200}
+                height={1600}
+                quality={100}
+                unoptimized
+                className="w-full max-h-[360px] object-contain bg-black"
+                containerClassName="w-full max-h-[360px] bg-black"
+                priority
+              />
+            )
+          ) : isVideoMediaUrl(highQualityCoverImage) ? (
+            <video
+              src={highQualityCoverImage}
+              className="w-full max-h-[360px] object-contain bg-black"
+              controls
+              muted
+              playsInline
+              preload="metadata"
+            />
           ) : (
             <ImageWithFallback
               src={highQualityCoverImage}
               alt={title}
-              width={200}
-              height={300}
-              sizes="(max-width: 768px) 140px, 154px"
+              width={1200}
+              height={1600}
               quality={100}
               unoptimized
-              className="size-full object-cover object-center rounded-md "
+              className="w-full max-h-[360px] object-contain bg-black"
+              containerClassName="w-full max-h-[360px] bg-black"
               priority
-              setErrorImage={setErrorImage}
             />
           )}
-        </button>
+
+          <div className="absolute right-2 top-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] font-medium text-[#E7EAF1]">
+            {mediaSummary.compositionLabel}
+          </div>
+
+          {canCyclePreview && (
+            <div className="absolute right-2 bottom-2 z-20 flex items-center gap-1 rounded-md border border-[#2A3140] bg-[#0B111C]/85 p-1">
+              <Button
+                type="button"
+                onClick={() =>
+                  setPreviewIndex((previous) =>
+                    previous === 0
+                      ? normalizedPreviewMedia.length - 1
+                      : previous - 1,
+                  )
+                }
+                className="h-6 w-6 p-0 text-[#D5DBE7] hover:bg-[#182235]"
+                size="ghost"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-[10px] text-[#D5DBE7] min-w-[38px] text-center">
+                {previewIndex + 1}/{normalizedPreviewMedia.length}
+              </span>
+              <Button
+                type="button"
+                onClick={() =>
+                  setPreviewIndex((previous) =>
+                    previous + 1 >= normalizedPreviewMedia.length
+                      ? 0
+                      : previous + 1,
+                  )
+                }
+                className="h-6 w-6 p-0 text-[#D5DBE7] hover:bg-[#182235]"
+                size="ghost"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <p className="text-sm text-accent-text/90 leading-5 max-h-[96px] overflow-hidden break-words">
+          {normalizedDescription}
+        </p>
+
+        <MenuCardPricingMeta
+          priceToView={priceToView}
+          promo={defaultValues?.promo}
+          mediaCount={mediaSummary.totalCount}
+          imageCount={mediaSummary.imageCount}
+          videoCount={mediaSummary.videoCount}
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {canOpenSourcePost ? (
+            <Button
+              onClick={openSourcePost}
+              className="px-3 w-fit text-xs py-1.5 rounded-2xl border border-[#FF007F]/40 bg-[#FF007F]/10 text-[#FF4DA6]"
+              size={"ghost"}
+            >
+              Open full post
+            </Button>
+          ) : (
+            <Button
+              onClick={() => setOpenDetailsModal(true)}
+              className="px-3 w-fit text-xs py-1.5 rounded-2xl border border-[#3A3F4A] bg-[#12151D] text-[#D4D4D8]"
+              size={"ghost"}
+            >
+              Preview details
+            </Button>
+          )}
+
+          {isCurrentUser ? (
+            <>
+              <AddMenuItem defaultValues={defaultValues} isUpdating>
+                <Button
+                  disabled={isDeleting || isOptimistic}
+                  className="px-4 w-fit text-xs py-1.5 rounded-2xl border-none text-white bg-accent-gray"
+                  size={"ghost"}
+                >
+                  {isOptimistic ? <span>Uploading</span> : <span>Update</span>}
+                </Button>
+              </AddMenuItem>
+              <MenuPromoDialog
+                menuId={_id}
+                ownerDiscordId={author.discordId}
+                basePrice={pricing.baseUnitPrice}
+                defaultPromo={defaultValues.promo}
+              >
+                <Button
+                  disabled={isDeleting || isOptimistic}
+                  className="px-4 w-fit text-xs py-1.5 rounded-2xl text-[#34D399] bg-[#34D399]/10 border border-[#34D399]/40"
+                  size={"ghost"}
+                >
+                  Promo
+                </Button>
+              </MenuPromoDialog>
+              <Button
+                disabled={isDeleting || isOptimistic}
+                onClick={() => setDeleteMenu(true)}
+                className="px-4 w-fit text-xs py-1.5 rounded-2xl text-red-400 bg-red-600/10 border border-red-700"
+                size={"ghost"}
+              >
+                Delete
+              </Button>
+            </>
+          ) : (
+            <Button
+              disabled={isPending || isAlreadyPurchased}
+              onClick={() => setConfirmPurchase(true)}
+              className="px-4 md:px-8 w-fit text-xs py-2 rounded-md border-none text-primary bg-off-white relative disabled:opacity-70"
+              variant={"ghost"}
+              size={"ghost"}
+            >
+              <span
+                data-hidden={isPending}
+                className="block payment_loader absolute  w-full data-[hidden=false]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=true]:opacity-100"
+              />
+              <span
+                data-hidden={isPending || isAlreadyPurchased}
+                className="data-[hidden=true]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=false]:opacity-100"
+              >
+                Buy now
+              </span>
+              {isAlreadyPurchased && (
+                <span className="text-[#0A0A0A] font-medium">Unlocked</span>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     </>
   );
@@ -531,6 +598,7 @@ interface ConfirmPurchaseDialogProps {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  mediaComposition: string;
 }
 
 function ConfirmPurchaseDialog({
@@ -542,6 +610,7 @@ function ConfirmPurchaseDialog({
   quantity,
   unitPrice,
   totalPrice,
+  mediaComposition,
 }: ConfirmPurchaseDialogProps) {
   const modeLabel =
     mode === "bundle" ? "Bundle purchase" : "Single-item purchase";
@@ -558,6 +627,7 @@ function ConfirmPurchaseDialog({
         <div className="rounded-md border border-white/10 bg-black/25 p-3 text-sm text-[#D4D4D8]">
           <p className="font-medium text-[#F8F8F8]">{menuTitle}</p>
           <p className="mt-2">{modeLabel}</p>
+          <p>Contents: {mediaComposition}</p>
           <p>Quantity: {quantityLabel}</p>
           <p>Unit price: {formatPurchaseAmount(unitPrice)}</p>
           <p className="mt-1 font-semibold text-white">
@@ -588,43 +658,6 @@ interface Props {
   isLoadingConversation?: boolean;
   receiver: AuthorType | UserType | null;
 }
-
-interface MenuImagePreviewDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  coverImage: string;
-}
-
-const MenuImagePreviewDialog = ({
-  open,
-  onOpenChange,
-  title,
-  coverImage,
-}: MenuImagePreviewDialogProps) => {
-  return (
-    <SubscribeDialog open={open} onOpenChange={onOpenChange}>
-      <SubscribeDialogContent className="w-full max-w-[min(95vw,900px)] p-2 sm:p-3 bg-[#0F1114] border border-[#1E2227]">
-        <SubscribeDialogDescription className="sr-only">
-          {title} preview image
-        </SubscribeDialogDescription>
-        <div className="w-full max-h-[85dvh] overflow-hidden rounded-md bg-black">
-          <ImageWithFallback
-            src={coverImage}
-            alt={`${title} preview`}
-            width={1200}
-            height={1600}
-            sizes="(max-width: 768px) 95vw, 900px"
-            quality={100}
-            unoptimized
-            className="w-full h-full max-h-[85dvh] object-contain"
-            priority
-          />
-        </div>
-      </SubscribeDialogContent>
-    </SubscribeDialog>
-  );
-};
 
 const getHighestQualityImageUrl = (url: string) => {
   if (!url || !url.includes("res.cloudinary.com")) {

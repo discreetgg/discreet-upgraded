@@ -122,6 +122,8 @@ export type PostType = {
     collectionType: 'single' | 'bundles';
     itemCount?: number;
     itemSold?: number;
+    imageCount?: number;
+    videoCount?: number;
     promo?: {
       isEnabled: boolean;
       type: 'percentage' | 'fixed';

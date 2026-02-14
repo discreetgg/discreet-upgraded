@@ -104,6 +104,24 @@ export const buyMenuItem = async (payload: BuyMenuItemPayload) => {
   }
 };
 
+export const getPurchasedMenuEntitlements = async (payload: {
+  buyerId: string;
+  sellerId: string;
+}) => {
+  if (!payload.buyerId || !payload.sellerId) {
+    return { menuIds: [] as string[], purchases: [] as any[] };
+  }
+
+  try {
+    const response = await api.get("/payment/purchased", {
+      params: payload,
+    });
+    return response.data as { menuIds: string[]; purchases: any[] };
+  } catch (error) {
+    return { menuIds: [] as string[], purchases: [] as any[] };
+  }
+};
+
 export const updateMenuPromo = async (
   menuId: string,
   payload: {

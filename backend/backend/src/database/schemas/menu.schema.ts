@@ -22,6 +22,12 @@ export type Image = {
   public_id: string;
 };
 
+export type PreviewMedia = {
+  url: string;
+  public_id: string;
+  type: 'image' | 'video';
+};
+
 @Schema({ _id: false })
 export class MenuPromo {
   @Prop({ default: false })
@@ -84,6 +90,12 @@ export class Menu {
   itemCount: number;
 
   @Prop({ default: 0 })
+  imageCount: number;
+
+  @Prop({ default: 0 })
+  videoCount: number;
+
+  @Prop({ default: 0 })
   itemSold: number;
 
   @Prop({ default: true })
@@ -121,8 +133,23 @@ export class Menu {
   })
   coverImage: Image;
 
+  @Prop({
+    type: [
+      {
+        url: { type: String, required: true },
+        public_id: { type: String, required: true },
+        type: { type: String, enum: ['image', 'video'], required: true },
+      },
+    ],
+    default: [],
+  })
+  previewMedia: PreviewMedia[];
+
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true })
   owner: mongoose.Schema.Types.ObjectId | User;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Post', default: null })
+  sourcePost: mongoose.Types.ObjectId | null;
 
   @Prop({ default: false })
   isArchived: boolean;

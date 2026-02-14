@@ -385,6 +385,10 @@ export class MenuService {
                 ? CollectionType.BUNDLES
                 : CollectionType.SINGLE,
             itemCount: insertedMedia.length,
+            imageCount: insertedMedia.filter((media) => media.type === 'image')
+              .length,
+            videoCount: insertedMedia.filter((media) => media.type === 'video')
+              .length,
           },
           { session },
         );
@@ -698,10 +702,6 @@ export class MenuService {
 
       if (!menu)
         throw new NotFoundException('Menu not found or user not owner of menu');
-      if (menu.itemSold > 0)
-        throw new BadRequestException(
-          "Menu can't be updated, an item has already been sold",
-        );
 
       // 3️⃣ Handle category update
       const existingCategory = menu.category as CategoryDocument;
@@ -842,6 +842,12 @@ export class MenuService {
                   ? CollectionType.BUNDLES
                   : CollectionType.SINGLE,
               itemCount: menu.media.length + insertedMenuMedias.length,
+              imageCount:
+                (menu.imageCount ?? 0) +
+                insertedMedia.filter((media) => media.type === 'image').length,
+              videoCount:
+                (menu.videoCount ?? 0) +
+                insertedMedia.filter((media) => media.type === 'video').length,
             },
           },
           { session },
@@ -967,22 +973,6 @@ export class MenuService {
       if (!media)
         throw new NotFoundException('Media not found or not owned by user');
 
-      // 3️⃣ Check if any menu item that uses this media has been sold
-      const soldMenuMedia = await this.menuMediaModel
-        .findOne({
-          media: media._id,
-          sold: true,
-        })
-        .session(session);
-
-      if (soldMenuMedia) {
-        await session.abortTransaction();
-        session.endSession();
-        throw new BadRequestException(
-          'Cannot delete media — one or more items in the menu using this media have been sold.',
-        );
-      }
-
       // 3️⃣ Delete the file from storage
       await this.fileUploaderService.deleteFile(media.public_id);
 
@@ -1023,6 +1013,12 @@ export class MenuService {
         }
 
         menu.itemCount = menu.media.length;
+        if (media.type === 'image') {
+          menu.imageCount = Math.max(0, (menu.imageCount ?? 0) - 1);
+        }
+        if (media.type === 'video') {
+          menu.videoCount = Math.max(0, (menu.videoCount ?? 0) - 1);
+        }
         await menu.save({ session });
       }
 
@@ -1249,6 +1245,7 @@ export class MenuService {
     return await this.categoryModel
       .find({ owner: creator._id })
       .select('category hashtag')
+      .sort({ createdAt: -1, _id: -1 })
       .exec();
   }
 

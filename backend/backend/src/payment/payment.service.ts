@@ -58,20 +58,8 @@ export class PaymentService {
   } as const;
 
   private getMenuPurchasePlan(
-    menu: Pick<
-      Menu,
-      'collectionType' | 'itemCount' | 'itemSold' | 'priceToView' | 'promo'
-    >,
-    requestedItemCount?: number,
+    menu: Pick<Menu, 'collectionType' | 'itemCount' | 'priceToView' | 'promo'>,
   ) {
-    const availableCount = Math.max(
-      0,
-      (menu.itemCount ?? 0) - (menu.itemSold ?? 0),
-    );
-    if (availableCount <= 0) {
-      throw new BadRequestException('This menu has been sold out');
-    }
-
     const pricing = this.resolveMenuUnitPricing(menu);
     if (pricing.appliedUnitPrice <= 0) {
       throw new BadRequestException(
@@ -79,29 +67,18 @@ export class PaymentService {
       );
     }
 
-    const requestedCount = requestedItemCount ?? 1;
-    if (!Number.isInteger(requestedCount) || requestedCount < 1) {
-      throw new BadRequestException(
-        'Quantity must be a whole number greater than 0.',
-      );
-    }
+    const normalizedItemCount = Math.max(
+      1,
+      Number.isFinite(menu.itemCount)
+        ? Math.floor(menu.itemCount as number)
+        : 1,
+    );
 
     const isBundleMenu =
-      menu.collectionType === CollectionType.BUNDLES &&
-      (menu.itemCount ?? 0) > 1;
-    if (!isBundleMenu && requestedCount !== 1) {
-      throw new BadRequestException(
-        'Single-item menu purchases require quantity 1. Remove bundle quantity and try again.',
-      );
-    }
-    if (isBundleMenu && requestedCount > availableCount) {
-      throw new BadRequestException(
-        `Only ${availableCount} bundle item(s) are available, but ${requestedCount} were requested.`,
-      );
-    }
+      menu.collectionType === CollectionType.BUNDLES || normalizedItemCount > 1;
 
-    const quantity = isBundleMenu ? requestedCount : 1;
-    const totalPrice = pricing.appliedUnitPrice * quantity;
+    const quantity = isBundleMenu ? normalizedItemCount : 1;
+    const totalPrice = pricing.appliedUnitPrice;
     const mode = isBundleMenu
       ? PaymentService.MENU_PURCHASE_MODE.BUNDLE
       : PaymentService.MENU_PURCHASE_MODE.SINGLE;
@@ -109,7 +86,7 @@ export class PaymentService {
     return {
       mode,
       quantity,
-      availableCount,
+      itemCount: normalizedItemCount,
       unitPrice: pricing.appliedUnitPrice,
       baseUnitPrice: pricing.baseUnitPrice,
       discountPerItem: pricing.discountPerItem,
@@ -202,6 +179,49 @@ export class PaymentService {
         message: promo.message ?? '',
       },
     };
+  }
+
+  private async getOrderedMenuMedia(menu: {
+    media?: Array<string | Types.ObjectId>;
+  }) {
+    const menuMediaIds = (menu.media ?? []).map((id) => id.toString());
+    if (menuMediaIds.length === 0) {
+      return [];
+    }
+
+    const menuMediaDocs = await this.menuMediaModel
+      .find({
+        _id: {
+          $in: menuMediaIds.map((id) => new Types.ObjectId(id)),
+        },
+      })
+      .select('_id media')
+      .lean();
+
+    const menuMediaById = new Map(
+      menuMediaDocs.map((doc) => [doc._id.toString(), doc]),
+    );
+
+    return menuMediaIds
+      .map((id) => menuMediaById.get(id))
+      .filter((doc): doc is (typeof menuMediaDocs)[number] => Boolean(doc));
+  }
+
+  private async findExistingCompletedMenuPurchase(args: {
+    buyerUserId: Types.ObjectId;
+    sellerUserId: Types.ObjectId;
+    menuId: Types.ObjectId;
+  }) {
+    const { buyerUserId, sellerUserId, menuId } = args;
+    return this.paymentModel
+      .findOne({
+        type: PaymentType.MENU_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyerUserId,
+        receiver: sellerUserId,
+        'meta.menuId': menuId.toString(),
+      })
+      .sort({ createdAt: -1 });
   }
 
   constructor(
@@ -578,38 +598,85 @@ export class PaymentService {
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!menu) throw new NotFoundException('Menu does not exist');
+    if (!buyer || !seller) throw new NotFoundException('User does not exist');
+    if (String(menu.owner) !== seller._id.toString()) {
+      throw new BadRequestException('Menu seller mismatch');
+    }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot buy your own menu');
     }
 
-    const purchasePlan = this.getMenuPurchasePlan(menu, dto.itemCount);
+    const orderedMenuMedia = await this.getOrderedMenuMedia({
+      media: (menu.media ?? []).map((id) => id.toString()),
+    });
+    if (orderedMenuMedia.length === 0) {
+      throw new NotFoundException('No media found for this menu');
+    }
 
-    // fetch random unsold media
-    const unSoldMedia = await this.getRandomUnsoldMedia(
-      menu._id.toString(),
-      purchasePlan.quantity,
+    const purchasePlan = this.getMenuPurchasePlan({
+      collectionType: menu.collectionType,
+      itemCount: orderedMenuMedia.length,
+      priceToView: menu.priceToView,
+      promo: menu.promo,
+    });
+
+    const selectedMenuMedia =
+      purchasePlan.mode === PaymentService.MENU_PURCHASE_MODE.BUNDLE
+        ? orderedMenuMedia
+        : orderedMenuMedia.slice(0, 1);
+
+    const purchasedMedia = selectedMenuMedia.map((entry) => entry.media);
+    const purchasedMediaIds = purchasedMedia.map((mediaId) =>
+      mediaId.toString(),
     );
-    const normalizedUnsoldMedia = Array.isArray(unSoldMedia)
-      ? unSoldMedia
-      : [unSoldMedia];
-    if (normalizedUnsoldMedia.length === 0) {
-      throw new NotFoundException('No unsold media found for this menu');
+    const purchasedCount = purchasedMedia.length;
+    const purchasedLabel =
+      purchasedCount === 1 ? 'menu item' : `${purchasedCount} bundle items`;
+    const purchasedLabelForBuyer =
+      purchasedCount === 1
+        ? `menu item "${menu.title}"`
+        : `${purchasedCount} items from "${menu.title}" bundle`;
+
+    const existingPayment = await this.findExistingCompletedMenuPurchase({
+      buyerUserId: buyer._id as Types.ObjectId,
+      sellerUserId: seller._id as Types.ObjectId,
+      menuId: menu._id as Types.ObjectId,
+    });
+    if (existingPayment) {
+      const totalPaid = this.walletService.toDollar(existingPayment.amount);
+      return {
+        success: true,
+        alreadyUnlocked: true,
+        message: 'Menu already unlocked',
+        tx: {
+          _id: existingPayment._id,
+          amount: totalPaid,
+          status: existingPayment.status,
+        },
+        purchaseSummary: {
+          mode: purchasePlan.mode,
+          quantity: purchasedCount,
+          label: purchasedLabel,
+          baseUnitPrice: purchasePlan.baseUnitPrice,
+          unitPrice: purchasePlan.unitPrice,
+          discountPerItem: purchasePlan.discountPerItem,
+          promoApplied: purchasePlan.promoApplied,
+          promo: purchasePlan.promoMetadata,
+          totalPrice: totalPaid,
+        },
+        purchasedMediaIds,
+      };
     }
 
-    let unSoldMediaId;
-    if (normalizedUnsoldMedia.length > 0) {
-      unSoldMediaId = normalizedUnsoldMedia.map((m) => m._id);
-    } else {
-      unSoldMediaId = normalizedUnsoldMedia[0]._id.toString();
-    }
+    const menuMediaIds = selectedMenuMedia.map((entry) => entry._id.toString());
 
     const meta = {
       type: PaymentType.MENU_PURCHASE,
       fromUser: buyer._id.toString(),
       toUser: seller._id.toString(),
       menuId: menu._id.toString(),
-      itemId: unSoldMediaId,
-      itemCount: purchasePlan.quantity,
+      itemId: menuMediaIds,
+      itemCount: purchasedCount,
       baseUnitPrice: `${purchasePlan.baseUnitPrice}`,
       unitPrice: `${purchasePlan.unitPrice}`,
       discountPerItem: `${purchasePlan.discountPerItem}`,
@@ -630,44 +697,17 @@ export class PaymentService {
       );
 
       const result = await this.commitPayment(payment._id.toString(), session);
-      let purchasedMenuMedia = null;
       if (result.status === PaymentStatus.COMPLETED) {
-        const mediaList = normalizedUnsoldMedia;
-        const purchasedCount = mediaList.length;
-        const purchasedLabel =
-          purchasedCount === 1 ? 'menu item' : `${purchasedCount} bundle items`;
-        const purchasedLabelForBuyer =
-          purchasedCount === 1
-            ? `menu item "${menu.title}"`
-            : `${purchasedCount} items from "${menu.title}" bundle`;
-
-        purchasedMenuMedia = await Promise.all(
-          mediaList.map((media) => {
-            return this.menuMediaModel.findByIdAndUpdate(
-              media._id,
-              {
-                buyer: buyer._id.toString(),
-                sold: true,
-                payment: result._id.toString(),
-                meta,
-              },
-              { new: true },
-            );
-          }),
-        );
-
         await this.menuModel.updateOne(
           { _id: menu._id },
-          { $inc: { itemSold: mediaList.length }, canBeUpdated: false },
+          { $inc: { itemSold: 1 } },
           { session },
         );
-
-        const purchasedMedia = purchasedMenuMedia.map((m) => m.media);
 
         const menuMessagePayload: CreateMessageMenuDto = {
           sender: seller._id.toString(),
           reciever: buyer._id.toString(),
-          media: purchasedMedia,
+          media: purchasedMediaIds,
           text:
             menu.noteToBuyer ?? `Thank you ${buyer.username} for the purchase`,
           price: result.amount.toString(),
@@ -676,15 +716,25 @@ export class PaymentService {
 
         const sendBuyerMessage =
           await this.chatService.sendMenu(menuMessagePayload);
-
-        try {
-          await this.chatGateway.handleSendMenuMessage({
-            messageId: sendBuyerMessage._id.toString(),
-          });
-        } catch (error) {
-          this.logger.error(error);
-          console.log('error sending buy message ');
+        let deliveredConversationId: string | null = null;
+        if (typeof sendBuyerMessage?.conversation === 'string') {
+          deliveredConversationId = sendBuyerMessage.conversation;
+        } else if (sendBuyerMessage?.conversation instanceof Types.ObjectId) {
+          deliveredConversationId = sendBuyerMessage.conversation.toString();
+        } else {
+          deliveredConversationId =
+            (sendBuyerMessage?.conversation as any)?._id?.toString?.() ?? null;
         }
+        const deliveredMessageId = sendBuyerMessage?._id?.toString?.() ?? null;
+
+        void this.chatGateway
+          .handleSendMenuMessage({
+            messageId: sendBuyerMessage._id.toString(),
+          })
+          .catch((error) => {
+            this.logger.error(error);
+            console.log('error sending buy message ');
+          });
 
         // ✅ Only send notifications if payment succeeded
         const sellerMailPayload: SendEmailDto = {
@@ -705,15 +755,15 @@ export class PaymentService {
           user: seller._id.toString(),
           sender: buyer._id.toString(),
           entityType: NotificationEntityType.MenuPurchase,
-          entityId: purchasedMedia[0],
+          entityId: purchasedMediaIds[0],
           metadata: {
             amount: result.amount.toString(),
             currency: 'USD',
-            menu: purchasedMedia,
+            menu: purchasedMediaIds,
           },
         };
 
-        await Promise.allSettled([
+        void Promise.allSettled([
           this.notificationService.sendEmail(sellerMailPayload),
           this.notificationService.sendEmail(buyerMailPayload),
           this.notificationService.createInAppNotication(
@@ -727,8 +777,8 @@ export class PaymentService {
           success: true,
           message:
             purchasePlan.mode === PaymentService.MENU_PURCHASE_MODE.BUNDLE
-              ? 'Bundle purchase completed successfully'
-              : 'Menu item bought successfully',
+              ? 'Bundle unlocked successfully'
+              : 'Menu item unlocked successfully',
           tx: result,
           purchaseSummary: {
             mode: purchasePlan.mode,
@@ -741,7 +791,11 @@ export class PaymentService {
             promo: purchasePlan.promoMetadata,
             totalPrice: totalPaid,
           },
-          purchasedMenuMedia,
+          purchasedMediaIds,
+          delivery: {
+            conversationId: deliveredConversationId,
+            messageId: deliveredMessageId,
+          },
         };
       }
       return { success: false };
@@ -1393,114 +1447,45 @@ export class PaymentService {
     }
   }
 
-  async getRandomUnsoldMedia(menuId: string, count?: number) {
-    const menuObjectId = new Types.ObjectId(menuId);
-
-    // 🍀 Step 1: Collect all unique unsold media
-    const unsoldMedia = await this.menuModel.aggregate([
-      { $match: { _id: menuObjectId } },
-      { $unwind: '$media' },
-
-      {
-        $lookup: {
-          from: 'menumedias',
-          localField: 'media',
-          foreignField: '_id',
-          as: 'mediaData',
-        },
-      },
-
-      { $unwind: '$mediaData' },
-      { $match: { 'mediaData.sold': false } },
-
-      // ⭐ FIX: Unique media only
-      {
-        $group: {
-          _id: '$mediaData._id',
-          media: { $first: '$mediaData' },
-        },
-      },
-
-      { $project: { _id: 0, media: 1 } },
-    ]);
-
-    // console.log(
-    //   '🔍 All unsold media:',
-    //   unsoldMedia.map((m) => m.media._id.toString()),
-    // );
-
-    if (!unsoldMedia.length) return [];
-
-    // 🍀 Return one random media if count not specified
-    if (!count) {
-      const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-      const selected = unsoldMedia[randomIndex].media;
-
-      console.log('🎯 Selected ONE random media:', selected._id.toString());
-
-      return selected;
-    }
-
-    // ❌ Not enough media
-    if (unsoldMedia.length < count) {
-      console.log(
-        `⚠ Only ${unsoldMedia.length} unsold available, requested ${count}`,
-      );
-      return [];
-    }
-
-    // 🍀 Step 2: sample count unique media
-    const sampled = await this.menuModel.aggregate([
-      { $match: { _id: menuObjectId } },
-      { $unwind: '$media' },
-
-      {
-        $lookup: {
-          from: 'menumedias',
-          localField: 'media',
-          foreignField: '_id',
-          as: 'mediaData',
-        },
-      },
-
-      { $unwind: '$mediaData' },
-      { $match: { 'mediaData.sold': false } },
-
-      // ⭐ Ensure unique before sampling
-      {
-        $group: {
-          _id: '$mediaData._id',
-          media: { $first: '$mediaData' },
-        },
-      },
-
-      // Randomly pick count
-      { $sample: { size: count } },
-
-      { $project: { _id: 0, media: 1 } },
-    ]);
-
-    const finalMedia = sampled.map((item) => item.media);
-
-    // console.log(
-    //   `🎯 Selected ${count} random UNIQUE media:`,
-    //   finalMedia.map((m) => m._id.toString()),
-    // );
-
-    return finalMedia;
-  }
-
   async getUserPaidMenu(buyerDiscord: string, sellerDiscord: string) {
     const [buyer, seller] = await Promise.all([
       this.userModel.findOne({ discordId: buyerDiscord }),
       this.userModel.findOne({ discordId: sellerDiscord }),
     ]);
+    if (!buyer || !seller) {
+      return { menuIds: [], purchases: [] };
+    }
 
-    return await this.menuMediaModel
+    const payments = await this.paymentModel
       .find({
-        'meta.fromUser': buyer._id.toString(),
-        'meta.toUser': seller._id.toString(),
+        type: PaymentType.MENU_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyer._id,
+        receiver: seller._id,
       })
-      .populate('media');
+      .select('_id amount status createdAt meta.menuId meta.itemCount')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const uniqueMenuIds = new Set<string>();
+    const purchases = payments
+      .map((payment) => {
+        const menuId = payment?.meta?.menuId ? String(payment.meta.menuId) : '';
+        if (!menuId) return null;
+        uniqueMenuIds.add(menuId);
+        return {
+          paymentId: payment._id.toString(),
+          menuId,
+          itemCount: Number(payment?.meta?.itemCount ?? 1),
+          totalPaid: this.walletService.toDollar(payment.amount),
+          purchasedAt: (payment as any).createdAt,
+        };
+      })
+      .filter((entry) => entry !== null);
+
+    return {
+      menuIds: [...uniqueMenuIds],
+      purchases,
+    };
   }
 }

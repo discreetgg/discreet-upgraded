@@ -112,6 +112,13 @@ export const createLinkedMenuFromPostMedia = async ({
     );
   }
 
+  const imageCount = orderedMediaDocs.filter(
+    (doc) => doc.type === 'image',
+  ).length;
+  const videoCount = orderedMediaDocs.filter(
+    (doc) => doc.type === 'video',
+  ).length;
+
   const menu = await new menuModel({
     title: deriveMenuTitle(dto.menuTitle, dto.content),
     description: dto.content?.trim() || 'Unlockable content',
@@ -127,6 +134,8 @@ export const createLinkedMenuFromPostMedia = async ({
         ? CollectionType.BUNDLES
         : CollectionType.SINGLE,
     itemCount: orderedMediaDocs.length,
+    imageCount,
+    videoCount,
     itemSold: 0,
   }).save({ session });
 

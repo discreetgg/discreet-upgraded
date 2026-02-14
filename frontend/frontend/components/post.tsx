@@ -17,7 +17,8 @@ import { usePathname } from 'next/navigation';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
 import { PublicPostViewMore } from './public-post-view-more';
-import { resolveMenuPrice } from '@/lib/menu-pricing';
+import { usePostMenuUnlock } from '@/hooks/use-post-menu-unlock';
+import { PostMenuUnlockDialog } from './post-menu-unlock-dialog';
 
 export const Post = ({
   post,
@@ -56,16 +57,19 @@ export const Post = ({
   const SHOW_SUBSCRIBE_BUTTON =
     pathname.startsWith('/profile') ||
     pathname.startsWith(`/${post?.author?.username}`);
-
-  const linkedMenuPricing = post?.linkedMenu
-    ? resolveMenuPrice(post.linkedMenu.priceToView, post.linkedMenu.promo)
-    : null;
-
-  const handleOpenLinkedMenu = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    const profilePath = post?.author?.username ? `/${post.author.username}` : '/';
-    router.push(`${profilePath}?menuTab=menu`);
-  };
+  const {
+    unlockOverlay,
+    linkedMenu,
+    menuPricing,
+    menuSummary,
+    isConfirmOpen,
+    setIsConfirmOpen,
+    dialogState,
+    isResolvingConversation,
+    openUnlockedConversation,
+    confirmUnlock,
+    isUnlocking,
+  } = usePostMenuUnlock(post);
   const handleSubscribe = () => {
     if (!isAuthenticated) {
       AuthPromptDialog;
@@ -159,17 +163,7 @@ export const Post = ({
           <PostMedia
             content={post}
             media={post.media || []}
-            unlockOverlay={
-              post?.linkedMenu && linkedMenuPricing
-                ? {
-                    priceLabel: formatPostCurrency(
-                      linkedMenuPricing.effectiveUnitPrice
-                    ),
-                    lockedCount: post.linkedMenu.itemCount || 0,
-                    onUnlock: () => handleOpenLinkedMenu(),
-                  }
-                : undefined
-            }
+            unlockOverlay={unlockOverlay}
           />
         </div>
       )}
@@ -263,6 +257,22 @@ export const Post = ({
         <PostAllLikes
           likeCount={post?.likesCount ?? 0}
           onClose={() => setShowAllLikes(false)}
+        />
+      )}
+
+      {linkedMenu && menuPricing && (
+        <PostMenuUnlockDialog
+          open={isConfirmOpen}
+          onOpenChange={setIsConfirmOpen}
+          onConfirm={confirmUnlock}
+          isPending={isUnlocking}
+          state={dialogState}
+          isResolvingConversation={isResolvingConversation}
+          onOpenMessages={openUnlockedConversation}
+          menuTitle={linkedMenu.title}
+          itemCount={menuSummary.totalCount}
+          compositionLabel={menuSummary.compositionLabel}
+          totalPriceLabel={formatPostCurrency(menuPricing.effectiveUnitPrice)}
         />
       )}
     </article>
