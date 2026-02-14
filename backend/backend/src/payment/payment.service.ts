@@ -8,7 +8,11 @@ import {
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { Menu } from 'src/database/schemas/menu.schema';
+import {
+  CollectionType,
+  Menu,
+  PromoType,
+} from 'src/database/schemas/menu.schema';
 // import { TransactionType } from 'src/database/schemas/transaction.schema';
 import { User } from 'src/database/schemas/user.schema';
 import { WalletService } from 'src/wallet/wallet.service';
@@ -47,6 +51,158 @@ import {
 @Injectable()
 export class PaymentService {
   private logger = new Logger(PaymentService.name);
+
+  private static readonly MENU_PURCHASE_MODE = {
+    SINGLE: 'single',
+    BUNDLE: 'bundle',
+  } as const;
+
+  private getMenuPurchasePlan(
+    menu: Pick<
+      Menu,
+      'collectionType' | 'itemCount' | 'itemSold' | 'priceToView' | 'promo'
+    >,
+    requestedItemCount?: number,
+  ) {
+    const availableCount = Math.max(
+      0,
+      (menu.itemCount ?? 0) - (menu.itemSold ?? 0),
+    );
+    if (availableCount <= 0) {
+      throw new BadRequestException('This menu has been sold out');
+    }
+
+    const pricing = this.resolveMenuUnitPricing(menu);
+    if (pricing.appliedUnitPrice <= 0) {
+      throw new BadRequestException(
+        'Menu price is invalid. Ask the seller to update this menu item.',
+      );
+    }
+
+    const requestedCount = requestedItemCount ?? 1;
+    if (!Number.isInteger(requestedCount) || requestedCount < 1) {
+      throw new BadRequestException(
+        'Quantity must be a whole number greater than 0.',
+      );
+    }
+
+    const isBundleMenu =
+      menu.collectionType === CollectionType.BUNDLES &&
+      (menu.itemCount ?? 0) > 1;
+    if (!isBundleMenu && requestedCount !== 1) {
+      throw new BadRequestException(
+        'Single-item menu purchases require quantity 1. Remove bundle quantity and try again.',
+      );
+    }
+    if (isBundleMenu && requestedCount > availableCount) {
+      throw new BadRequestException(
+        `Only ${availableCount} bundle item(s) are available, but ${requestedCount} were requested.`,
+      );
+    }
+
+    const quantity = isBundleMenu ? requestedCount : 1;
+    const totalPrice = pricing.appliedUnitPrice * quantity;
+    const mode = isBundleMenu
+      ? PaymentService.MENU_PURCHASE_MODE.BUNDLE
+      : PaymentService.MENU_PURCHASE_MODE.SINGLE;
+
+    return {
+      mode,
+      quantity,
+      availableCount,
+      unitPrice: pricing.appliedUnitPrice,
+      baseUnitPrice: pricing.baseUnitPrice,
+      discountPerItem: pricing.discountPerItem,
+      promoApplied: pricing.promoApplied,
+      promoMetadata: pricing.promoMetadata,
+      totalPrice,
+    };
+  }
+
+  private resolveMenuUnitPricing(
+    menu: Pick<Menu, 'priceToView' | 'promo'>,
+    now: Date = new Date(),
+  ) {
+    const baseUnitPrice = Number(menu.priceToView);
+    if (!Number.isFinite(baseUnitPrice) || baseUnitPrice <= 0) {
+      return {
+        baseUnitPrice: 0,
+        appliedUnitPrice: 0,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+
+    const promo = menu.promo;
+    if (!promo?.isEnabled) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+
+    const startsAt = promo.startsAt ? new Date(promo.startsAt) : null;
+    const endsAt = promo.endsAt ? new Date(promo.endsAt) : null;
+    const isBeforePromoWindow = startsAt && now < startsAt;
+    const isAfterPromoWindow = endsAt && now > endsAt;
+    if (isBeforePromoWindow || isAfterPromoWindow) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+
+    const promoValue = Number(promo.value);
+    if (!Number.isFinite(promoValue) || promoValue <= 0) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+
+    let discountPerItem =
+      promo.type === PromoType.PERCENTAGE
+        ? (baseUnitPrice * promoValue) / 100
+        : promoValue;
+    discountPerItem = Math.max(0, Math.min(discountPerItem, baseUnitPrice));
+
+    const appliedUnitPrice = Number(
+      (baseUnitPrice - discountPerItem).toFixed(2),
+    );
+    if (appliedUnitPrice <= 0) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+
+    return {
+      baseUnitPrice,
+      appliedUnitPrice,
+      discountPerItem: Number(discountPerItem.toFixed(2)),
+      promoApplied: true,
+      promoMetadata: {
+        type: promo.type,
+        value: promo.value,
+        startsAt: promo.startsAt,
+        endsAt: promo.endsAt,
+        message: promo.message ?? '',
+      },
+    };
+  }
 
   constructor(
     private readonly walletService: WalletService,
@@ -179,6 +335,50 @@ export class PaymentService {
 
       return payment;
     }
+  }
+
+  async hasCompletedMediaPurchaseForBuyer(
+    messageAssetId: string,
+    buyerUserId: string,
+  ): Promise<boolean> {
+    const existingPayment = await this.paymentModel.exists({
+      type: PaymentType.MEDIA_PURCHASE,
+      status: PaymentStatus.COMPLETED,
+      payer: new Types.ObjectId(buyerUserId),
+      'meta.MessageAsset': messageAssetId,
+    });
+
+    return Boolean(existingPayment);
+  }
+
+  async getCompletedMediaPurchaseAssetIdsForBuyer(
+    buyerUserId: string,
+    messageAssetIds: string[],
+  ): Promise<Set<string>> {
+    if (messageAssetIds.length === 0) {
+      return new Set<string>();
+    }
+
+    const normalizedIds = [...new Set(messageAssetIds)];
+    const payments = await this.paymentModel
+      .find({
+        type: PaymentType.MEDIA_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: new Types.ObjectId(buyerUserId),
+        'meta.MessageAsset': { $in: normalizedIds },
+      })
+      .select('meta.MessageAsset')
+      .lean();
+
+    const entitledIds = new Set<string>();
+    for (const payment of payments) {
+      const id = payment?.meta?.MessageAsset;
+      if (typeof id === 'string' && id.length > 0) {
+        entitledIds.add(id);
+      }
+    }
+
+    return entitledIds;
   }
 
   async commitPayment(paymentId: string, session?: ClientSession) {
@@ -365,17 +565,6 @@ export class PaymentService {
   }
 
   async buyMenu(dto: BuyMenuDto) {
-    // const buyerWallet = await this.walletService.getWallet(dto.buyerId);
-    // const sellerWallet = await this.walletService.getWallet(dto.sellerId);
-    // const menu = await this.menuModel.findById(dto.menuId);
-
-    // const buyer = await this.userModel.findOne({
-    //   discordId: dto.buyerId,
-    // });
-    // const seller = await this.userModel.findOne({
-    //   discordId: dto.sellerId,
-    // });
-
     const [buyerWallet, sellerWallet, menu, buyer, seller] = await Promise.all([
       this.walletService.getWallet(dto.buyerId),
       this.walletService.getWallet(dto.sellerId),
@@ -389,41 +578,29 @@ export class PaymentService {
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!menu) throw new NotFoundException('Menu does not exist');
-
-    if (menu.itemCount === menu.itemSold) {
-      throw new BadRequestException('This menu has been sold out');
-    }
-
-    if (menu.itemCount === menu.itemSold) {
-      throw new BadRequestException('This menu has been sold out');
-    }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot buy your own menu');
     }
 
+    const purchasePlan = this.getMenuPurchasePlan(menu, dto.itemCount);
+
     // fetch random unsold media
     const unSoldMedia = await this.getRandomUnsoldMedia(
       menu._id.toString(),
-      dto.itemCount ?? null,
+      purchasePlan.quantity,
     );
-    // console.log(unSoldMedia);
-    if (unSoldMedia.length == 0) {
-      if (dto.itemCount && dto.itemCount > 1) {
-        throw new BadRequestException(
-          ` Unsold media available, less than requested count of ${dto.itemCount}`,
-        );
-      } else {
-        throw new NotFoundException('No unsold media found for this menu');
-      }
+    const normalizedUnsoldMedia = Array.isArray(unSoldMedia)
+      ? unSoldMedia
+      : [unSoldMedia];
+    if (normalizedUnsoldMedia.length === 0) {
+      throw new NotFoundException('No unsold media found for this menu');
     }
 
-    const itemPrice = +menu.priceToView * (dto.itemCount ?? 1);
-
     let unSoldMediaId;
-    if (unSoldMedia.length > 0) {
-      unSoldMediaId = unSoldMedia.map((m) => m._id);
+    if (normalizedUnsoldMedia.length > 0) {
+      unSoldMediaId = normalizedUnsoldMedia.map((m) => m._id);
     } else {
-      unSoldMediaId = unSoldMedia._id.toString();
+      unSoldMediaId = normalizedUnsoldMedia[0]._id.toString();
     }
 
     const meta = {
@@ -432,8 +609,14 @@ export class PaymentService {
       toUser: seller._id.toString(),
       menuId: menu._id.toString(),
       itemId: unSoldMediaId,
-      itemCount: dto.itemCount ?? 1,
-      price: `${itemPrice}`,
+      itemCount: purchasePlan.quantity,
+      baseUnitPrice: `${purchasePlan.baseUnitPrice}`,
+      unitPrice: `${purchasePlan.unitPrice}`,
+      discountPerItem: `${purchasePlan.discountPerItem}`,
+      price: `${purchasePlan.totalPrice}`,
+      purchaseMode: purchasePlan.mode,
+      promoApplied: purchasePlan.promoApplied,
+      promo: purchasePlan.promoMetadata,
     };
 
     const session = await this.connection.startSession();
@@ -441,7 +624,7 @@ export class PaymentService {
     try {
       const payment = await this.reservePayment(
         buyer._id.toString(),
-        itemPrice,
+        purchasePlan.totalPrice,
         meta,
         session,
       );
@@ -449,11 +632,14 @@ export class PaymentService {
       const result = await this.commitPayment(payment._id.toString(), session);
       let purchasedMenuMedia = null;
       if (result.status === PaymentStatus.COMPLETED) {
-        // Ensure unSoldMedia is always an array
-
-        const mediaList = Array.isArray(unSoldMedia)
-          ? unSoldMedia
-          : [unSoldMedia];
+        const mediaList = normalizedUnsoldMedia;
+        const purchasedCount = mediaList.length;
+        const purchasedLabel =
+          purchasedCount === 1 ? 'menu item' : `${purchasedCount} bundle items`;
+        const purchasedLabelForBuyer =
+          purchasedCount === 1
+            ? `menu item "${menu.title}"`
+            : `${purchasedCount} items from "${menu.title}" bundle`;
 
         purchasedMenuMedia = await Promise.all(
           mediaList.map((media) => {
@@ -505,14 +691,14 @@ export class PaymentService {
           recipients: [seller.email],
           subject: 'Sales Notification',
           html: `<h1>Hello ${seller.username}!</h1>
-             <p>${buyer.username} bought your menu item ${menu.title}.</p>`,
+             <p>${buyer.username} bought ${purchasedLabelForBuyer}.</p>`,
         };
 
         const buyerMailPayload: SendEmailDto = {
           recipients: [buyer.email],
           subject: 'Debit',
           html: `<h1>Hello ${buyer.username}!</h1>
-             <p>You bought ${seller.username}'s menu item  ${menu.title}.</p>`,
+             <p>You bought ${purchasedLabelForBuyer} from ${seller.username}.</p>`,
         };
 
         const inAppNotficationPayload: CreateNotificationDto = {
@@ -535,12 +721,26 @@ export class PaymentService {
           ),
         ]);
 
-        // return result;
-        result.amount = this.walletService.toDollar(result.amount);
+        const totalPaid = this.walletService.toDollar(result.amount);
+        result.amount = totalPaid;
         return {
           success: true,
-          message: 'Menu item bought successfully',
+          message:
+            purchasePlan.mode === PaymentService.MENU_PURCHASE_MODE.BUNDLE
+              ? 'Bundle purchase completed successfully'
+              : 'Menu item bought successfully',
           tx: result,
+          purchaseSummary: {
+            mode: purchasePlan.mode,
+            quantity: purchasedCount,
+            label: purchasedLabel,
+            baseUnitPrice: purchasePlan.baseUnitPrice,
+            unitPrice: purchasePlan.unitPrice,
+            discountPerItem: purchasePlan.discountPerItem,
+            promoApplied: purchasePlan.promoApplied,
+            promo: purchasePlan.promoMetadata,
+            totalPrice: totalPaid,
+          },
           purchasedMenuMedia,
         };
       }
@@ -708,11 +908,31 @@ export class PaymentService {
     if (!messageAsset.isPayable) {
       throw new BadRequestException('This message asset is not payable');
     }
-    if (messageAsset.paid) {
-      throw new BadRequestException('This message asset has been paid for');
-    }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot pay for your own asset');
+    }
+
+    const existingPayment = await this.paymentModel
+      .findOne({
+        type: PaymentType.MEDIA_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyer._id,
+        'meta.MessageAsset': messageAsset._id.toString(),
+      })
+      .sort({ createdAt: -1 });
+    if (existingPayment) {
+      const tx = existingPayment.toObject();
+      tx.amount = this.walletService.toDollar(tx.amount);
+      return {
+        success: true,
+        message: 'Message asset already unlocked',
+        tx,
+        paidMessageAsset: {
+          ...messageAsset.toObject(),
+          paid: true,
+          paymentTx: existingPayment._id,
+        },
+      };
     }
 
     const meta = {
@@ -724,6 +944,7 @@ export class PaymentService {
     };
 
     const session = await this.connection.startSession();
+    session.startTransaction();
 
     try {
       const payment = await this.reservePayment(
@@ -734,13 +955,14 @@ export class PaymentService {
       );
 
       const result = await this.commitPayment(payment._id.toString(), session);
-      let paidMessageAsset = null;
       if (result.status === PaymentStatus.COMPLETED) {
-        paidMessageAsset = await this.messageModel.findByIdAndUpdate(
-          messageAsset._id,
-          { paid: true, paymentTx: result._id },
-          { new: true, session },
-        );
+        await session.commitTransaction();
+
+        const paidMessageAsset = {
+          ...messageAsset.toObject(),
+          paid: true,
+          paymentTx: result._id,
+        };
 
         // ✅ Only send notifications if payment succeeded
         const sellerMailPayload: SendEmailDto = {
@@ -780,14 +1002,15 @@ export class PaymentService {
         result.amount = this.walletService.toDollar(result.amount);
         return {
           success: true,
-          message: 'Plan subscription successful',
+          message: 'Message asset unlocked',
           tx: result,
           paidMessageAsset,
         };
       }
+      await session.commitTransaction();
       return { success: false };
     } catch (err) {
-      // await session.abortTransaction();
+      await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();
@@ -1169,233 +1392,6 @@ export class PaymentService {
         throw new Error(`Unsupported duration unit: ${duration.unit}`);
     }
   }
-
-  // async renewSubscription(subscriptionId: string) {
-  //   const sub = await this.userSubscriptionModel
-  //     .findById(subscriptionId)
-  //     .populate('plan user');
-  //   if (!sub) throw new Error('Subscription not found');
-
-  //   if (sub.status === SubscriptionStatus.CANCELED) return;
-
-  //   const totalAmount = +sub.plan.amount * (sub.durationInMonths ?? 1);
-  //   const newEndDate = this.calculateEndDate({
-  //     value: sub.durationInMonths ?? 1,
-  //     unit: 'month',
-  //   });
-
-  //   const meta = {
-  //     type: PaymentType.SUBSCRIPTION_RENEWAL,
-  //     fromUser: sub.,
-  //     toUser: seller._id.toString(),
-  //     planId: plan._id.toString(),
-  //     planName: plan.name,
-  //     planDuration: duration,
-  //     subscriptionDuration: dto.durationInMonths ?? 1,
-  //     startDate: startDate.toISOString(),
-  //     endDate: endDate.toDateString(),
-  //     amount: totalAmount,
-  //   };
-  //   const session = await this.connection.startSession();
-  //   // Process payment
-  //   const payment = await this.reservePayment(sub.user._id, sub.plan.price, {
-  //     type: 'subscription_renewal',
-  //     planId: sub.plan._id,
-  //     planName: sub.plan.name,
-  //   });
-
-  //   const result = await this.commitPayment(payment._id.toString(), session);
-
-  //   sub.startDate = sub.endDate;
-  //   sub.endDate = newEndDate;
-  //   sub.renewCount += 1;
-  //   sub.lastPayment = payment._id;
-  //   sub.status = SubscriptionStatus.ACTIVE;
-  //   await sub.save();
-
-  //   return sub;
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   const result = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // MongoDB collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     { $sample: { size: 1 } }, // pick one random unsold media
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   if (!result.length) {
-  //     throw new NotFoundException('No unsold media found for this menu');
-  //   }
-
-  //   return result[0].media;
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string, count?: number) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   // Aggregate all unsold media for this menu
-  //   const unsoldMedia = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // MongoDB collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   if (!unsoldMedia.length) {
-  //     // throw new NotFoundException('No unsold media found for this menu');
-  //     return [];
-  //   }
-
-  //   // If no count is provided, return one random media
-  //   if (!count) {
-  //     const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-  //     return unsoldMedia[randomIndex].media;
-  //   }
-
-  //   // If count is provided, check if enough unsold media are available
-  //   if (unsoldMedia.length < count) {
-  //     // throw new BadRequestException(
-  //     //   `Only ${unsoldMedia.length} unsold media available, less than requested count of ${count}`,
-  //     // );
-  //     return [];
-  //   }
-
-  //   // Randomly sample `count` items
-  //   const sampled = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias',
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     { $sample: { size: count } },
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   return sampled.map((item) => item.media);
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string, count?: number) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   // 🍀 Step 1: Collect all unique unsold media for this menu
-  //   const unsoldMedia = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-
-  //     // ⭐ FIX — Ensure media list is always unique
-  //     {
-  //       $group: {
-  //         _id: '$mediaData._id',
-  //         media: { $first: '$mediaData' },
-  //       },
-  //     },
-
-  //     { $project: { _id: 0, media: 1 } },
-  //   ]);
-
-  //   // 🛑 If no unsold media exists
-  //   if (!unsoldMedia.length) return [];
-
-  //   // 🍀 If only 1 item requested → return a single random media object
-  //   if (!count) {
-  //     const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-  //     return unsoldMedia[randomIndex].media;
-  //   }
-
-  //   // ❌ If request exceeds available items
-  //   if (unsoldMedia.length < count) {
-  //     return [];
-  //   }
-
-  //   // 🍀 Step 2: Randomly sample `count` UNIQUE media
-  //   const sampled = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias',
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-
-  //     // ⭐ FIX — remove duplicates before sampling
-  //     {
-  //       $group: {
-  //         _id: '$mediaData._id',
-  //         media: { $first: '$mediaData' },
-  //       },
-  //     },
-
-  //     // 🎯 Select exactly `count` unique items
-  //     { $sample: { size: count } },
-
-  //     { $project: { _id: 0, media: 1 } },
-  //   ]);
-
-  //   return sampled.map((item) => item.media);
-  // }
 
   async getRandomUnsoldMedia(menuId: string, count?: number) {
     const menuObjectId = new Types.ObjectId(menuId);

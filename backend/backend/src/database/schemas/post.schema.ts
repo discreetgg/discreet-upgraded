@@ -3,6 +3,7 @@ import * as mongoose from 'mongoose';
 import { User } from './user.schema';
 import { SubscriptionPlan } from './subscription-plan.schema';
 import { Category } from './category.schema';
+import { Menu } from './menu.schema';
 
 export type PostDocument = mongoose.HydratedDocument<Post>;
 
@@ -11,6 +12,12 @@ export enum Visibility {
   PAID_MEMBERS = 'paid_members',
   // SUBSCRIBERS = 'subscribers', // all subscribers
   CUSTOM_PLAN = 'custom_plan', // for custom made subscribers
+}
+
+export enum PostUnlockableType {
+  NONE = 'none',
+  SINGLE = 'single',
+  BUNDLE = 'bundle',
 }
 
 export type ScheduledPost = {
@@ -44,6 +51,16 @@ export class Post {
 
   @Prop({ type: String, default: '0' })
   priceToView: string;
+
+  @Prop({
+    type: String,
+    enum: Object.values(PostUnlockableType),
+    default: PostUnlockableType.NONE,
+  })
+  unlockableType: PostUnlockableType;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Menu', default: null })
+  linkedMenu: mongoose.Schema.Types.ObjectId | Menu | null;
 
   @Prop({ default: false })
   tippingEnabled: boolean;

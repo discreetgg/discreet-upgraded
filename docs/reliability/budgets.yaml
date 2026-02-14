@@ -1,0 +1,13 @@
+# Phase 1 placeholder budgets. Enforced in Phase 4.
+startup_time_ms:
+  target: 3000
+  source: prometheus
+api_p95_latency_ms:
+  target: 400
+  source: prometheus
+error_free_journey_rate:
+  target: 0.99
+  source: loki
+trace_span_budget_ms:
+  target: 750
+  source: tempo

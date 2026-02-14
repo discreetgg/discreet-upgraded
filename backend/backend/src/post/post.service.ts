@@ -8,9 +8,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { Connection, Model, Types } from 'mongoose';
 import { Comment } from 'src/database/schemas/comment.schema';
-import { Post, Visibility } from 'src/database/schemas/post.schema';
+import {
+  Post,
+  PostUnlockableType,
+  Visibility,
+} from 'src/database/schemas/post.schema';
 import { SubscriptionPlan } from 'src/database/schemas/subscription-plan.schema';
 import { User, UserDocument } from 'src/database/schemas/user.schema';
 import { FileUploaderService } from 'src/file-uploader/file-uploader.service';
@@ -36,6 +40,9 @@ import {
   PaymentStatus,
   PaymentType,
 } from 'src/database/schemas/payment.schema';
+import { Menu } from 'src/database/schemas/menu.schema';
+import { MenuMedia } from 'src/database/schemas/menu-media.schema';
+import { createLinkedMenuFromPostMedia } from './post-menu-linker';
 
 @Injectable()
 export class PostService {
@@ -62,114 +69,21 @@ export class PostService {
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Category.name) private readonly categoryModel: Model<Category>,
     @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
+    @InjectModel(Menu.name) private readonly menuModel: Model<Menu>,
+    @InjectModel(MenuMedia.name)
+    private readonly menuMediaModel: Model<MenuMedia>,
   ) {}
 
   // ─────────────────────────────────────────────────────────────
   // POSTS
   // ─────────────────────────────────────────────────────────────
 
-  // async createPost(
-  //   userId: string,
-  //   dto: CreatePostDto,
-  //   files: Express.Multer.File[] = [],
-  //   mediaMeta: MediaMetaDto[] = [],
-  // ): Promise<Post> {
-  //   try {
-  //     let finalPost: Post;
-  //     const user = await this.userModel.findOne({ discordId: userId });
-  //     if (!user) throw new NotFoundException('User not found');
-
-  //     if (!dto.content && files.length === 0) {
-  //       throw new BadRequestException('Post must have content or media');
-  //     }
-
-  //     // Validate visibleToPlan if provided
-  //     if (dto.visibleToPlan) {
-  //       const plan = await this.subscriptionPlanModel.findOne({
-  //         _id: dto.visibleToPlan,
-  //         creator: user._id,
-  //       });
-  //       if (!plan) throw new BadRequestException('Subscription plan not found');
-  //     }
-
-  //     const post = await new this.postModel({
-  //       ...dto,
-  //       author: user.id,
-  //     }).save();
-
-  //     if (
-  //       files.length > 0 &&
-  //       mediaMeta.length > 0 &&
-  //       files.length !== mediaMeta.length
-  //     ) {
-  //       throw new BadRequestException(
-  //         'Each file must have a corresponding mediaMeta entry',
-  //       );
-  //     }
-
-  //     const uploadedMedia = [];
-
-  //     if (files.length > 0) {
-  //       for (let i = 0; i < files.length; i++) {
-  //         const file = files[i];
-  //         const meta = (mediaMeta && mediaMeta[i]) || {};
-  //         let upload;
-
-  //         console.log(meta);
-  //         if (meta.type === 'image') {
-  //           upload = await this.fileUploaderService.uploadImage(file);
-  //         } else if (meta.type === 'video') {
-  //           upload = await this.fileUploaderService.uploadVideo(file);
-  //         } else {
-  //           throw new BadRequestException(`Unknown media type at index ${i}`);
-  //         }
-
-  //         const savedMedia = await new this.mediaModel({
-  //           url: upload.url,
-  //           public_id: upload.public_id,
-  //           type: meta.type,
-  //           caption: meta.caption || '',
-  //           uploadedAt: new Date(),
-  //           post: post.id,
-  //           owner: user.id,
-  //         }).save();
-
-  //         uploadedMedia.push(savedMedia.id);
-  //       }
-
-  //       finalPost = await this.postModel
-  //         .findByIdAndUpdate(
-  //           post.id,
-  //           {
-  //             media: [...uploadedMedia],
-  //           },
-  //           { new: true },
-  //         )
-  //         .populate('media')
-  //         .populate({
-  //           path: 'author',
-  //           select:
-  //             'id discordId username displayName discordAvatar role profileImage',
-  //         })
-  //         .lean();
-  //     }
-
-  //     console.log(finalPost);
-  //     return finalPost;
-  //   } catch (error) {
-  //     this.logger.error(error);
-  //     if (error instanceof HttpException) {
-  //       throw error;
-  //     }
-  //     throw new BadRequestException('Failed to create Post');
-  //   }
-  // }
-
   async createPost(
     userId: string,
     dto: CreatePostDto,
     files: Express.Multer.File[] = [],
     mediaMeta: MediaMetaDto[] = [],
+    unlockFiles: Express.Multer.File[] = [],
   ): Promise<Post> {
     const session = await this.connection.startSession();
     session.startTransaction();
@@ -189,7 +103,7 @@ export class PostService {
           throw new NotFoundException('Menu Category does not exist');
       }
 
-      if (!dto.content && files.length === 0) {
+      if (!dto.content && files.length === 0 && unlockFiles.length === 0) {
         throw new BadRequestException('Post must have content or media');
       }
 
@@ -210,27 +124,36 @@ export class PostService {
         author: user.id,
       }).save({ session });
 
-      // Step 2: handle media uploads if provided
-      if (
-        files.length > 0 &&
-        mediaMeta.length > 0 &&
-        files.length !== mediaMeta.length
-      ) {
-        throw new BadRequestException(
-          'Each file must have a corresponding mediaMeta entry',
-        );
-      }
+      const uploadMediaBatch = async (
+        batchFiles: Express.Multer.File[],
+        batchMeta: MediaMetaDto[] = [],
+        linkedPostId?: string,
+      ): Promise<string[]> => {
+        if (
+          batchFiles.length > 0 &&
+          batchMeta.length > 0 &&
+          batchFiles.length !== batchMeta.length
+        ) {
+          throw new BadRequestException(
+            'Each file must have a corresponding mediaMeta entry',
+          );
+        }
 
-      if (files.length > 0) {
-        const uploadedMedia = await Promise.all(
-          files.map(async (file, i) => {
-            const meta = mediaMeta?.[i] || {};
+        return Promise.all(
+          batchFiles.map(async (file, i) => {
+            const meta = batchMeta?.[i] || {};
+            const inferredType = file.mimetype?.startsWith('image/')
+              ? 'image'
+              : file.mimetype?.startsWith('video/')
+                ? 'video'
+                : null;
+            const mediaType = meta.type || inferredType;
 
             try {
               let upload;
-              if (meta.type === 'image') {
+              if (mediaType === 'image') {
                 upload = await this.fileUploaderService.uploadImage(file);
-              } else if (meta.type === 'video') {
+              } else if (mediaType === 'video') {
                 upload = await this.fileUploaderService.uploadVideo(file);
               } else {
                 throw new BadRequestException(
@@ -238,16 +161,15 @@ export class PostService {
                 );
               }
 
-              // Track upload for cleanup if DB fails later
               uploadedFiles.push({ public_id: upload.public_id });
 
               const savedMedia = await new this.mediaModel({
                 url: upload.url,
                 public_id: upload.public_id,
-                type: meta.type,
+                type: mediaType,
                 caption: meta.caption || '',
                 uploadedAt: new Date(),
-                post: post.id,
+                ...(linkedPostId ? { post: linkedPostId } : {}),
                 owner: user.id,
               }).save({ session });
 
@@ -259,13 +181,53 @@ export class PostService {
             }
           }),
         );
+      };
 
+      const uploadedMediaIds =
+        files.length > 0
+          ? await uploadMediaBatch(files, mediaMeta, post.id)
+          : [];
+
+      if (uploadedMediaIds.length > 0) {
         await this.postModel.findByIdAndUpdate(
           post.id,
-          { media: uploadedMedia },
+          { media: uploadedMediaIds },
           { session },
         );
       }
+
+      const uploadedUnlockMediaIds =
+        unlockFiles.length > 0 ? await uploadMediaBatch(unlockFiles) : [];
+
+      let linkedMenuId: Types.ObjectId | null = null;
+      if (
+        (dto.unlockableType ?? PostUnlockableType.NONE) !==
+        PostUnlockableType.NONE
+      ) {
+        const linkedMediaIds =
+          uploadedUnlockMediaIds.length > 0
+            ? uploadedUnlockMediaIds
+            : uploadedMediaIds;
+        linkedMenuId = await createLinkedMenuFromPostMedia({
+          user,
+          dto,
+          mediaIds: linkedMediaIds,
+          session,
+          categoryModel: this.categoryModel,
+          mediaModel: this.mediaModel,
+          menuModel: this.menuModel,
+          menuMediaModel: this.menuMediaModel,
+        });
+      }
+
+      await this.postModel.findByIdAndUpdate(
+        post.id,
+        {
+          unlockableType: dto.unlockableType ?? PostUnlockableType.NONE,
+          linkedMenu: linkedMenuId,
+        },
+        { session },
+      );
 
       // Step 3: commit transaction
       await session.commitTransaction();
@@ -279,6 +241,11 @@ export class PostService {
           path: 'author',
           select:
             'id discordId username displayName discordAvatar role profileImage',
+        })
+        .populate({
+          path: 'linkedMenu',
+          select:
+            '_id title priceToView collectionType coverImage promo itemCount itemSold',
         })
         .lean();
 
@@ -496,6 +463,11 @@ export class PostService {
         select:
           'id discordId username displayName discordAvatar role  profileImage',
       })
+      .populate({
+        path: 'linkedMenu',
+        select:
+          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+      })
       .lean();
 
     if (!post) {
@@ -528,6 +500,11 @@ export class PostService {
       .find({ author: user._id })
       .populate('visibleToPlan')
       .populate('media')
+      .populate({
+        path: 'linkedMenu',
+        select:
+          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+      })
       .lean()
       .sort({ createdAt: -1 });
 
@@ -568,6 +545,11 @@ export class PostService {
         path: 'author',
         select:
           'id discordId username displayName discordAvatar role  profileImage',
+      })
+      .populate({
+        path: 'linkedMenu',
+        select:
+          '_id title priceToView collectionType coverImage promo itemCount itemSold',
       })
       .lean()
       .sort({ createdAt: -1 });
@@ -684,56 +666,6 @@ export class PostService {
       .populate('visibleToPlan');
   }
 
-  // async getRecentFeedForUser(discordId: string, limit = 10): Promise<Post[]> {
-  //   const conditions: any[] = [{ visibility: Visibility.GENERAL }];
-
-  //   const user = await this.userModel.findOne({ discordId });
-  //   if (!user) throw new NotFoundException('User not found');
-
-  //   const allUserActiveSubscription = await this.userSubscriptionModel.find({
-  //     user: user._id,
-  //     isActive: true,
-  //   });
-
-  //   const creatorsSubscribedTo =
-  //     await this.subscriptionService.getCreatorsSubscribedTo(user.discordId);
-
-  //   const creatorsSubscribedToIds = creatorsSubscribedTo.map((creator) =>
-  //     creator.creator._id.toString(),
-  //   );
-
-  //   if (creatorsSubscribedToIds.length > 0) {
-  //     conditions.push({
-  //       visibility: Visibility.PAID_MEMBERS,
-  //       author: { $in: creatorsSubscribedToIds },
-  //     });
-  //   }
-
-  //   const userPlanIds = allUserActiveSubscription.map((sub) =>
-  //     sub.plan.toString(),
-  //   );
-
-  //   if (userPlanIds.length > 0) {
-  //     conditions.push({
-  //       visibility: Visibility.CUSTOM_PLAN,
-  //       visibleToPlan: { $in: userPlanIds },
-  //     });
-  //   }
-
-  //   // Include user's own posts
-  //   conditions.push({ author: user._id.toString() });
-
-  //   return this.postModel
-  //     .find({ $or: conditions })
-  //     .sort({ createdAt: -1 }) // recent first
-  //     .limit(limit)
-  //     .populate('author', 'discordId id username displayName discordAvatar')
-  //     .populate('media')
-  //     .populate('visibleToPlan')
-  //     .lean()
-  //     .exec();
-  // }
-
   async getRecentFeedForUser(discordId: string, limit = 10): Promise<Post[]> {
     const user = await this.userModel.findOne({ discordId }).lean();
     if (!user) throw new NotFoundException('User not found');
@@ -805,6 +737,11 @@ export class PostService {
       .limit(limit)
       .populate('author', 'discordId id username displayName discordAvatar')
       .populate('media')
+      .populate({
+        path: 'linkedMenu',
+        select:
+          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+      })
       .populate('visibleToPlan')
       .lean()
       .exec();
@@ -889,6 +826,11 @@ export class PostService {
         'id discordId username displayName discordAvatar profileImage',
       )
       .populate('media')
+      .populate({
+        path: 'linkedMenu',
+        select:
+          '_id title priceToView collectionType coverImage promo itemCount itemSold',
+      })
       .populate('visibleToPlan');
   }
 

@@ -15,6 +15,8 @@ import TipDialog from './tip-modal';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
 import { PublicPostViewMore } from './public-post-view-more';
+import { useRouter } from '@bprogress/next/app';
+import { resolveMenuPrice } from '@/lib/menu-pricing';
 
 export const FeedPost = ({ post }: { post: PostType }) => {
   const [showAllLikes, setShowAllLikes] = useState(false);
@@ -31,8 +33,12 @@ export const FeedPost = ({ post }: { post: PostType }) => {
 
   const { isAuthenticated } = useAuth();
   const { user: currentUser } = useGlobal();
+  const router = useRouter();
 
   const isAuthor = post?.author?.discordId === currentUser?.discordId;
+  const linkedMenuPricing = post?.linkedMenu
+    ? resolveMenuPrice(post.linkedMenu.priceToView, post.linkedMenu.promo)
+    : null;
 
   // Handle when someone clicks reply on a comment
   const handleSetReplyToComment = (comment: CommentType | null) => {
@@ -69,10 +75,15 @@ export const FeedPost = ({ post }: { post: PostType }) => {
     </button>
   );
 
+  const handleOpenLinkedMenu = () => {
+    const profilePath = post?.author?.username ? `/${post.author.username}` : '/';
+    router.push(`${profilePath}?menuTab=menu`);
+  };
+
   return (
     <section className="flex md:flex-row flex-col gap-10">
       <article
-        className="space-y-4 relative max-w-[527px] h-full w-full"
+        className="space-y-4 relative max-w-[680px] h-full w-full"
         aria-label={`Post by ${
           post?.author?.displayName
         }: ${post?.content?.substring(0, 100)}${
@@ -87,13 +98,27 @@ export const FeedPost = ({ post }: { post: PostType }) => {
           />
           {isAuthor ? <PostViewMore post={post} onPostDeleted={() => {}} /> : <PublicPostViewMore post={post} />}
         </div>
-        <p className="max-w-[489.72px]  break-words text-[20px] text-[#F8F8F8]">
+        <p className="w-full break-words text-[20px] text-[#F8F8F8]">
           {post?.content}
         </p>
 
-        {post.media?.length > 0 && (
+        {(post.media?.length > 0 || Boolean(post?.linkedMenu)) && (
           <div className="relative w-full h-auto rounded-2xl overflow-hidden">
-            <PostMedia content={post} media={post.media} />
+            <PostMedia
+              content={post}
+              media={post.media || []}
+              unlockOverlay={
+                post?.linkedMenu && linkedMenuPricing
+                  ? {
+                      priceLabel: formatPostCurrency(
+                        linkedMenuPricing.effectiveUnitPrice
+                      ),
+                      lockedCount: post.linkedMenu.itemCount || 0,
+                      onUnlock: handleOpenLinkedMenu,
+                    }
+                  : undefined
+              }
+            />
           </div>
         )}
         <div className="flex items-center justify-between">
@@ -193,3 +218,11 @@ export const FeedPost = ({ post }: { post: PostType }) => {
     </section>
   );
 };
+
+const formatPostCurrency = (amount: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);

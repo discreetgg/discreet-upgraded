@@ -114,6 +114,27 @@ export type PostType = {
   content: string;
   visibility: string;
   priceToView: string;
+  unlockableType?: 'none' | 'single' | 'bundle';
+  linkedMenu?: {
+    _id: string;
+    title: string;
+    priceToView: string;
+    collectionType: 'single' | 'bundles';
+    itemCount?: number;
+    itemSold?: number;
+    promo?: {
+      isEnabled: boolean;
+      type: 'percentage' | 'fixed';
+      value: string;
+      startsAt: string | null;
+      endsAt: string | null;
+      message?: string;
+    };
+    coverImage?: {
+      url: string;
+      public_id: string;
+    };
+  } | null;
   tippingEnabled: boolean;
   categories?: string[];
   scheduledPost: {

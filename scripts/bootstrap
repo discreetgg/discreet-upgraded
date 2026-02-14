@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ ! -f "$ROOT_DIR/.nvmrc" ]]; then
+  echo "Missing $ROOT_DIR/.nvmrc" >&2
+  exit 1
+fi
+
+REQUIRED_NODE="$(tr -d '[:space:]' < "$ROOT_DIR/.nvmrc")"
+CURRENT_NODE="$(node -v | sed 's/^v//')"
+
+if [[ "$CURRENT_NODE" != "$REQUIRED_NODE" ]]; then
+  echo "Node version mismatch. Expected $REQUIRED_NODE, found $CURRENT_NODE." >&2
+  echo "Run: nvm install $REQUIRED_NODE && nvm use $REQUIRED_NODE" >&2
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required but not installed." >&2
+  exit 1
+fi
+
+echo "[bootstrap] Installing backend dependencies with npm ci --legacy-peer-deps"
+npm ci --legacy-peer-deps --prefix "$ROOT_DIR/backend/backend"
+
+echo "[bootstrap] Installing frontend dependencies with npm ci"
+npm ci --prefix "$ROOT_DIR/frontend/frontend"
+
+echo "[bootstrap] Complete"

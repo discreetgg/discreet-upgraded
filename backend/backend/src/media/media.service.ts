@@ -9,6 +9,11 @@ import { Model } from 'mongoose';
 import { Media } from 'src/database/schemas/media.schema';
 import { User } from 'src/database/schemas/user.schema';
 import { Message, MessageType } from 'src/database/schemas/message.schema';
+import {
+  Payment,
+  PaymentStatus,
+  PaymentType,
+} from 'src/database/schemas/payment.schema';
 
 @Injectable()
 export class MediaService {
@@ -18,6 +23,7 @@ export class MediaService {
     @InjectModel(Media.name) private readonly mediaModel: Model<Media>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
+    @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
   ) {}
 
   async findById(id: string): Promise<Media | null> {
@@ -59,7 +65,7 @@ export class MediaService {
     if (media.chat) {
       const message = await this.messageModel
         .findById(media.chat)
-        .select('sender reciever isPayable paid type')
+        .select('_id sender reciever isPayable paid type')
         .lean();
 
       if (!message) {
@@ -73,14 +79,31 @@ export class MediaService {
         throw new ForbiddenException('Media access denied');
       }
 
-      if (isSender || !message.isPayable || message.paid) {
+      if (isSender || !message.isPayable) {
         return media;
+      }
+
+      if (message.type !== MessageType.IN_MESSAGE_MEDIA) {
+        if (message.paid) {
+          return media;
+        }
+        throw new ForbiddenException('This media is locked');
       }
 
       if (
         message.type === MessageType.IN_MESSAGE_MEDIA &&
         this.isFreePreviewCaption(media.caption)
       ) {
+        return media;
+      }
+
+      const hasPaidEntitlement = await this.paymentModel.exists({
+        type: PaymentType.MEDIA_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: requester._id,
+        'meta.MessageAsset': message._id.toString(),
+      });
+      if (hasPaidEntitlement) {
         return media;
       }
 

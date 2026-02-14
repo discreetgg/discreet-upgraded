@@ -4,11 +4,15 @@ import {
   IsEnum,
   IsArray,
   IsBoolean,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Visibility } from 'src/database/schemas/post.schema';
+import {
+  PostUnlockableType,
+  Visibility,
+} from 'src/database/schemas/post.schema';
 
 export class MediaMetaDto {
   @ApiPropertyOptional({ enum: ['image', 'video'] })
@@ -42,6 +46,7 @@ export class CreatePostDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(560)
   content: string;
 
   @ApiProperty({ enum: Visibility, default: Visibility.GENERAL })
@@ -65,11 +70,36 @@ export class CreatePostDto {
 
   @ApiPropertyOptional({
     example: '62828772277722',
-    description: 'Id of the category from sellers menu',
+    description: 'Menu category ID used for unlockable post listing',
   })
   @IsOptional()
   @IsString()
   category: string;
+
+  @ApiPropertyOptional({
+    enum: PostUnlockableType,
+    default: PostUnlockableType.NONE,
+    description: 'Publish unlockable media to seller menu as single or bundle',
+  })
+  @IsOptional()
+  @IsEnum(PostUnlockableType)
+  unlockableType?: PostUnlockableType;
+
+  @ApiPropertyOptional({
+    description: 'Optional title override for the linked menu listing',
+    example: 'Holiday Bundle 2026',
+  })
+  @IsOptional()
+  @IsString()
+  menuTitle?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional note delivered to buyer with unlocked content',
+    example: 'Thanks for unlocking this drop.',
+  })
+  @IsOptional()
+  @IsString()
+  noteToBuyer?: string;
 
   @ApiPropertyOptional({ type: ScheduledPostDto })
   @IsOptional()

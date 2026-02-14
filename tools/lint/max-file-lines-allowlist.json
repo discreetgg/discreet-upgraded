@@ -1,0 +1,16 @@
+{
+  "backend/backend/src/chat/chat.gateway.ts": 867,
+  "backend/backend/src/chat/chat.service.ts": 1768,
+  "backend/backend/src/menu/menu.service.ts": 1286,
+  "backend/backend/src/payment/payment.service.ts": 1511,
+  "backend/backend/src/post/post.controller.ts": 898,
+  "backend/backend/src/post/post.service.ts": 1702,
+  "frontend/frontend/components/add-menu-item.tsx": 1002,
+  "frontend/frontend/components/content-creator-add-post-dialog.tsx": 1232,
+  "frontend/frontend/components/dm-menu-creation.tsx": 964,
+  "frontend/frontend/components/ui/dropzone.tsx": 838,
+  "frontend/frontend/components/ui/icons.tsx": 4505,
+  "frontend/frontend/hooks/use-chat.ts": 1755,
+  "frontend/frontend/lib/data.ts": 1330,
+  "frontend/frontend/lib/services.ts": 2080
+}

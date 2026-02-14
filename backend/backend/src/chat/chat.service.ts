@@ -169,6 +169,95 @@ export class ChatService {
     return this.stripMediaUrlsFromMessage(message);
   }
 
+  private readObjectId(value: any): string | null {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value instanceof mongoose.Types.ObjectId) {
+      return value.toString();
+    }
+    if (typeof value === 'object') {
+      if (value._id) {
+        return value._id.toString();
+      }
+      if (value.id) {
+        return value.id.toString();
+      }
+      if (
+        typeof value.toString === 'function' &&
+        value.toString() !== '[object Object]'
+      ) {
+        return value.toString();
+      }
+    }
+    return null;
+  }
+
+  private collectInMessageAssetTargets(messages: any[]) {
+    const targets: Array<{ id: string; message: any }> = [];
+    const stack = [...messages];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current || typeof current !== 'object') {
+        continue;
+      }
+
+      const messageId = this.readObjectId(current._id);
+      if (
+        messageId &&
+        current.type === MessageType.IN_MESSAGE_MEDIA &&
+        current.isPayable
+      ) {
+        targets.push({ id: messageId, message: current });
+      }
+
+      if (current.replyTo && typeof current.replyTo === 'object') {
+        stack.push(current.replyTo);
+      }
+    }
+
+    return targets;
+  }
+
+  private async applyMediaPurchaseEntitlements(
+    messages: any[],
+    requesterUserId: string,
+  ) {
+    const targets = this.collectInMessageAssetTargets(messages);
+    if (targets.length === 0) {
+      return;
+    }
+
+    const entitledAssetIds =
+      await this.paymentService.getCompletedMediaPurchaseAssetIdsForBuyer(
+        requesterUserId,
+        targets.map((target) => target.id),
+      );
+
+    for (const target of targets) {
+      const receiverId = this.readObjectId(target.message.reciever);
+      if (!receiverId || receiverId !== requesterUserId) {
+        continue;
+      }
+
+      const isEntitled = entitledAssetIds.has(target.id);
+      target.message.paid = isEntitled;
+
+      if (Array.isArray(target.message.media)) {
+        target.message.media = target.message.media.map((media: any) => {
+          if (media && typeof media === 'object' && !Array.isArray(media)) {
+            return { ...media, paid: isEntitled };
+          }
+          return media;
+        });
+      }
+    }
+  }
+
   private toObjectId(
     value: string | mongoose.Types.ObjectId | { toString(): string },
   ) {
@@ -543,26 +632,6 @@ export class ChatService {
         { $set: { media: uploadedMedia } },
       );
 
-      // const populatedMessage = await this.messageModel
-      //   .findById(message._id)
-      //   .populate({
-      //     path: 'inMessageMedia',
-      //     populate: [
-      //       { path: 'media' },
-      //       {
-      //         path: 'sender',
-      //         select:
-      //           'id discordId username displayName discordAvatar role profileImage',
-      //       },
-      //       {
-      //         path: 'reciever',
-      //         select:
-      //           'id discordId username displayName discordAvatar role profileImage',
-      //       },
-      //     ],
-      //   })
-      //   .lean();
-
       const populatedMessage = await this.messageModel
         .findById(message._id)
         .populate([
@@ -620,64 +689,6 @@ export class ChatService {
       throw new BadRequestException('Failed to send Menu to buyer');
     }
   }
-
-  //   async fetchConversation(conversationId: string, limit = 50, before?: Date) {
-  //     const query: any = { conversation: conversationId };
-  //     if (before) query.createdAt = { $lt: before };
-
-  //     return this.messageModel
-  //       .find(query)
-  //       .sort({ createdAt: -1 })
-  //       .populate(
-  //         'sender',
-  //         'id discordId username displayName discordAvatar role profileImage',
-  //       )
-  //       .populate(
-  //         'reciever',
-  //         'id discordId username displayName discordAvatar role profileImage',
-  //       )
-  //       .populate('media')
-  //       .populate('replyTo')
-  //       .limit(limit)
-  //       .exec();
-  //   }
-
-  //   async fetchConversation(
-  //     conversationId: string,
-  //     limit = 50,
-  //     before?: Date,
-  //     from?: Date,
-  //     end?: Date,
-  //   ) {
-  //     const query: any = { conversation: conversationId };
-
-  //     // Range query handling
-  //     if (from && end) {
-  //       query.createdAt = { $gte: from, $lte: end };
-  //     } else if (from) {
-  //       query.createdAt = { $gte: from };
-  //     } else if (end) {
-  //       query.createdAt = { $lte: end };
-  //     } else if (before) {
-  //       query.createdAt = { $lt: before };
-  //     }
-
-  //     return this.messageModel
-  //       .find(query)
-  //       .sort({ createdAt: -1 })
-  //       .populate(
-  //         'sender',
-  //         'id discordId username displayName discordAvatar role profileImage',
-  //       )
-  //       .populate(
-  //         'reciever',
-  //         'id discordId username displayName discordAvatar role profileImage',
-  //       )
-  //       .populate('media')
-  //       .populate('replyTo')
-  //       .limit(limit)
-  //       .exec();
-  //   }
 
   async fetchConversation(
     conversationId: string,
@@ -772,6 +783,10 @@ export class ChatService {
 
     const hasMore = messageBatch.length > safeLimit;
     const messages = hasMore ? messageBatch.slice(0, safeLimit) : messageBatch;
+    await this.applyMediaPurchaseEntitlements(
+      messages as any[],
+      requesterUserId,
+    );
     const sanitizedMessages = messages.map((message) =>
       this.sanitizeMessageForClient(message),
     );
@@ -886,6 +901,10 @@ export class ChatService {
 
     const hasMore = messageBatch.length > safeLimit;
     const messages = hasMore ? messageBatch.slice(0, safeLimit) : messageBatch;
+    await this.applyMediaPurchaseEntitlements(
+      messages as any[],
+      requesterUserId,
+    );
     const sanitizedMessages = messages.map((message) =>
       this.sanitizeMessageForClient(message),
     );
@@ -1007,28 +1026,6 @@ export class ChatService {
 
     return conversation;
   }
-
-  // async getUserConversations(userId: string): Promise<any> {
-  //   return this.conversationModel
-  //     .find({ participants: userId })
-
-  //     .populate(
-  //       'participants',
-  //       'id discordId username displayName discordAvatar role profileImage',
-  //     )
-  //     .populate({
-  //       path: 'lastMessage',
-  //       select:
-  //         'id conversation sender reciever type text media status replyTo createdAt updatedAt ',
-  //       populate: {
-  //         path: 'sender',
-  //         select:
-  //           'id discordId username displayName discordAvatar role profileImage',
-  //       },
-  //     })
-  //     .sort({ updatedAt: -1 })
-  //     .lean();
-  // }
 
   async getUserConversations(
     userId: string,
@@ -1295,38 +1292,6 @@ export class ChatService {
       totalUnreadCount: await totalUnreadCountPromise,
     };
   }
-
-  // async getUserConversations(userId: string): Promise<any> {
-  //   return this.conversationModel
-  //     .find({ participants: userId })
-  //     .populate(
-  //       'participants',
-  //       'id discordId username displayName discordAvatar role profileImage',
-  //     )
-  //     .populate({
-  //       path: 'lastMessage',
-  //       select:
-  //         'id conversation sender reciever type text media status replyTo createdAt updatedAt',
-  //       populate: [
-  //         {
-  //           path: 'sender',
-  //           select:
-  //             'id discordId username displayName discordAvatar role profileImage',
-  //         },
-  //         {
-  //           path: 'reciever',
-  //           select:
-  //             'id discordId username displayName discordAvatar role profileImage',
-  //         },
-  //         {
-  //           path: 'media',
-  //           select: '_id url public_id type chat owner uploadedAt',
-  //         },
-  //       ],
-  //     })
-  //     .sort({ updatedAt: -1 })
-  //     .lean();
-  // }
 
   /**
    * chat notes

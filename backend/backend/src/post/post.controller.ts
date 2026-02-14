@@ -15,7 +15,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { PostService } from './post.service';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FilesInterceptor,
+} from '@nestjs/platform-express';
 import {
   ApiBody,
   ApiConsumes,
@@ -31,7 +34,10 @@ import {
   MediaMetaDto,
   ScheduledPostDto,
 } from './dto/create-post.dto';
-import { Visibility } from 'src/database/schemas/post.schema';
+import {
+  PostUnlockableType,
+  Visibility,
+} from 'src/database/schemas/post.schema';
 import { JwtAuthGuard } from 'src/auth/guards/auth.guard';
 import { validate, validateOrReject } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -49,16 +55,9 @@ import { PostStatsQueryDto } from './dto/post-stats-query.dto';
 export class PostController {
   constructor(private readonly postService: PostService) {}
 
-  // ─────────────────────────────────────────────────────────────
-  // POST STATS
-  // ─────────────────────────────────────────────────────────────
   @Get('stats/:postId')
   @ApiOperation({ summary: 'Get stats for a specific post' })
-  @ApiParam({
-    name: 'postId',
-    description: 'MongoDB Post ID',
-    example: '6791e7d3fa2b6f9abc8cf21c',
-  })
+  @ApiParam({ name: 'postId', description: 'MongoDB Post ID' })
   async getPostStats(
     @Param('postId') postId: string,
     @Query() query: PostStatsQueryDto,
@@ -78,11 +77,7 @@ export class PostController {
 
   @Get('stats-seller/:sellerId/posts')
   @ApiOperation({ summary: 'Get aggregated stats for all posts of a seller' })
-  @ApiParam({
-    name: 'sellerId',
-    description: 'Seller Discord ID',
-    example: '1019923882011232405',
-  })
+  @ApiParam({ name: 'sellerId', description: 'Seller Discord ID' })
   async getCreatorPostsStats(
     @Param('sellerId') sellerId: string,
     @Query() query: PostStatsQueryDto,
@@ -100,11 +95,6 @@ export class PostController {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // CATEGORY
-  // ─────────────────────────────────────────────────────────────
-
-  // Create category
   @Post('category')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create a new category' })
@@ -124,7 +114,6 @@ export class PostController {
     return this.postService.createCategory(dto);
   }
 
-  // Get all general categories
   @Get('category/general')
   @ApiOperation({ summary: 'Fetch all general categories' })
   @ApiResponse({
@@ -133,11 +122,9 @@ export class PostController {
     type: [PostCategory],
   })
   async getGeneralCategories(): Promise<PostCategory[]> {
-    console.log('ere');
     return this.postService.getGeneralCategories();
   }
 
-  // Get categories for a particular creator
   @Get('category/:creatorId')
   @ApiOperation({ summary: 'Fetch categories for a specific creator' })
   @ApiParam({ name: 'creatorId', description: 'Creator ID' })
@@ -152,7 +139,6 @@ export class PostController {
     return this.postService.getCreatorCategories(creatorId);
   }
 
-  // Delete category by ID
   @Delete('category/:id')
   @ApiOperation({ summary: 'Delete a category by ID' })
   @ApiParam({ name: 'id', description: 'Category ID' })
@@ -161,13 +147,14 @@ export class PostController {
     return this.postService.deleteCategory(id);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // 🟦 CREATE & UPDATE POSTS
-  // ─────────────────────────────────────────────────────────────
-
   @Post()
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FilesInterceptor('files'))
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'files', maxCount: 20 },
+      { name: 'unlockFiles', maxCount: 100 },
+    ]),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create a new post with optional media' })
   @ApiBody({
@@ -183,6 +170,13 @@ export class PostController {
         visibleToPlan: { type: 'string' },
         tippingEnabled: { type: 'boolean' },
         priceToView: { type: 'number' },
+        category: { type: 'string' },
+        unlockableType: {
+          type: 'string',
+          enum: ['none', 'single', 'bundle'],
+        },
+        menuTitle: { type: 'string' },
+        noteToBuyer: { type: 'string' },
         categories: {
           type: 'array',
           items: { type: 'string' },
@@ -212,28 +206,46 @@ export class PostController {
             format: 'binary',
           },
         },
+        unlockFiles: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
       },
     },
   })
   @ApiResponse({ status: 201, description: 'Post created successfully.' })
   async createPost(
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles()
+    uploaded: {
+      files?: Express.Multer.File[];
+      unlockFiles?: Express.Multer.File[];
+    },
     @Body() postRaw: any,
     @Body('mediaMeta') mediaMetaRaw: string,
     @Req() req: any,
   ) {
+    const files = uploaded?.files ?? [];
+    const unlockFiles = uploaded?.unlockFiles ?? [];
     let postDto: CreatePostDto;
     try {
-      // Parse and validate the incoming data using the DTO class
       postDto = new CreatePostDto();
 
       if (postRaw.title) postDto.title = postRaw.title;
       if (postRaw.content) postDto.content = postRaw.content;
       if (postRaw.visibility) postDto.visibility = postRaw.visibility;
       if (postRaw.visibleToPlan) postDto.visibleToPlan = postRaw.visibleToPlan;
-      if (postRaw.priceToView) postDto.priceToView = postRaw.priceToView;
-      if (postRaw.tippingEnabled)
+      if (typeof postRaw.priceToView !== 'undefined')
+        postDto.priceToView = String(postRaw.priceToView);
+      if (typeof postRaw.tippingEnabled !== 'undefined')
         postDto.tippingEnabled = postRaw.tippingEnabled === 'true';
+      if (postRaw.category) postDto.category = postRaw.category;
+      if (postRaw.unlockableType)
+        postDto.unlockableType = postRaw.unlockableType;
+      if (postRaw.menuTitle) postDto.menuTitle = postRaw.menuTitle;
+      if (postRaw.noteToBuyer) postDto.noteToBuyer = postRaw.noteToBuyer;
       if (postRaw.scheduledPost) {
         let parsedScheduledPost: ScheduledPostDto;
         try {
@@ -242,7 +254,6 @@ export class PostController {
               ? JSON.parse(postRaw.scheduledPost)
               : postRaw.scheduledPost;
 
-          // Strict type check for isScheduled
           if (typeof parsedScheduledPost.isScheduled !== 'boolean') {
             throw new Error('isScheduled must be a boolean');
           }
@@ -270,43 +281,18 @@ export class PostController {
         'Invalid post data: ' + (err?.message || err),
       );
     }
-    // let mediaMeta: MediaMetaDto[] = [];
-    // try {
-    //   const parsed = mediaMetaRaw ? JSON.parse(`[${mediaMetaRaw}]`) : [];
 
-    //   if (!Array.isArray(parsed)) {
-    //     throw new Error();
-    //   }
-    //   // ✅ Transform plain objects into class instances
-    //   mediaMeta = plainToInstance(MediaMetaDto, parsed);
-
-    //   // ✅ Validate each item in the array
-    //   for (const item of mediaMeta) {
-    //     const errors = await validate(item);
-    //     if (errors.length > 0) {
-    //       throw new BadRequestException(
-    //         'Invalid mediaMeta item: ' + JSON.stringify(errors),
-    //       );
-    //     }
-    //   }
-    // } catch {
-    //   throw new BadRequestException('mediaMeta must be a valid JSON array');
-    // }
     let mediaMeta: MediaMetaDto[] = [];
     if (mediaMetaRaw) {
       try {
         let parsed: unknown;
 
         if (Array.isArray(mediaMetaRaw)) {
-          // Already an array
           parsed = mediaMetaRaw;
         } else if (typeof mediaMetaRaw === 'string') {
           try {
-            // Try parsing directly (case 2: valid JSON array string)
-            // parsed = JSON.parse(mediaMetaRaw);
             parsed = JSON.parse(`[${mediaMetaRaw}]`);
           } catch {
-            // Fallback: wrap with [] (case 1: comma-separated objects)
             parsed = JSON.parse(`[${mediaMetaRaw}]`);
           }
         } else {
@@ -317,10 +303,8 @@ export class PostController {
           throw new Error();
         }
 
-        // ✅ Transform plain objects into class instances
         mediaMeta = plainToInstance(MediaMetaDto, parsed);
 
-        // ✅ Validate each item in the array
         for (const item of mediaMeta) {
           const errors = await validate(item);
           if (errors.length > 0) {
@@ -334,7 +318,6 @@ export class PostController {
       }
     }
 
-    // Validate custom plan requirement
     if (
       postDto.visibility === Visibility.CUSTOM_PLAN &&
       !postDto.visibleToPlan
@@ -343,8 +326,51 @@ export class PostController {
         'visibleToPlan must be provided when using custom_plan visibility',
       );
     }
-    //TODO:restict only creators to create Post
-    return this.postService.createPost(req.user.sub, postDto, files, mediaMeta);
+
+    const unlockableType = postDto.unlockableType ?? PostUnlockableType.NONE;
+    if (unlockableType !== PostUnlockableType.NONE) {
+      const unlockPrice = Number(postDto.priceToView);
+      if (!Number.isFinite(unlockPrice) || unlockPrice <= 0) {
+        throw new BadRequestException(
+          'Unlockable posts require a valid unlock price greater than 0.',
+        );
+      }
+      if (!postDto.category) {
+        throw new BadRequestException(
+          'Unlockable posts require a menu category.',
+        );
+      }
+      const unlockSourceFiles = unlockFiles.length > 0 ? unlockFiles : files;
+      if (!unlockSourceFiles.length) {
+        throw new BadRequestException(
+          'Unlockable posts require at least one locked media file.',
+        );
+      }
+      if (
+        unlockableType === PostUnlockableType.SINGLE &&
+        unlockSourceFiles.length !== 1
+      ) {
+        throw new BadRequestException(
+          'Single unlockable posts require exactly 1 media file.',
+        );
+      }
+      if (
+        unlockableType === PostUnlockableType.BUNDLE &&
+        unlockSourceFiles.length < 2
+      ) {
+        throw new BadRequestException(
+          'Bundle unlockable posts require at least 2 media files.',
+        );
+      }
+    }
+
+    return this.postService.createPost(
+      req.user.sub,
+      postDto,
+      files,
+      mediaMeta,
+      unlockFiles,
+    );
   }
 
   @Patch(':id')
@@ -364,7 +390,6 @@ export class PostController {
     if (req.user.role !== Role.SELLER) {
       throw new BadRequestException('Only Sellers can make a post');
     }
-    // Validate custom plan requirement
     if (
       updateDto.visibility === Visibility.CUSTOM_PLAN &&
       !updateDto.visibleToPlan
@@ -456,7 +481,6 @@ export class PostController {
               ? JSON.parse(postRaw.scheduledPost)
               : postRaw.scheduledPost;
 
-          // Strict type check for isScheduled
           if (typeof parsedScheduledPost.isScheduled !== 'boolean') {
             throw new Error('isScheduled must be a boolean');
           }
@@ -494,10 +518,8 @@ export class PostController {
       if (!Array.isArray(parsed)) {
         throw new Error();
       }
-      // ✅ Transform plain objects into class instances
       mediaMeta = plainToInstance(UpdateMediaMetaDto, parsed);
 
-      // ✅ Validate each item in the array
       for (const item of mediaMeta) {
         const errors = await validate(item);
         if (errors.length > 0) {
@@ -510,7 +532,6 @@ export class PostController {
       throw new BadRequestException('mediaMeta must be a valid JSON array');
     }
 
-    // Validate custom plan requirement
     if (
       updateDto.visibility === Visibility.CUSTOM_PLAN &&
       !updateDto.visibleToPlan
@@ -545,10 +566,6 @@ export class PostController {
   createPostSchemaOnly(@Body() _dto: CreatePostDto) {
     return;
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // 🟩 FETCH POSTS
-  // ─────────────────────────────────────────────────────────────
 
   @Get('trending')
   @ApiOperation({ summary: 'Get trending posts (most liked)' })
@@ -663,10 +680,6 @@ export class PostController {
     return this.postService.getPostById(id);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // ❤️ LIKES
-  // ─────────────────────────────────────────────────────────────
-
   @Post('like/:type')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
@@ -737,10 +750,6 @@ export class PostController {
     return this.postService.getUsersWhoLikedPost(postId);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // ❤️ COMMENTS
-  // ─────────────────────────────────────────────────────────────
-
   @Post('comment')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Comment on a post or another comment' })
@@ -794,17 +803,12 @@ export class PostController {
     return this.postService.getReplies(commentId);
   }
 
-  // view count
   @Post('post-view/:postId')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Increase post view when a user opens a post' })
   async postView(@Param('postId') postId: string) {
     return this.postService.increasePostView(postId);
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // BOOKMARKS
-  // ─────────────────────────────────────────────────────────────
 
   @Post('bookmark/:discordId')
   @UseGuards(JwtAuthGuard)
@@ -864,10 +868,6 @@ export class PostController {
     return { bookmarked: !!exists };
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // 🔒 HELPER METHOD
-  // ─────────────────────────────────────────────────────────────
-
   private validateLikeType(type: 'post' | 'comment', dto: CreateLikeDto): void {
     const validTypes = {
       post: 'Post',
@@ -889,9 +889,4 @@ export class PostController {
       );
     }
   }
-
-  // @Get('disk-space/disk')
-  // getDiskSpace() {
-  //   return this.systemService.getDiskSpaceLinuxMacOs();
-  // }
 }

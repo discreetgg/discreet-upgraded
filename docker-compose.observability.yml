@@ -1,0 +1,6 @@
+name: discreet-observability
+
+# Phase 1 scaffold only.
+# Full ephemeral observability stack wiring lands in Phase 4.
+
+services: {}

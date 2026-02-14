@@ -27,10 +27,16 @@ import {
 import { CreateCategoryDto } from './dto/creator-menu-category';
 import { Category } from 'src/database/schemas/category.schema';
 import { JwtAuthGuard } from 'src/auth/guards/auth.guard';
+import { MenuPromoService } from './menu-promo.service';
+import { UpdateMenuPromoDto } from './dto/update-menu-promo.dto';
+import { Request } from 'express';
 
 @Controller('menu')
 export class MenuController {
-  constructor(private readonly menuService: MenuService) {}
+  constructor(
+    private readonly menuService: MenuService,
+    private readonly menuPromoService: MenuPromoService,
+  ) {}
   // ─────────────────────────────────────────────────────────────
   // CATEGORY
   // ─────────────────────────────────────────────────────────────
@@ -238,6 +244,20 @@ export class MenuController {
       files ?? [],
       mediaMeta ?? [],
     );
+  }
+
+  @Patch(':id/promo')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Enable or update a limited-time promo on a menu' })
+  @ApiParam({ name: 'id', type: String, description: 'menu ID' })
+  @ApiBody({ type: UpdateMenuPromoDto })
+  @ApiResponse({ status: 200, description: 'Promo updated successfully.' })
+  async updateMenuPromo(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: { sub?: string } },
+    @Body() dto: UpdateMenuPromoDto,
+  ) {
+    return this.menuPromoService.updateMenuPromo(req.user?.sub, id, dto);
   }
 
   @Get('category/:categoryId')

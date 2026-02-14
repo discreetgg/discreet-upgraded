@@ -17,6 +17,7 @@ import { usePathname } from 'next/navigation';
 import BookmarkButton from './shared/bookmark-button';
 import { useGlobal } from '@/context/global-context-provider';
 import { PublicPostViewMore } from './public-post-view-more';
+import { resolveMenuPrice } from '@/lib/menu-pricing';
 
 export const Post = ({
   post,
@@ -33,7 +34,6 @@ export const Post = ({
   const [allComments, setAllComments] = useState<CommentType[]>([]);
   const [commentCount, setCommentCount] = useState(post?.commentsCount || 0);
   const [tipDialogOpen, setTipDialogOpen] = useState(false);
-  const [isContentExpanded, setIsContentExpanded] = useState(false);
 
   const { user: currentUser } = useGlobal();
   const { isAuthenticated } = useAuth();
@@ -56,6 +56,16 @@ export const Post = ({
   const SHOW_SUBSCRIBE_BUTTON =
     pathname.startsWith('/profile') ||
     pathname.startsWith(`/${post?.author?.username}`);
+
+  const linkedMenuPricing = post?.linkedMenu
+    ? resolveMenuPrice(post.linkedMenu.priceToView, post.linkedMenu.promo)
+    : null;
+
+  const handleOpenLinkedMenu = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const profilePath = post?.author?.username ? `/${post.author.username}` : '/';
+    router.push(`${profilePath}?menuTab=menu`);
+  };
   const handleSubscribe = () => {
     if (!isAuthenticated) {
       AuthPromptDialog;
@@ -133,36 +143,34 @@ export const Post = ({
           </>
         )}
       </div>
-      <div className="max-w-[489.72px] xl:max-w-[600px] w-full overflow-hidden">
+      <div className="w-full overflow-hidden">
         <p
           onClick={handlePostClick}
           onKeyDown={handleKeyDown}
-          className={`cursor-auto w-full text-[15px] text-[#F8F8F8] whitespace-pre-line break-words overflow-wrap-anywhere ${
-            !isContentExpanded ? 'line-clamp-4' : ''
-          }`}
+          className="cursor-auto w-full text-[15px] text-[#F8F8F8] whitespace-pre-line break-words overflow-wrap-anywhere"
           style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
         >
           {post?.content}
         </p>
-        {post?.content &&
-          (post.content.length > 280 ||
-            post.content.split('\n').length > 4) && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsContentExpanded(!isContentExpanded);
-              }}
-              className="text-[#8A8C95] text-sm mt-1 hover:text-white transition-colors"
-            >
-              {isContentExpanded ? 'See less' : 'See more'}
-            </button>
-          )}
       </div>
 
-      {post?.media?.length > 0 && (
+      {(post?.media?.length > 0 || Boolean(post?.linkedMenu)) && (
         <div className="relative w-full h-auto rounded-2xl overflow-hidden">
-          <PostMedia content={post} media={post.media} />
+          <PostMedia
+            content={post}
+            media={post.media || []}
+            unlockOverlay={
+              post?.linkedMenu && linkedMenuPricing
+                ? {
+                    priceLabel: formatPostCurrency(
+                      linkedMenuPricing.effectiveUnitPrice
+                    ),
+                    lockedCount: post.linkedMenu.itemCount || 0,
+                    onUnlock: () => handleOpenLinkedMenu(),
+                  }
+                : undefined
+            }
+          />
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -260,3 +268,11 @@ export const Post = ({
     </article>
   );
 };
+
+const formatPostCurrency = (amount: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);

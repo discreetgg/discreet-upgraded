@@ -12,10 +12,42 @@ export enum CollectionType {
   BUNDLES = 'bundles',
 }
 
+export enum PromoType {
+  PERCENTAGE = 'percentage',
+  FIXED = 'fixed',
+}
+
 export type Image = {
   url: string;
   public_id: string;
 };
+
+@Schema({ _id: false })
+export class MenuPromo {
+  @Prop({ default: false })
+  isEnabled: boolean;
+
+  @Prop({
+    type: String,
+    enum: Object.values(PromoType),
+    default: PromoType.PERCENTAGE,
+  })
+  type: PromoType;
+
+  @Prop({ type: String, default: '0' })
+  value: string;
+
+  @Prop({ type: Date, default: null })
+  startsAt: Date | null;
+
+  @Prop({ type: Date, default: null })
+  endsAt: Date | null;
+
+  @Prop({ type: String, default: '' })
+  message: string;
+}
+
+export const MenuPromoSchema = SchemaFactory.createForClass(MenuPromo);
 
 @Schema({
   timestamps: true,
@@ -67,6 +99,19 @@ export class Menu {
 
   @Prop({ default: '' })
   noteToBuyer: string;
+
+  @Prop({
+    type: MenuPromoSchema,
+    default: () => ({
+      isEnabled: false,
+      type: PromoType.PERCENTAGE,
+      value: '0',
+      startsAt: null,
+      endsAt: null,
+      message: '',
+    }),
+  })
+  promo: MenuPromo;
 
   @Prop({
     type: {
