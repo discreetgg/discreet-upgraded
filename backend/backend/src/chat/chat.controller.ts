@@ -137,7 +137,7 @@ export class ChatController {
   @ApiOperation({
     summary: 'Get paginated media-only messages for shared media vault',
   })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 80 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 40 })
   @ApiQuery({ name: 'cursor', required: false, type: String })
   @ApiResponse({
     status: 200,

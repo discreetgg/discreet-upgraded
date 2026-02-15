@@ -57,7 +57,7 @@ export default function ProfileSideAdCards({ isLoading, menuItems }: Props) {
 	}
 	return (
 		<div className="w-full flex flex-col  ">
-			<ScrollArea data-horizontal-mask className="w-full">
+			<ScrollArea className="w-full">
 				<div className="flex w-full  px-2 gap-x-2 pt-1 pb-3">
 					{extractTags.map((tag) => (
 						<Button
@@ -75,11 +75,8 @@ export default function ProfileSideAdCards({ isLoading, menuItems }: Props) {
 				<ScrollBar orientation="horizontal" />
 			</ScrollArea>
 
-			<ScrollArea
-				data-vertical-mask
-				className="w-full  h-[calc(100vh-12rem)] lg:h-[calc(180px*4)] "
-			>
-				<div className="flex flex-col pt-4 gap-y-2 w-full pb-10 md:pb-8">
+			<ScrollArea className="w-full h-[calc(100vh-12rem)] lg:h-[calc(180px*4)]">
+				<div className="flex flex-col pt-4 gap-y-3 w-full pb-10 md:pb-8 pr-2">
 					{filteredAds.length === 0 && (
 						<p className="text-sm text-accent-text/80 line-clamp-2 text-center">
 							No ads found

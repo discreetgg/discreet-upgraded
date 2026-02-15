@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type RefObject,
 } from 'react';
 import { MessageItem } from './message-item';
@@ -86,14 +87,35 @@ export const MessageChatList = ({
     matchingMessageIds,
     currentMatchIndex,
   } = useMessageSearch();
+  const [promotedMessageOrder, setPromotedMessageOrder] = useState<
+    Record<string, number>
+  >({});
+
+  const getEffectiveSortTime = useCallback(
+    (message: MessageType) => {
+      const promotedAt = promotedMessageOrder[message._id];
+      if (typeof promotedAt === 'number' && Number.isFinite(promotedAt)) {
+        return promotedAt;
+      }
+      return new Date(message.createdAt || 0).getTime();
+    },
+    [promotedMessageOrder],
+  );
 
   const sortedMessages = useMemo(() => {
-    return [...messages].sort(
-      (a, b) =>
+    return [...messages].sort((a, b) => {
+      const aSortTime = getEffectiveSortTime(a);
+      const bSortTime = getEffectiveSortTime(b);
+      if (aSortTime !== bSortTime) {
+        return aSortTime - bSortTime;
+      }
+
+      return (
         new Date(a.createdAt || 0).getTime() -
-        new Date(b.createdAt || 0).getTime(),
-    );
-  }, [messages]);
+        new Date(b.createdAt || 0).getTime()
+      );
+    });
+  }, [getEffectiveSortTime, messages]);
 
   const visibleMessages = sortedMessages;
 
@@ -105,6 +127,7 @@ export const MessageChatList = ({
     lastConversationKeyRef.current = key;
     pendingJumpMessageIdRef.current = null;
     jumpLoadAttemptsRef.current = 0;
+    setPromotedMessageOrder({});
   }, [conversationKey]);
 
   const matchingMessages = useMemo(() => {
@@ -131,7 +154,15 @@ export const MessageChatList = ({
 
   const { grouped, dayKeys } = useMemo(() => {
     const groupedData = visibleMessages.reduce((accumulator, message) => {
-      const key = format(new Date(message.createdAt || Date.now()), 'yyyy-MM-dd');
+      const effectiveTimestamp = getEffectiveSortTime(message);
+      const key = format(
+        new Date(
+          Number.isFinite(effectiveTimestamp)
+            ? effectiveTimestamp
+            : Date.now(),
+        ),
+        'yyyy-MM-dd',
+      );
       if (!accumulator[key]) {
         accumulator[key] = [];
       }
@@ -142,7 +173,37 @@ export const MessageChatList = ({
     const keys = Object.keys(groupedData).sort((a, b) => a.localeCompare(b));
 
     return { grouped: groupedData, dayKeys: keys };
-  }, [visibleMessages]);
+  }, [getEffectiveSortTime, visibleMessages]);
+
+  const handlePromoteMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId) {
+        return;
+      }
+
+      const currentMaxSortTime = messages.reduce((maxValue, message) => {
+        return Math.max(maxValue, getEffectiveSortTime(message));
+      }, Date.now());
+      const promotedAt = currentMaxSortTime + 1;
+      setPromotedMessageOrder((previous) => ({
+        ...previous,
+        [messageId]: Math.max(previous[messageId] ?? 0, promotedAt),
+      }));
+
+      const root = scrollRootRef?.current;
+      if (!root) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        root.scrollTo({
+          top: root.scrollHeight,
+          behavior: 'smooth',
+        });
+      });
+    },
+    [getEffectiveSortTime, messages, scrollRootRef],
+  );
 
   const schedulePrependCompensationReset = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -530,6 +591,7 @@ export const MessageChatList = ({
                     onMarkAsRead={onMarkAsRead}
                     onReloadMessages={onReloadMessages}
                     onSendUnlockMessage={onSendUnlockMessage}
+                    onPromoteMessage={handlePromoteMessage}
                   />
                 );
               })}

@@ -2,11 +2,15 @@
 
 import Image, { type ImageProps } from 'next/image';
 import { useEffect, useRef, useState } from 'react';
+import { VideoPlayer } from './shared/video-player';
 
 interface AuthenticatedMediaProps extends Omit<ImageProps, 'src'> {
   src: string;
   type: 'image' | 'video';
   videoProps?: React.VideoHTMLAttributes<HTMLVideoElement>;
+  customVideoPlayer?: boolean;
+  videoPlayerFit?: 'contain' | 'cover';
+  videoPlayerCaption?: string;
   alt: string;
   className?: string;
   onMediaError?: () => void;
@@ -18,6 +22,9 @@ export const AuthenticatedMedia = ({
   className,
   alt,
   videoProps,
+  customVideoPlayer = false,
+  videoPlayerFit = 'contain',
+  videoPlayerCaption,
   onMediaError,
   ...props
 }: AuthenticatedMediaProps) => {
@@ -102,15 +109,25 @@ export const AuthenticatedMedia = ({
         className="w-full h-full select-none"
         onDragStart={(e) => e.preventDefault()}
       >
-        <video
-          src={resolvedSrc}
-          className={className}
-          onContextMenu={(e) => e.preventDefault()}
-          onDragStart={(e) => e.preventDefault()}
-          controlsList="nodownload"
-          onError={onMediaError}
-          {...videoProps}
-        />
+        {customVideoPlayer ? (
+          <VideoPlayer
+            src={resolvedSrc}
+            className={className}
+            fit={videoPlayerFit}
+            caption={videoPlayerCaption}
+            onError={onMediaError}
+          />
+        ) : (
+          <video
+            src={resolvedSrc}
+            className={className}
+            onContextMenu={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
+            controlsList="nodownload"
+            onError={onMediaError}
+            {...videoProps}
+          />
+        )}
       </div>
     );
   }

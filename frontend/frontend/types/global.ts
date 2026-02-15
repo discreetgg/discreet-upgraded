@@ -229,6 +229,7 @@ export type MessageType = {
   text: string;
   type: MessageMediaType;
   media: MediaType[];
+  replyTo?: string | MessageType | null;
   isPayable?: boolean;
   price?: string;
   paid?: boolean;

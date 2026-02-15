@@ -219,13 +219,13 @@ export const DMMenuPreview = ({
                       activeMedia={media}
                       isMediaLocked={isMediaLocked}
                     >
-                      <div className="relative w-full h-[226px] rounded-[12px] bg-black overflow-hidden cursor-zoom-in">
+                      <div className="relative w-full h-[226px] rounded-[12px] bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)] overflow-hidden cursor-zoom-in">
                         <AuthenticatedMedia
                           type="video"
                           src={getProxiedMediaUrl(media._id, media.url)}
                           alt={media.caption || 'Video'}
                           className={cn(
-                            'w-full h-full object-contain rounded-[12px]',
+                            'w-full h-full object-cover rounded-[12px]',
                             shouldShowBlurred && 'blur-2xl'
                           )}
                           videoProps={{

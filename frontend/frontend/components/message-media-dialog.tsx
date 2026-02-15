@@ -171,7 +171,7 @@ export const MessageMediaDialog = ({
           setCurrentIndex(findSortedIndex(activeMediaIndex));
           handleOpenChange(true);
         }}
-        className="cursor-pointer"
+        className="h-full w-full cursor-pointer"
       >
         {children}
       </div>
@@ -196,17 +196,20 @@ export const MessageMediaDialog = ({
               className="relative w-full h-full flex items-center justify-center"
               onClick={handleImageTap}
             >
-              <AuthenticatedMedia
-                type="image"
-                src={getProxiedMediaUrl(current._id, current.url)}
-                alt={current.caption || 'Post image'}
-                width={1920}
-                height={1080}
-                className={cn(
-                  'object-contain w-full h-full max-w-full max-h-full',
-                  isLocked && 'blur-xl'
-                )}
-              />
+              {isLocked ? (
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),linear-gradient(180deg,#1B2436_0%,#0E1321_62%,#090C15_100%)]" />
+              ) : (
+                <AuthenticatedMedia
+                  type="image"
+                  src={getProxiedMediaUrl(current._id, current.url)}
+                  alt={current.caption || 'Post image'}
+                  width={1920}
+                  height={1080}
+                  className={cn(
+                    'object-contain w-full h-full max-w-full max-h-full',
+                  )}
+                />
+              )}
               {isLocked && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                   <div className="flex flex-col items-center gap-2">
@@ -219,22 +222,27 @@ export const MessageMediaDialog = ({
               )}
             </div>
           ) : current.type === 'video' ? (
-            <div className="relative w-full h-full flex items-center justify-center bg-black">
-              <AuthenticatedMedia
-                type="video"
-                src={getProxiedMediaUrl(current._id, current.url)}
-                alt={current.caption || 'Post video'}
-                className={cn(
-                  'h-full w-full max-h-full max-w-full object-contain',
-                  isLocked && 'blur-xl'
-                )}
-                videoProps={{
-                  controls: !isLocked ? true : false,
-                  autoPlay: !isLocked ? true : false,
-                  playsInline: true,
-                  preload: 'metadata',
-                }}
-              />
+            <div className="relative w-full h-full flex items-center justify-center bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)] px-2 md:px-8">
+              {isLocked ? (
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),linear-gradient(180deg,#1B2436_0%,#0E1321_62%,#090C15_100%)]" />
+              ) : (
+                <AuthenticatedMedia
+                  type="video"
+                  src={getProxiedMediaUrl(current._id, current.url)}
+                  alt={current.caption || 'Post video'}
+                  className={cn(
+                    'h-full w-full max-h-[92vh] rounded-xl',
+                  )}
+                  customVideoPlayer
+                  videoPlayerFit="contain"
+                  videoPlayerCaption={current.caption || 'Video'}
+                  videoProps={{
+                    controls: true,
+                    playsInline: true,
+                    preload: 'metadata',
+                  }}
+                />
+              )}
               {isLocked && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                   <div className="flex flex-col items-center gap-2">

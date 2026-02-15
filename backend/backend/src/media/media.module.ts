@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { MediaController } from './media.controller';
-import { HttpModule } from '@nestjs/axios';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Media, MediaSchema } from 'src/database/schemas/media.schema';
 import { MediaService } from './media.service';
@@ -11,7 +10,6 @@ import { Payment, PaymentSchema } from 'src/database/schemas/payment.schema';
 
 @Module({
   imports: [
-    HttpModule,
     JwtModule,
     MongooseModule.forFeature([
       { name: Media.name, schema: MediaSchema },

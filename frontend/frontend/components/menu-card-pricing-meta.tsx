@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { resolveMenuPrice } from "@/lib/menu-pricing";
+import { Icon } from "./ui/icons";
 
 type MenuCardPricingMetaProps = {
   priceToView: string;
@@ -13,7 +14,6 @@ type MenuCardPricingMetaProps = {
     endsAt: string | null;
     message?: string;
   };
-  mediaCount: number;
   imageCount: number;
   videoCount: number;
 };
@@ -31,7 +31,6 @@ const formatMoney = (amount: number | string) => {
 export const MenuCardPricingMeta = ({
   priceToView,
   promo,
-  mediaCount,
   imageCount,
   videoCount,
 }: MenuCardPricingMetaProps) => {
@@ -80,17 +79,15 @@ export const MenuCardPricingMeta = ({
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-2 text-xs text-accent-text">
-        <span className="text-sm font-medium text-off-white">
-          {mediaCount} {mediaCount === 1 ? "piece" : "pieces"}
+      <div className="flex items-center gap-2 text-xs text-[#E7ECF6]">
+        <span className="inline-flex items-center gap-1 rounded-md border border-[#2B3241] bg-[#111825]/90 px-2 py-1">
+          <Icon.image className="h-3.5 w-3.5 text-[#9ED8FF]" />
+          <span className="font-semibold">{imageCount}</span>
         </span>
-        {(imageCount > 0 || videoCount > 0) && (
-          <span>
-            {imageCount > 0 && `${imageCount} image${imageCount > 1 ? "s" : ""}`}
-            {imageCount > 0 && videoCount > 0 && " • "}
-            {videoCount > 0 && `${videoCount} video${videoCount > 1 ? "s" : ""}`}
-          </span>
-        )}
+        <span className="inline-flex items-center gap-1 rounded-md border border-[#2B3241] bg-[#111825]/90 px-2 py-1">
+          <Icon.videoIcon className="h-3.5 w-3.5 text-[#FF73B8]" />
+          <span className="font-semibold">{videoCount}</span>
+        </span>
       </div>
     </div>
   );

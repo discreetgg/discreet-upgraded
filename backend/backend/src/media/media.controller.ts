@@ -2,7 +2,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  InternalServerErrorException,
   Param,
   Req,
   Res,
@@ -11,16 +10,11 @@ import {
 import { Response, Request } from 'express';
 import { MediaService } from './media.service';
 import { ApiParam, ApiResponse } from '@nestjs/swagger';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
 import { JwtAuthGuard } from 'src/auth/guards/auth.guard';
 
 @Controller('media')
 export class MediaController {
-  constructor(
-    private readonly mediaService: MediaService,
-    private readonly httpService: HttpService,
-  ) {}
+  constructor(private readonly mediaService: MediaService) {}
 
   @Get(':id')
   @ApiParam({
@@ -29,7 +23,7 @@ export class MediaController {
     type: String,
   })
   @UseGuards(JwtAuthGuard)
-  @ApiResponse({ status: 200, description: 'Returns the proxied media file' })
+  @ApiResponse({ status: 302, description: 'Redirects to the media CDN URL' })
   @ApiResponse({ status: 403, description: 'Forbidden' })
   async getMedia(
     @Param('id') id: string,
@@ -46,22 +40,8 @@ export class MediaController {
       requesterDiscordId,
     );
 
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get(media.url, { responseType: 'stream' }),
-      );
-
-      res.setHeader(
-        'Content-Type',
-        response.headers['content-type'] || 'application/octet-stream',
-      );
-      res.setHeader('Content-Disposition', 'inline');
-      res.setHeader('Cache-Control', 'private, max-age=300');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-
-      response.data.pipe(res);
-    } catch {
-      throw new InternalServerErrorException('Unable to stream media');
-    }
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return res.redirect(302, media.url);
   }
 }

@@ -38,8 +38,8 @@ import { MediaMetaDto } from 'src/menu/dto/create-menu.dto';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50;
 const MAX_MESSAGE_PAGE_SIZE = 100;
-const DEFAULT_SHARED_MEDIA_PAGE_SIZE = 80;
-const MAX_SHARED_MEDIA_PAGE_SIZE = 200;
+const DEFAULT_SHARED_MEDIA_PAGE_SIZE = 40;
+const MAX_SHARED_MEDIA_PAGE_SIZE = 60;
 const DEFAULT_CONVERSATION_PAGE_SIZE = 30;
 const MAX_CONVERSATION_PAGE_SIZE = 100;
 const SEARCHED_CONVERSATION_USER_SCAN_LIMIT = 500;
@@ -143,26 +143,18 @@ export class ChatService {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  private isFreePreviewCaption(caption?: string) {
+    if (!caption) return false;
+    const normalizedCaption = caption.toLowerCase();
+    return (
+      normalizedCaption.includes('free preview') ||
+      normalizedCaption.includes('cover image')
+    );
+  }
+
   private stripMediaUrlsFromMessage<T>(message: T): T {
-    if (!message || typeof message !== 'object') {
-      return message;
-    }
-
-    const mutable = message as any;
-    if (Array.isArray(mutable.media)) {
-      mutable.media = mutable.media.map((item: any) => {
-        if (item && typeof item === 'object' && !Array.isArray(item)) {
-          delete item.url;
-        }
-        return item;
-      });
-    }
-
-    if (mutable.replyTo && typeof mutable.replyTo === 'object') {
-      this.stripMediaUrlsFromMessage(mutable.replyTo);
-    }
-
-    return mutable as T;
+    // Keep media URLs for direct CDN/signed delivery on the client.
+    return message;
   }
 
   public sanitizeMessageForClient<T>(message: T): T {
@@ -250,6 +242,16 @@ export class ChatService {
       if (Array.isArray(target.message.media)) {
         target.message.media = target.message.media.map((media: any) => {
           if (media && typeof media === 'object' && !Array.isArray(media)) {
+            const isFreePreview = this.isFreePreviewCaption(media.caption);
+            if (!isEntitled && !isFreePreview) {
+              return {
+                ...media,
+                paid: false,
+                url: '',
+                public_id: '',
+              };
+            }
+
             return { ...media, paid: isEntitled };
           }
           return media;

@@ -1057,7 +1057,7 @@ const buildSharedMediaRequestKey = (
 	}
 ) => {
 	const scope = getConversationCacheScope();
-	const normalizedLimit = params?.limit ?? DEFAULT_CONVERSATION_LIMIT;
+	const normalizedLimit = params?.limit ?? 40;
 	const normalizedCursor = params?.cursor ?? "";
 	return `${scope}|${id}|${normalizedLimit}|${normalizedCursor}`;
 };
@@ -1209,8 +1209,8 @@ export const getConversationSharedMediaService = async (
 
 		const normalizedLimit =
 			typeof params?.limit === "number" && Number.isFinite(params.limit)
-				? Math.max(1, Math.min(Math.floor(params.limit), 200))
-				: 80;
+				? Math.max(1, Math.min(Math.floor(params.limit), 60))
+				: 40;
 		const normalizedParams = {
 			limit: normalizedLimit,
 			...(params?.cursor ? { cursor: params.cursor } : {}),

@@ -4,18 +4,10 @@ import { FALLBACK_IMAGE } from '@/constants/constants';
 import { useGlobal } from '@/context/global-context-provider';
 import { cn, getBlurredImage } from '@/lib/utils';
 import type { CommentType, MediaType, PostType } from '@/types/global';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Maximize,
-  Minimize,
-  Pause,
-  Play,
-  Volume2,
-  VolumeX,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
+import { VideoPlayer } from './shared/video-player';
 import { FullScreenModal } from './ui/full-screen-modal';
 
 export const PostMediaDialog = ({
@@ -38,15 +30,6 @@ export const PostMediaDialog = ({
   const [isMobile, setIsMobile] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Video-specific states for modern UI
-  const videoRef = useRef<HTMLVideoElement>(null); // Ref to control video element
-  const [isPlaying, setIsPlaying] = useState(false); // Track play/pause
-  const [currentTime, setCurrentTime] = useState(0); // Current playback time
-  const [duration, setDuration] = useState(0); // Total video duration
-  const [volume, setVolume] = useState(1); // Volume level (0-1)
-  const [isMuted, setIsMuted] = useState(false); // Mute toggle
-  const [isFullscreen, setIsFullscreen] = useState(false); // Fullscreen state
 
   // Detect mobile viewport
   useEffect(() => {
@@ -105,80 +88,12 @@ export const PostMediaDialog = ({
     }
   }, [open]);
 
-  // Reset video states when switching media
-  useEffect(() => {
-    setIsPlaying(false);
-    setCurrentTime(0);
-    setDuration(0);
-    setVolume(1);
-    setIsMuted(false);
-    if (videoRef.current) {
-      videoRef.current.pause(); // Ensure previous video stops
-      videoRef.current.currentTime = 0;
-    }
-  }, [currentIndex]);
-
   const handleImageError = (src: string) => {
     setFailedImages((prev) => new Set([...prev, src]));
   };
 
   const getImageSrc = (originalSrc: string) => {
     return failedImages.has(originalSrc) ? FALLBACK_IMAGE : originalSrc;
-  };
-
-  // Video control functions
-  const togglePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const vol = parseFloat(e.target.value);
-    if (videoRef.current) {
-      videoRef.current.volume = vol;
-      setVolume(vol);
-      setIsMuted(vol === 0);
-    }
-  };
-
-  const toggleMute = () => {
-    if (videoRef.current) {
-      const newMuted = !isMuted;
-      videoRef.current.muted = newMuted;
-      setIsMuted(newMuted);
-      setVolume(newMuted ? 0 : 1); // Reset to full if unmuting
-    }
-  };
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      videoRef.current?.requestFullscreen();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    }
-  };
-
-  // Format time for display (e.g., 1:23 / 4:56)
-  const formatTime = (time: number) => {
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   const current = media[currentIndex];
@@ -250,96 +165,15 @@ export const PostMediaDialog = ({
               />
             </div>
           ) : current.type === 'video' ? (
-            <>
-              <video
-                ref={videoRef}
+            <div className="relative h-full w-full px-2 md:px-8">
+              <VideoPlayer
                 src={current.url}
-                // Removed native controls; we're custom now
-                // autoPlay={false} // Disabled autoplay for better UX; user initiates
+                fit="contain"
+                className="h-full w-full max-h-[92vh] rounded-xl"
+                caption="English captions"
                 onError={() => handleImageError(current.url)}
-                className="max-w-full max-h-full w-auto h-auto"
-                onTimeUpdate={() =>
-                  setCurrentTime(videoRef.current?.currentTime || 0)
-                } // Sync current time
-                onLoadedMetadata={() => {
-                  setDuration(videoRef.current?.duration || 0); // Set duration once loaded
-                }}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onVolumeChange={() => setVolume(videoRef.current?.volume || 1)}
-              >
-                <track
-                  kind="captions"
-                  src=""
-                  srcLang="en"
-                  label="English captions"
-                  default
-                />
-              </video>
-              {/* Custom Controls Overlay - Modern, fade-in on hover */}
-              {showControls && (
-                <div className="absolute bottom-0 left-0 right-0 bg-black/70 p-4 flex items-center justify-between transition-opacity duration-300">
-                  {/* Play/Pause */}
-                  <button
-                    onClick={togglePlayPause}
-                    aria-label={isPlaying ? 'Pause' : 'Play'}
-                    className="text-white hover:text-gray-300"
-                  >
-                    {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-                  </button>
-
-                  {/* Seek Bar */}
-                  <div className="flex-1 mx-4">
-                    <input
-                      type="range"
-                      min={0}
-                      max={duration}
-                      value={currentTime}
-                      onChange={handleSeek}
-                      className="w-full accent-white" // Tailwind for modern slider
-                      aria-label="Seek video"
-                    />
-                    <span className="text-white text-sm">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                  </div>
-
-                  {/* Volume Control */}
-                  <div className="flex items-center">
-                    <button
-                      onClick={toggleMute}
-                      aria-label={isMuted ? 'Unmute' : 'Mute'}
-                      className="text-white hover:text-gray-300 mr-2"
-                    >
-                      {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
-                    </button>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={volume}
-                      onChange={handleVolumeChange}
-                      className="w-20 accent-white"
-                      aria-label="Volume"
-                    />
-                  </div>
-
-                  {/* Fullscreen */}
-                  <button
-                    onClick={toggleFullscreen}
-                    aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    className="text-white hover:text-gray-300 ml-4"
-                  >
-                    {isFullscreen ? (
-                      <Minimize size={24} />
-                    ) : (
-                      <Maximize size={24} />
-                    )}
-                  </button>
-                </div>
-              )}
-            </>
+              />
+            </div>
           ) : null}
           {failedImages.has(current.url) && (
             <div className="absolute left-1/2 -translate-x-1/2 rounded-full text-accent-gray px-3 py-1 text-2xl font-bold w-full uppercase text-center">

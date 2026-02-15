@@ -79,14 +79,15 @@ export const MenuDetailsDialog = ({
                     className="relative rounded-md overflow-hidden border border-[#1F2532] bg-[#070A11]"
                   >
                     {entry.type === "video" ? (
-                      <video
-                        src={entry.url}
-                        className="h-48 w-full object-cover"
-                        controls
-                        muted
-                        playsInline
-                        preload="metadata"
-                      />
+                      <div className="h-48 w-full bg-[radial-gradient(120%_120%_at_50%_-10%,rgba(255,0,127,0.2)_0%,rgba(19,14,29,0.96)_52%,rgba(10,9,17,1)_100%)]">
+                        <video
+                          src={entry.url}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
                     ) : (
                       <ImageWithFallback
                         src={entry.url}
@@ -95,8 +96,8 @@ export const MenuDetailsDialog = ({
                         height={640}
                         quality={100}
                         unoptimized
-                        className="h-48 w-full object-cover"
-                        containerClassName="h-48 w-full"
+                        className="h-48 w-full object-contain"
+                        containerClassName="h-48 w-full bg-[radial-gradient(120%_120%_at_50%_-10%,rgba(255,0,127,0.2)_0%,rgba(19,14,29,0.96)_52%,rgba(10,9,17,1)_100%)]"
                       />
                     )}
                     <div className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-[#F1F5FA]">

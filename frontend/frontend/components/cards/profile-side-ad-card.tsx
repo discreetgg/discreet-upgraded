@@ -40,50 +40,13 @@ import { MenuPromoDialog } from "@/components/menu-promo-dialog";
 import { MenuCardPricingMeta } from "@/components/menu-card-pricing-meta";
 import { getMenuMediaSummary } from "@/lib/menu-media-summary";
 import { MenuDetailsDialog } from "@/components/menu-details-dialog";
-
-type NormalizedMenuPreviewMedia = {
-  _id: string;
-  url: string;
-  type: "image" | "video";
-};
-
-const isVideoMediaUrl = (url: string) => {
-  const lower = (url || "").toLowerCase();
-  return (
-    lower.includes("/video/upload/") ||
-    lower.includes(".mp4") ||
-    lower.includes(".mov") ||
-    lower.includes(".webm") ||
-    lower.includes(".m4v")
-  );
-};
-
-const normalizeMenuPreviewMedia = (
-  entries:
-    | Array<{
-        _id?: string;
-        url?: string;
-        type?: string;
-        media?: { _id?: string; url?: string; type?: string };
-      }>
-    | undefined,
-): NormalizedMenuPreviewMedia[] => {
-  return (Array.isArray(entries) ? entries : [])
-    .map((entry: any) => {
-      const source = entry?.url ? entry : entry?.media;
-      if (!source?.url) return null;
-      const url = String(source.url);
-      const type = source.type === "video" || isVideoMediaUrl(url)
-        ? "video"
-        : "image";
-      return {
-        _id: String(source._id || entry?._id || url),
-        url,
-        type,
-      } satisfies NormalizedMenuPreviewMedia;
-    })
-    .filter((entry): entry is NormalizedMenuPreviewMedia => Boolean(entry));
-};
+import { getHighestQualityImageUrl } from "@/lib/get-highest-quality-image-url";
+import { Icon } from "../ui/icons";
+import {
+  isVideoMediaUrl,
+  normalizeMenuPreviewMedia,
+  type NormalizedMenuPreviewMedia,
+} from "@/lib/menu-preview-media";
 
 export default function ProfileSideAdCard({
   description,
@@ -92,6 +55,8 @@ export default function ProfileSideAdCard({
   coverImage,
   sourcePost,
   itemCount,
+  imageCount,
+  videoCount,
   media,
   priceToView,
   defaultValues,
@@ -117,16 +82,6 @@ export default function ProfileSideAdCard({
     () => getHighestQualityImageUrl(coverImage?.url || ""),
     [coverImage?.url],
   );
-  const mediaSummary = useMemo(
-    () =>
-      getMenuMediaSummary({
-        itemCount: itemCount || media.length,
-        imageCount: media.filter((entry) => entry.type === "image").length,
-        videoCount: media.filter((entry) => entry.type === "video").length,
-        collectionType,
-      }),
-    [collectionType, itemCount, media],
-  );
   const normalizedPreviewMedia = useMemo(
     () => {
       const previewList = normalizeMenuPreviewMedia(
@@ -147,6 +102,58 @@ export default function ProfileSideAdCard({
       ];
     },
     [defaultValues.previewMedia, highQualityCoverImage],
+  );
+  const previewTypeCounts = useMemo(
+    () =>
+      normalizedPreviewMedia.reduce(
+        (acc, entry) => {
+          if (entry.type === "image") {
+            acc.image += 1;
+          } else if (entry.type === "video") {
+            acc.video += 1;
+          }
+          return acc;
+        },
+        { image: 0, video: 0 },
+      ),
+    [normalizedPreviewMedia],
+  );
+  const resolvedImageCount = useMemo(
+    () =>
+      Math.max(
+        Number(imageCount) || 0,
+        media.filter((entry) => entry.type === "image").length,
+        previewTypeCounts.image,
+      ),
+    [imageCount, media, previewTypeCounts.image],
+  );
+  const resolvedVideoCount = useMemo(
+    () =>
+      Math.max(
+        Number(videoCount) || 0,
+        media.filter((entry) => entry.type === "video").length,
+        previewTypeCounts.video,
+      ),
+    [media, previewTypeCounts.video, videoCount],
+  );
+  const resolvedTotalCount = useMemo(
+    () =>
+      Math.max(
+        Number(itemCount) || 0,
+        media.length,
+        resolvedImageCount + resolvedVideoCount,
+      ),
+    [itemCount, media.length, resolvedImageCount, resolvedVideoCount],
+  );
+  const mediaSummary = useMemo(
+    () =>
+      getMenuMediaSummary({
+        itemCount: resolvedTotalCount,
+        imageCount: resolvedImageCount,
+        videoCount: resolvedVideoCount,
+        collectionType,
+      }),
+    [collectionType, resolvedImageCount, resolvedTotalCount, resolvedVideoCount],
   );
   const activePreview = normalizedPreviewMedia[previewIndex] ?? null;
   const canCyclePreview = normalizedPreviewMedia.length > 1;
@@ -355,6 +362,21 @@ export default function ProfileSideAdCard({
     if (!sourcePost) return;
     router.push(`/feed/${sourcePost}`);
   };
+  const handlePreviewVideoToggle = (
+    event: { currentTarget: HTMLVideoElement },
+  ) => {
+    const video = event.currentTarget;
+    if (video.paused) {
+      void video.play().catch(() => undefined);
+      return;
+    }
+    video.pause();
+  };
+  const activePreviewType: "image" | "video" = activePreview
+    ? activePreview.type
+    : isVideoMediaUrl(highQualityCoverImage)
+      ? "video"
+      : "image";
 
   return (
     <>
@@ -398,65 +420,80 @@ export default function ProfileSideAdCard({
       />
       <div
         data-delete={isDeleting}
-        className="w-full max-w-[370px] isolate sm:max-w-[405px] data-[delete=true]:blur-[2px] data-[delete=true]:opacity-50 border border-accent-gray/30 rounded-xl p-3 border-r-4 border-b-4 hover:border-b-[6px] hover:border-r-[6px] transition-all duration-150 relative space-y-3"
+        className="w-full max-w-[370px] isolate sm:max-w-[405px] data-[delete=true]:blur-[2px] data-[delete=true]:opacity-50 border border-[#2B2233] rounded-xl p-3 bg-[linear-gradient(180deg,rgba(25,16,30,0.96)_0%,rgba(12,10,18,0.98)_100%)] shadow-[0_10px_28px_rgba(0,0,0,0.35)] hover:border-[#FF007F]/35 transition-colors duration-200 relative space-y-3"
       >
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-sm font-inter font-semibold break-words">{title}</p>
-          <span className="shrink-0 rounded-md bg-[#111822] px-2 py-1 text-[10px] text-[#D1DAE9]">
-            {mediaSummary.typeBadge}
-          </span>
+        <div className="flex min-w-0 items-start gap-3">
+          <p className="min-w-0 flex-1 pr-1 text-sm font-inter font-semibold leading-5 break-all">
+            {title}
+          </p>
         </div>
 
-        <div className="relative overflow-hidden rounded-[10px] border border-[#1D2230] bg-black">
-          {activePreview ? (
-            activePreview.type === "video" ? (
+        <div className="relative overflow-hidden rounded-[12px] border border-[#2B2334] bg-[radial-gradient(120%_120%_at_50%_-10%,rgba(255,0,127,0.2)_0%,rgba(19,14,29,0.96)_52%,rgba(10,9,17,1)_100%)]">
+          <div className="h-[220px] w-full sm:h-[250px]">
+            {activePreview ? (
+              activePreview.type === "video" ? (
+                <video
+                  src={activePreview.url}
+                  className="h-full w-full object-contain object-center cursor-pointer"
+                  muted
+                  playsInline
+                  preload="metadata"
+                  title="Tap to play or pause preview"
+                  onClick={handlePreviewVideoToggle}
+                />
+              ) : (
+                <ImageWithFallback
+                  src={getHighestQualityImageUrl(activePreview.url)}
+                  alt={title}
+                  width={1200}
+                  height={1600}
+                  quality={100}
+                  unoptimized
+                  className="h-full w-full object-contain object-center"
+                  containerClassName="h-full w-full"
+                  priority
+                />
+              )
+            ) : isVideoMediaUrl(highQualityCoverImage) ? (
               <video
-                src={activePreview.url}
-                className="w-full max-h-[360px] object-contain bg-black"
-                controls
+                src={highQualityCoverImage}
+                className="h-full w-full object-contain object-center cursor-pointer"
                 muted
                 playsInline
                 preload="metadata"
+                title="Tap to play or pause preview"
+                onClick={handlePreviewVideoToggle}
               />
             ) : (
               <ImageWithFallback
-                src={getHighestQualityImageUrl(activePreview.url)}
+                src={highQualityCoverImage}
                 alt={title}
                 width={1200}
                 height={1600}
                 quality={100}
                 unoptimized
-                className="w-full max-h-[360px] object-contain bg-black"
-                containerClassName="w-full max-h-[360px] bg-black"
+                className="h-full w-full object-contain object-center"
+                containerClassName="h-full w-full"
                 priority
               />
-            )
-          ) : isVideoMediaUrl(highQualityCoverImage) ? (
-            <video
-              src={highQualityCoverImage}
-              className="w-full max-h-[360px] object-contain bg-black"
-              controls
-              muted
-              playsInline
-              preload="metadata"
-            />
-          ) : (
-            <ImageWithFallback
-              src={highQualityCoverImage}
-              alt={title}
-              width={1200}
-              height={1600}
-              quality={100}
-              unoptimized
-              className="w-full max-h-[360px] object-contain bg-black"
-              containerClassName="w-full max-h-[360px] bg-black"
-              priority
-            />
-          )}
-
-          <div className="absolute right-2 top-2 z-20 rounded bg-black/60 px-2 py-1 text-[10px] font-medium text-[#E7EAF1]">
-            {mediaSummary.compositionLabel}
+            )}
           </div>
+
+          <div className="pointer-events-none absolute right-2 top-2 z-20 inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-medium text-white/90">
+            {activePreviewType === "video" ? (
+              <>
+                <Icon.videoIcon className="h-3.5 w-3.5 text-[#FF73B8]" />
+                <span>Video</span>
+              </>
+            ) : (
+              <>
+                <Icon.image className="h-3.5 w-3.5 text-[#9ED8FF]" />
+                <span>Image</span>
+              </>
+            )}
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 via-black/20 to-transparent" />
 
           {canCyclePreview && (
             <div className="absolute right-2 bottom-2 z-20 flex items-center gap-1 rounded-md border border-[#2A3140] bg-[#0B111C]/85 p-1">
@@ -502,16 +539,15 @@ export default function ProfileSideAdCard({
         <MenuCardPricingMeta
           priceToView={priceToView}
           promo={defaultValues?.promo}
-          mediaCount={mediaSummary.totalCount}
           imageCount={mediaSummary.imageCount}
           videoCount={mediaSummary.videoCount}
         />
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {canOpenSourcePost ? (
             <Button
               onClick={openSourcePost}
-              className="px-3 w-fit text-xs py-1.5 rounded-2xl border border-[#FF007F]/40 bg-[#FF007F]/10 text-[#FF4DA6]"
+              className="px-3 w-full sm:w-fit text-xs py-1.5 rounded-2xl border border-[#FF007F]/40 bg-[#FF007F]/10 text-[#FF4DA6]"
               size={"ghost"}
             >
               Open full post
@@ -519,7 +555,7 @@ export default function ProfileSideAdCard({
           ) : (
             <Button
               onClick={() => setOpenDetailsModal(true)}
-              className="px-3 w-fit text-xs py-1.5 rounded-2xl border border-[#3A3F4A] bg-[#12151D] text-[#D4D4D8]"
+              className="px-3 w-full sm:w-fit text-xs py-1.5 rounded-2xl border border-[#3A3F4A] bg-[#12151D] text-[#D4D4D8]"
               size={"ghost"}
             >
               Preview details
@@ -564,22 +600,24 @@ export default function ProfileSideAdCard({
             <Button
               disabled={isPending || isAlreadyPurchased}
               onClick={() => setConfirmPurchase(true)}
-              className="px-4 md:px-8 w-fit text-xs py-2 rounded-md border-none text-primary bg-off-white relative disabled:opacity-70"
+              className="px-4 md:px-8 w-full sm:w-fit text-xs py-2 rounded-md border-none text-primary bg-off-white relative disabled:opacity-70"
               variant={"ghost"}
               size={"ghost"}
             >
               <span
                 data-hidden={isPending}
-                className="block payment_loader absolute  w-full data-[hidden=false]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=true]:opacity-100"
+                className="pointer-events-none payment_loader absolute inset-0 data-[hidden=false]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=true]:opacity-100"
               />
               <span
                 data-hidden={isPending || isAlreadyPurchased}
-                className="data-[hidden=true]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=false]:opacity-100"
+                className="absolute inset-0 flex items-center justify-center data-[hidden=true]:opacity-0 transition-opacity duration-200 ease-in-out data-[hidden=false]:opacity-100"
               >
                 Buy now
               </span>
               {isAlreadyPurchased && (
-                <span className="text-[#0A0A0A] font-medium">Unlocked</span>
+                <span className="absolute inset-0 flex items-center justify-center text-[#0A0A0A] font-medium">
+                  Unlocked
+                </span>
               )}
             </Button>
           )}
@@ -658,43 +696,6 @@ interface Props {
   isLoadingConversation?: boolean;
   receiver: AuthorType | UserType | null;
 }
-
-const getHighestQualityImageUrl = (url: string) => {
-  if (!url || !url.includes("res.cloudinary.com")) {
-    return url;
-  }
-
-  try {
-    const parsedUrl = new URL(url);
-    const pathSegments = parsedUrl.pathname.split("/");
-    const uploadIndex = pathSegments.findIndex(
-      (segment) => segment === "upload",
-    );
-
-    if (uploadIndex === -1) {
-      return url;
-    }
-
-    const versionIndex = pathSegments.findIndex(
-      (segment, index) => index > uploadIndex && /^v\d+$/.test(segment),
-    );
-
-    // Already original or unsupported pattern.
-    if (versionIndex <= uploadIndex + 1) {
-      return url;
-    }
-
-    const cleanedPathSegments = [
-      ...pathSegments.slice(0, uploadIndex + 1),
-      ...pathSegments.slice(versionIndex),
-    ];
-
-    parsedUrl.pathname = cleanedPathSegments.join("/");
-    return parsedUrl.toString();
-  } catch {
-    return url;
-  }
-};
 
 const SuccessMenuDialog = ({
   open,

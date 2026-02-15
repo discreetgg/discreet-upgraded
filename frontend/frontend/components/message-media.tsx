@@ -28,6 +28,7 @@ interface MessageMediaTileProps {
 }
 
 const EAGER_MEDIA_ITEMS = 1;
+const DM_VIDEO_ASPECT_RATIO = 9 / 16;
 
 const MessageMediaTile = ({
   item,
@@ -130,12 +131,12 @@ const MessageMediaTile = ({
                 activeMediaIndex={index}
                 activeMedia={item}
               >
-                <div className="relative h-full w-full cursor-zoom-in bg-black">
+                <div className="relative h-full w-full cursor-zoom-in bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)]">
                   <AuthenticatedMedia
                     type="video"
                     src={proxiedSrc}
                     alt={item.caption || 'Video'}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-cover"
                     videoProps={{
                       muted: true,
                       playsInline: true,
@@ -203,7 +204,12 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
     if (!width || !height) return;
 
     const rawAspect = width / height;
-    const clampedAspect = Math.max(0.25, Math.min(rawAspect, 4));
+    const normalizedVideoAspect =
+      rawAspect > 1.2 ? height / width : rawAspect;
+    const clampedAspect = Math.max(
+      DM_VIDEO_ASPECT_RATIO,
+      Math.min(normalizedVideoAspect, 0.9)
+    );
     setMediaAspects((previous) => ({ ...previous, [cacheKey]: clampedAspect }));
   };
 
@@ -227,7 +233,11 @@ export const MessageMedia = ({ media, isLoading = false }: MessageMediaProps) =>
               showExplicitContent={Boolean(showExplicitContent)}
               mediaCacheKey={mediaCacheKey}
               mediaAspect={
-                media.length === 1 ? mediaAspects[mediaCacheKey] : undefined
+                media.length === 1
+                  ? item.type === 'video'
+                    ? mediaAspects[mediaCacheKey] ?? DM_VIDEO_ASPECT_RATIO
+                    : mediaAspects[mediaCacheKey]
+                  : undefined
               }
               resolveImageSrc={resolveImageSrc}
               onImageError={handleImageError}

@@ -282,7 +282,8 @@ export const usePostMenuUnlock = (post: PostType) => {
       return;
     }
     if (isAlreadyPurchased) {
-      toast.info('This unlock is already available in your DMs.');
+      // Purchased media is delivered in DMs; never dead-end on "Unlocked".
+      void openUnlockedConversation();
       return;
     }
 
@@ -298,7 +299,14 @@ export const usePostMenuUnlock = (post: PostType) => {
           lockedCount: menuSummary.totalCount,
           compositionLabel: menuSummary.compositionLabel,
           isUnlocked: isAlreadyPurchased,
-          onUnlock: requestUnlock,
+          // Single action entrypoint: unlock when locked, open DM thread when unlocked.
+          onUnlock: () => {
+            if (isAlreadyPurchased) {
+              void openUnlockedConversation();
+              return;
+            }
+            requestUnlock();
+          },
         }
       : undefined;
 

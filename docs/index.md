@@ -23,6 +23,7 @@
 - Observability plan: [`docs/legibility/observability.md`](legibility/observability.md)
 - Reliability budgets: [`docs/reliability/budgets.yaml`](reliability/budgets.yaml)
 - DevTools MCP setup plan: [`docs/tooling/devtools-mcp.md`](tooling/devtools-mcp.md)
+- Codex loop driver: [`docs/tooling/codex-loop.md`](tooling/codex-loop.md)
 
 ## Automation
 - Doc-gardening prompt: [`docs/automation/doc-gardening.prompt.md`](automation/doc-gardening.prompt.md)
