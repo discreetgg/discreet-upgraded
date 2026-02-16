@@ -35,7 +35,6 @@ export const MessageContainer = ({
     retryMessage,
     markAsRead,
     sendTipMessage,
-    sendUnlockMessage,
     reload,
   } = useChat(sender, receiver?.discordId ?? '', conversationId);
 
@@ -247,7 +246,6 @@ export const MessageContainer = ({
                 hasMoreMessages={hasMoreMessages}
                 onLoadOlder={loadOlderMessages}
                 onReloadMessages={reload}
-                onSendUnlockMessage={sendUnlockMessage}
                 scrollRootRef={scrollContainerRef}
                 conversationKey={conversationId}
               />

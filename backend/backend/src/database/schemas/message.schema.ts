@@ -26,6 +26,29 @@ export enum MessageStatus {
   READ = 'read',
 }
 
+export enum PurchaseOriginSurface {
+  FEED = 'feed',
+  PROFILE = 'profile',
+  MENU = 'menu',
+  DM = 'dm',
+  UNKNOWN = 'unknown',
+}
+
+export enum MessagePurchaseType {
+  MENU = 'menu',
+  MEDIA = 'media',
+}
+
+export type MessagePurchaseContext = {
+  originSurface: PurchaseOriginSurface;
+  sourcePostId?: string;
+  sourceMenuId?: string;
+  sourceConversationId?: string;
+  sourceMessageId?: string;
+  sourceLabel?: string;
+  purchaseType?: MessagePurchaseType;
+};
+
 export enum CallStatus {
   INITIATED = 'initiated', // when the caller starts ringing
   IN_WAITROOM = 'in_waitroom',
@@ -84,6 +107,27 @@ export class Message {
     ref: 'Payment',
   })
   paymentTx?: mongoose.Schema.Types.ObjectId;
+
+  @Prop({
+    type: {
+      originSurface: {
+        type: String,
+        enum: Object.values(PurchaseOriginSurface),
+        default: PurchaseOriginSurface.UNKNOWN,
+      },
+      sourcePostId: { type: String },
+      sourceMenuId: { type: String },
+      sourceConversationId: { type: String },
+      sourceMessageId: { type: String },
+      sourceLabel: { type: String },
+      purchaseType: {
+        type: String,
+        enum: Object.values(MessagePurchaseType),
+      },
+    },
+    _id: false,
+  })
+  purchaseContext?: MessagePurchaseContext;
 
   @Prop({ enum: MessageStatus, default: MessageStatus.SENT })
   status: MessageStatus;

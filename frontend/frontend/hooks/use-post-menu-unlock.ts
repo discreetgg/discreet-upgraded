@@ -25,6 +25,7 @@ const toCurrency = (amount: number) =>
   }).format(Number.isFinite(amount) ? amount : 0);
 
 type UnlockDialogState = 'confirm' | 'processing' | 'success';
+type UnlockOriginSurface = 'feed' | 'profile' | 'menu' | 'dm' | 'unknown';
 
 const resolveConversationId = (payload: unknown): string | undefined => {
   const readId = (value: unknown): string | undefined => {
@@ -78,7 +79,10 @@ const resolveConversationLookupId = (payload: unknown): string | undefined => {
   return readId(payload);
 };
 
-export const usePostMenuUnlock = (post: PostType) => {
+export const usePostMenuUnlock = (
+  post: PostType,
+  options?: { originSurface?: UnlockOriginSurface },
+) => {
   const { user: currentUser } = useGlobal();
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
@@ -90,6 +94,7 @@ export const usePostMenuUnlock = (post: PostType) => {
     string | null
   >(null);
   const [isResolvingConversation, setIsResolvingConversation] = useState(false);
+  const originSurface = options?.originSurface ?? 'unknown';
 
   const linkedMenu = post?.linkedMenu ?? null;
   const menuSummary = useMemo(
@@ -197,6 +202,7 @@ export const usePostMenuUnlock = (post: PostType) => {
         sellerId: post.author.discordId,
         buyerId: currentUser.discordId,
         itemCount: menuSummary.totalCount,
+        originSurface,
       });
     },
     onMutate: () => {
@@ -235,10 +241,6 @@ export const usePostMenuUnlock = (post: PostType) => {
           )}.`,
         );
       }
-
-      setTimeout(() => {
-        void openUnlockedConversation(conversationId);
-      }, 250);
     },
     onError: (error: any) => {
       const errorMessage =
@@ -258,9 +260,6 @@ export const usePostMenuUnlock = (post: PostType) => {
         setIsLocallyUnlocked(true);
         setDialogState('success');
         toast.info('This unlock is already available in your DMs.');
-        setTimeout(() => {
-          void openUnlockedConversation();
-        }, 250);
         return;
       }
 

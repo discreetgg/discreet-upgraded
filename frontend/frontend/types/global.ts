@@ -221,6 +221,23 @@ export type MessageMediaType =
   | 'call'
   | 'in_message_media';
 
+export type PurchaseOriginSurface =
+  | 'feed'
+  | 'profile'
+  | 'menu'
+  | 'dm'
+  | 'unknown';
+
+export type MessagePurchaseContextType = {
+  originSurface?: PurchaseOriginSurface;
+  sourcePostId?: string;
+  sourceMenuId?: string;
+  sourceConversationId?: string;
+  sourceMessageId?: string;
+  sourceLabel?: string;
+  purchaseType?: 'menu' | 'media';
+};
+
 export type MessageType = {
   _id: string;
   conversation: string;
@@ -234,6 +251,7 @@ export type MessageType = {
   price?: string;
   paid?: boolean;
   paymentTx?: string;
+  purchaseContext?: MessagePurchaseContextType;
   call: 'audio' | 'video';
   callStatus: string;
   callStartedAt: string;

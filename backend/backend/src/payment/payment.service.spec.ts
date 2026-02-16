@@ -21,24 +21,34 @@ const makeSession = () => ({
 describe('PaymentService - media purchase isolation', () => {
   const walletService = makeWalletService();
   const chatService = {};
-  const chatGateway = {};
+  const chatGateway = {
+    handleSendMenuMessage: jest.fn().mockResolvedValue(undefined),
+  };
   const notificationService = {
     sendEmail: jest.fn().mockResolvedValue(undefined),
     createInAppNotication: jest.fn().mockResolvedValue(undefined),
   };
   const paymentModel = {
     findOne: jest.fn(),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
   };
   const userModel = {
     findOne: jest.fn(),
   };
   const menuModel = {};
   const menuMediaModel = {};
+  const mediaModel = {
+    find: jest.fn(),
+  };
+  const postModel = {};
   const subscriptionPlanModel = {};
   const userSubscriptionModel = {};
   const messageModel = {
     findOne: jest.fn(),
     findByIdAndUpdate: jest.fn(),
+    create: jest
+      .fn()
+      .mockResolvedValue({ _id: new mongoose.Types.ObjectId().toString() }),
   };
   const connection = {
     startSession: jest.fn(),
@@ -59,6 +69,8 @@ describe('PaymentService - media purchase isolation', () => {
       userModel as any,
       menuModel as any,
       menuMediaModel as any,
+      mediaModel as any,
+      postModel as any,
       subscriptionPlanModel as any,
       userSubscriptionModel as any,
       messageModel as any,
@@ -196,6 +208,8 @@ describe('PaymentService - menu purchase plan', () => {
   const userModel = {};
   const menuModel = {};
   const menuMediaModel = {};
+  const mediaModel = {};
+  const postModel = {};
   const subscriptionPlanModel = {};
   const userSubscriptionModel = {};
   const messageModel = {};
@@ -214,6 +228,8 @@ describe('PaymentService - menu purchase plan', () => {
       userModel as any,
       menuModel as any,
       menuMediaModel as any,
+      mediaModel as any,
+      postModel as any,
       subscriptionPlanModel as any,
       userSubscriptionModel as any,
       messageModel as any,

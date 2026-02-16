@@ -23,11 +23,6 @@ interface MessageItemProps {
   onRetryMessage?: (messageId: string) => void;
   onMarkAsRead?: (messageId: string) => void;
   onReloadMessages?: () => Promise<void>;
-  onSendUnlockMessage?: (
-    messageId: string,
-    price: string,
-    sellerId: string,
-  ) => Promise<void>;
   onPromoteMessage?: (messageId: string) => void;
 }
 
@@ -37,7 +32,6 @@ const MessageItemComponent = ({
   onRetryMessage,
   onMarkAsRead,
   onReloadMessages,
-  onSendUnlockMessage,
   onPromoteMessage,
 }: MessageItemProps) => {
   const { user } = useGlobal();
@@ -139,9 +133,10 @@ const MessageItemComponent = ({
   // Canonical paid-media card path for DMs so payable media, bundles, and in-message drops
   // share one visual/interaction model instead of splitting across legacy components.
   const isBundleMessage =
-    ((message.type === 'media' || message.type === 'menu') &&
+    ((message.type === 'media' &&
       mediaArray.length > 0 &&
       Boolean(message.isPayable)) ||
+      (message.type === 'menu' && mediaArray.length > 0)) ||
     (message.type === 'in_message_media' && mediaArray.length > 0);
   const [isBundleUnlocking, setIsBundleUnlocking] = useState(false);
   const [optimisticBundleUnlock, setOptimisticBundleUnlock] = useState(
@@ -160,6 +155,21 @@ const MessageItemComponent = ({
     }
     return undefined;
   }, [message.replyTo]);
+  const unlockSourceLabel = useMemo(() => {
+    const origin = message.purchaseContext?.originSurface ?? 'unknown';
+    switch (origin) {
+      case 'feed':
+        return 'Feed';
+      case 'profile':
+        return 'Profile';
+      case 'menu':
+        return 'Menu';
+      case 'dm':
+        return 'DM';
+      default:
+        return 'Unknown';
+    }
+  }, [message.purchaseContext?.originSurface]);
 
   useEffect(() => {
     setOptimisticBundleUnlock(Boolean(message.paid));
@@ -201,24 +211,12 @@ const MessageItemComponent = ({
         if (onReloadMessages) {
           try {
             await onReloadMessages();
-          } catch (error) {
-            console.error('Error reloading messages after unlock:', error);
+          } catch {
+            toast.info('Media unlocked. Reloading thread failed.');
           }
         }
 
         onPromoteMessage?.(message._id);
-
-        if (message.price && message.sender.discordId) {
-          try {
-            await onSendUnlockMessage?.(
-              message._id,
-              message.price,
-              message.sender.discordId,
-            );
-          } catch (error) {
-            console.error('Failed to send unlock notification message:', error);
-          }
-        }
       })
       .catch((error: { message?: string }) => {
         toast.error('Failed to unlock media', {
@@ -238,7 +236,6 @@ const MessageItemComponent = ({
     message.price,
     message.sender?.discordId,
     onReloadMessages,
-    onSendUnlockMessage,
     onPromoteMessage,
     setIsFundWalletDialogOpen,
     user?.discordId,
@@ -504,6 +501,9 @@ const MessageItemComponent = ({
                         {isOwn 
                           ? 'You have successfully unlocked this content' 
                           : 'Your content has been unlocked'}
+                      </p>
+                      <p className="text-[#9FB4DA] text-[11px] mt-1">
+                        Source: {unlockSourceLabel}
                       </p>
                       <p className="text-[#FF74BE] text-[11px] mt-1 font-medium">
                         Tap to jump to unlocked bundle

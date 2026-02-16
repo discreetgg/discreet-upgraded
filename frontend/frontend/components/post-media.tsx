@@ -209,15 +209,11 @@ export const PostMedia = ({
       key={`locked-slot-${slot}`}
       onClick={(event) => {
         event.stopPropagation();
-        if (!unlockOverlay?.isUnlocked) {
-          unlockOverlay?.onUnlock?.();
-        }
+        unlockOverlay?.onUnlock?.();
       }}
-      disabled={!unlockOverlay?.onUnlock || unlockOverlay?.isUnlocked}
+      disabled={!unlockOverlay?.onUnlock}
       className={`relative overflow-hidden rounded-[10px] border border-[#242934] bg-[linear-gradient(135deg,#171D28_0%,#0D121B_100%)] text-left ${className} ${
-        unlockOverlay?.onUnlock && !unlockOverlay?.isUnlocked
-          ? 'cursor-pointer'
-          : 'cursor-default'
+        unlockOverlay?.onUnlock ? 'cursor-pointer' : 'cursor-default'
       }`}
       style={tileStyle}
     >
@@ -236,7 +232,7 @@ export const PostMedia = ({
           )}
           <div className="absolute inset-x-2 bottom-2 rounded-md border border-[#2F3440] bg-[#141925]/95 px-2 py-1 text-center text-[11px] font-medium text-[#E6EAF2]">
             {unlockOverlay?.isUnlocked
-              ? 'Unlocked'
+              ? 'Open in DMs'
               : `Unlock ${unlockOverlay.priceLabel}`}
           </div>
         </>

@@ -259,23 +259,29 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
         if (summary.totalCount === 0) {
           return [];
         }
+        const purchasedByContext = Boolean(
+          summary.isReceiver &&
+            (summary.purchaseType === 'menu' || summary.purchaseType === 'media'),
+        );
 
-        return summary.allSlots
-          .map((slot) => {
-            if (slot.media.type !== 'image' && slot.media.type !== 'video') {
-              return null;
-            }
+        const tiles: SharedMediaTile[] = [];
+        for (const slot of summary.allSlots) {
+          if (slot.media.type !== 'image' && slot.media.type !== 'video') {
+            continue;
+          }
 
-            return {
-              media: slot.media,
-              messageId: message._id,
-              createdAt:
-                slot.media.createdAt || slot.media.uploadedAt || message.createdAt,
-              isLocked: slot.isLocked,
-              isPurchased: summary.isPurchasedByReceiver && !slot.isLocked,
-            } satisfies SharedMediaTile;
-          })
-          .filter((tile): tile is SharedMediaTile => Boolean(tile));
+          tiles.push({
+            media: slot.media,
+            messageId: message._id,
+            createdAt:
+              slot.media.createdAt || slot.media.uploadedAt || message.createdAt,
+            isLocked: slot.isLocked,
+            isPurchased:
+              (summary.isPurchasedByReceiver || purchasedByContext) &&
+              !slot.isLocked,
+          });
+        }
+        return tiles;
       })
       .sort((a, b) => {
         const aTime = new Date(a.createdAt || 0).getTime();

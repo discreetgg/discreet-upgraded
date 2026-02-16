@@ -1,4 +1,8 @@
-import type { MediaType, MessageType } from '@/types/global';
+import type {
+  MediaType,
+  MessageType,
+  PurchaseOriginSurface,
+} from '@/types/global';
 
 const PREVIEW_CAPTION_HINTS = ['free preview', 'cover image', 'preview'];
 
@@ -21,7 +25,13 @@ export type MessageBundleSummary = {
   isReceiver: boolean;
   isLockedForViewer: boolean;
   isPurchasedByReceiver: boolean;
+  isPurchasedByContext: boolean;
   compositionLabel: string;
+  originSurface: PurchaseOriginSurface;
+  sourcePostId?: string;
+  sourceMenuId?: string;
+  sourceLabel?: string;
+  purchaseType?: 'menu' | 'media';
 };
 
 const isPreviewCaption = (caption?: string) => {
@@ -61,6 +71,7 @@ export const getMessageBundleSummary = (
     overridePaid?: boolean;
   },
 ): MessageBundleSummary => {
+  const purchaseContext = message.purchaseContext ?? {};
   const normalizedMedia = Array.isArray(message.media)
     ? message.media.flatMap((entry, index) => {
         if (!entry || typeof entry === 'string') {
@@ -119,8 +130,19 @@ export const getMessageBundleSummary = (
       : `${totalCount} item${totalCount === 1 ? '' : 's'}`;
 
   const isLockedForViewer = isReceiver && isPayable && lockedSlots.length > 0;
-  const isPurchasedByReceiver =
-    isReceiver && isPayable && !isLockedForViewer && totalCount > 0;
+  const isPurchasedByContext = Boolean(
+    isReceiver &&
+      totalCount > 0 &&
+      (purchaseContext.purchaseType === 'menu' ||
+        purchaseContext.purchaseType === 'media') &&
+      (messageMarkedPaid || !isPayable),
+  );
+  const isPurchasedByReceiver = Boolean(
+    isPurchasedByContext ||
+      (isReceiver && isPayable && !isLockedForViewer && totalCount > 0),
+  );
+  const originSurface: PurchaseOriginSurface =
+    purchaseContext.originSurface ?? 'unknown';
 
   return {
     allSlots,
@@ -134,6 +156,12 @@ export const getMessageBundleSummary = (
     isReceiver,
     isLockedForViewer,
     isPurchasedByReceiver,
+    isPurchasedByContext,
     compositionLabel,
+    originSurface,
+    sourcePostId: purchaseContext.sourcePostId,
+    sourceMenuId: purchaseContext.sourceMenuId,
+    sourceLabel: purchaseContext.sourceLabel,
+    purchaseType: purchaseContext.purchaseType,
   };
 };

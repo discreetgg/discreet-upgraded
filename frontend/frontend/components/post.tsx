@@ -59,6 +59,12 @@ export const Post = ({
   const SHOW_SUBSCRIBE_BUTTON =
     pathname.startsWith('/profile') ||
     pathname.startsWith(`/${post?.author?.username}`);
+  const unlockOriginSurface: 'feed' | 'profile' | 'unknown' =
+    pathname.startsWith('/feed')
+      ? 'feed'
+      : SHOW_SUBSCRIBE_BUTTON
+        ? 'profile'
+        : 'unknown';
   const {
     unlockOverlay,
     linkedMenu,
@@ -71,7 +77,9 @@ export const Post = ({
     openUnlockedConversation,
     confirmUnlock,
     isUnlocking,
-  } = usePostMenuUnlock(post);
+  } = usePostMenuUnlock(post, {
+    originSurface: unlockOriginSurface,
+  });
   const handleSubscribe = () => {
     if (!isAuthenticated) {
       AuthPromptDialog;

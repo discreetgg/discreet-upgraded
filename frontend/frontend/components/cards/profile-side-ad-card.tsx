@@ -311,6 +311,7 @@ export default function ProfileSideAdCard({
       menuId: _id,
       sellerId: author.discordId,
       buyerId: currentUser.discordId,
+      originSurface: "menu",
     });
   };
 
@@ -598,8 +599,14 @@ export default function ProfileSideAdCard({
             </>
           ) : (
             <Button
-              disabled={isPending || isAlreadyPurchased}
-              onClick={() => setConfirmPurchase(true)}
+              disabled={isPending}
+              onClick={() => {
+                if (isAlreadyPurchased) {
+                  setOpenSuccessModal(true);
+                  return;
+                }
+                setConfirmPurchase(true);
+              }}
               className="px-4 md:px-8 w-full sm:w-fit text-xs py-2 rounded-md border-none text-primary bg-off-white relative disabled:opacity-70"
               variant={"ghost"}
               size={"ghost"}
@@ -616,7 +623,7 @@ export default function ProfileSideAdCard({
               </span>
               {isAlreadyPurchased && (
                 <span className="absolute inset-0 flex items-center justify-center text-[#0A0A0A] font-medium">
-                  Unlocked
+                  Open in DMs
                 </span>
               )}
             </Button>
@@ -772,7 +779,7 @@ const SuccessMenuDialog = ({
           >
             {isLoadingConversation && !conversationId
               ? "Loading chat..."
-              : "Check it out!"}
+              : "Open in DMs"}
           </Button>
         </div>
       </SubscribeDialogContent>

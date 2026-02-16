@@ -49,7 +49,7 @@ export const FeedPost = ({ post }: { post: PostType }) => {
     openUnlockedConversation,
     confirmUnlock,
     isUnlocking,
-  } = usePostMenuUnlock(post);
+  } = usePostMenuUnlock(post, { originSurface: 'feed' });
 
   // Handle when someone clicks reply on a comment
   const handleSetReplyToComment = (comment: CommentType | null) => {

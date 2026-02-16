@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -10,8 +11,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  MessagePurchaseType,
   MessageStatus,
   MessageType,
+  PurchaseOriginSurface,
 } from 'src/database/schemas/message.schema';
 import { MediaMetaDto } from 'src/post/dto/create-post.dto';
 
@@ -171,6 +174,57 @@ export class CreateMessageWithoutMediaDto {
   replyTo?: string;
 }
 
+export class MessagePurchaseContextDto {
+  @ApiPropertyOptional({
+    enum: PurchaseOriginSurface,
+    default: PurchaseOriginSurface.UNKNOWN,
+  })
+  @IsOptional()
+  @IsEnum(PurchaseOriginSurface)
+  originSurface?: PurchaseOriginSurface;
+
+  @ApiPropertyOptional({
+    description: 'Source post id for purchase provenance',
+  })
+  @IsOptional()
+  @IsString()
+  sourcePostId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Source menu id for purchase provenance',
+  })
+  @IsOptional()
+  @IsString()
+  sourceMenuId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Source conversation id for purchase provenance',
+  })
+  @IsOptional()
+  @IsString()
+  sourceConversationId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Source message id for purchase provenance',
+  })
+  @IsOptional()
+  @IsString()
+  sourceMessageId?: string;
+
+  @ApiPropertyOptional({ description: 'Readable source label' })
+  @IsOptional()
+  @IsString()
+  sourceLabel?: string;
+
+  @ApiPropertyOptional({
+    enum: MessagePurchaseType,
+    description: 'Type of purchase represented by this message',
+  })
+  @IsOptional()
+  @IsEnum(MessagePurchaseType)
+  purchaseType?: MessagePurchaseType;
+}
+
 export class CreateMessageMenuDto {
   @ApiProperty({
     description: 'id of the sender',
@@ -209,6 +263,51 @@ export class CreateMessageMenuDto {
   @Type(() => String)
   @IsString()
   paymentTx: string;
+
+  @ApiPropertyOptional({
+    description: 'Whether this message should use payable media presentation',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isPayable?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Whether buyer already paid for this media bundle',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  paid?: boolean;
+
+  @ApiPropertyOptional({ description: 'Menu bundle title' })
+  @IsOptional()
+  @Type(() => String)
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Menu bundle description' })
+  @IsOptional()
+  @Type(() => String)
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional message id being referenced',
+  })
+  @IsOptional()
+  @Type(() => String)
+  @IsString()
+  replyTo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Structured purchase provenance payload',
+    type: MessagePurchaseContextDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MessagePurchaseContextDto)
+  purchaseContext?: MessagePurchaseContextDto;
 }
 
 export class CreateInMessageMediaDto {

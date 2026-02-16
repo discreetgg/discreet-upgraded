@@ -14,6 +14,13 @@ import { MessageMediaDialog } from './message-media-dialog';
 import { Icon } from './ui/icons';
 
 const MAX_VISIBLE_CHIPS = 6;
+const ORIGIN_SURFACE_LABELS = {
+  feed: 'Feed',
+  profile: 'Profile',
+  menu: 'Menu',
+  dm: 'DM',
+  unknown: 'Unknown',
+} as const;
 
 const getVideoChipPosterUrl = (rawUrl?: string) => {
   const normalizedUrl = (rawUrl ?? '').trim();
@@ -143,6 +150,15 @@ export const MessageMediaBundleCard = ({
   ]
     .filter(Boolean)
     .join(' • ');
+  const originSurfaceLabel =
+    ORIGIN_SURFACE_LABELS[summary.originSurface] ??
+    ORIGIN_SURFACE_LABELS.unknown;
+  const hasProvenance = Boolean(
+    summary.originSurface !== 'unknown' ||
+      summary.sourceLabel ||
+      summary.sourcePostId,
+  );
+  const provenanceBadgeLabel = `From ${originSurfaceLabel}`;
 
   if (compact) {
     const compactPrimaryCta = summary.isLockedForViewer
@@ -264,6 +280,12 @@ export const MessageMediaBundleCard = ({
           >
             {compactStatusLabel}
           </div>
+          {hasProvenance && (
+            <div className="pointer-events-none absolute left-2 top-9 inline-flex items-center gap-1 rounded-full border border-[#2C3B58] bg-[#0A1222]/80 px-2 py-1 text-[10px] text-[#C9DAFF]">
+              <Icon.unlock className="h-3 w-3" />
+              <span>{provenanceBadgeLabel}</span>
+            </div>
+          )}
           {(titleText || bodyText) && (
             <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md border border-white/15 bg-black/45 px-2 py-1.5 backdrop-blur-sm">
               <p
@@ -374,6 +396,12 @@ export const MessageMediaBundleCard = ({
           {summary.isLockedForViewer ? <Icon.lock className="h-3 w-3" /> : <Icon.unlock className="h-3 w-3" />}
           <span>{summary.compositionLabel}</span>
         </div>
+        {hasProvenance && (
+          <div className="pointer-events-none absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full border border-[#2C3B58] bg-[#0A1222]/85 px-2 py-1 text-[10px] text-[#C9DAFF]">
+            <Icon.unlock className="h-3 w-3" />
+            <span>{provenanceBadgeLabel}</span>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2 border-t border-white/10 bg-[linear-gradient(180deg,rgba(12,15,24,0.9)_0%,rgba(9,12,19,0.95)_100%)] px-3 py-3">
@@ -530,6 +558,12 @@ export const MessageMediaBundleCard = ({
                 title={compact ? bodyText : undefined}
               >
                 {bodyText}
+              </p>
+            )}
+            {hasProvenance && (
+              <p className="mt-1 text-[11px] text-[#9FB4DA]">
+                Source: {originSurfaceLabel}
+                {summary.sourceLabel ? ` • ${summary.sourceLabel}` : ''}
               </p>
             )}
           </div>

@@ -40,7 +40,6 @@ const Page = () => {
     isLoading,
     retryMessage,
     markAsRead,
-    sendUnlockMessage,
     reload,
   } = useChat(
     user,
@@ -92,7 +91,6 @@ const Page = () => {
                 onRetryMessage={retryMessage}
                 onMarkAsRead={markAsRead}
                 onReloadMessages={reload}
-                onSendUnlockMessage={sendUnlockMessage}
                 scrollRootRef={scrollContainerRef}
                 conversationKey={`new:${receiver?.discordId ?? 'unknown'}`}
               />

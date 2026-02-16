@@ -21,11 +21,6 @@ interface MessageChatListProps {
   hasMoreMessages?: boolean;
   onLoadOlder?: () => void;
   onReloadMessages?: () => Promise<void>;
-  onSendUnlockMessage?: (
-    messageId: string,
-    price: string,
-    sellerId: string,
-  ) => Promise<void>;
   scrollRootRef?: RefObject<HTMLDivElement | null>;
   conversationKey?: string;
 }
@@ -44,7 +39,6 @@ export const MessageChatList = ({
   hasMoreMessages = false,
   onLoadOlder,
   onReloadMessages,
-  onSendUnlockMessage,
   scrollRootRef,
   conversationKey,
 }: MessageChatListProps) => {
@@ -590,7 +584,6 @@ export const MessageChatList = ({
                     onRetryMessage={onRetryMessage}
                     onMarkAsRead={onMarkAsRead}
                     onReloadMessages={onReloadMessages}
-                    onSendUnlockMessage={onSendUnlockMessage}
                     onPromoteMessage={handlePromoteMessage}
                   />
                 );

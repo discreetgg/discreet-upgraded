@@ -88,6 +88,7 @@ declare global {
     sellerId: string;
     buyerId: string;
     itemCount: number;
+    originSurface?: "feed" | "profile" | "menu" | "dm" | "unknown";
   }
   type SubscriptionType = {
     creator: {

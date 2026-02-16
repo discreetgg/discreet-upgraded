@@ -14,7 +14,6 @@ import { Conversation } from 'src/database/schemas/conversation.schema';
 import {
   CallStatus,
   Message,
-  MessageDocument,
   MessageStatus,
   MessageType,
 } from 'src/database/schemas/message.schema';
@@ -663,7 +662,7 @@ export class ChatService {
     }
   }
 
-  async sendMenu(dto: CreateMessageMenuDto): Promise<MessageDocument> {
+  async sendMenu(dto: CreateMessageMenuDto): Promise<any> {
     try {
       const conversation = await this.getOrCreateDirectConversation(
         dto.sender,
@@ -683,7 +682,31 @@ export class ChatService {
         lastMessage: message._id,
       });
 
-      return message;
+      const populatedMessage = await this.messageModel
+        .findById(message._id)
+        .populate([
+          {
+            path: 'media',
+          },
+          {
+            path: 'sender',
+            select:
+              '_id discordId username displayName discordAvatar role profileImage',
+          },
+          {
+            path: 'reciever',
+            select:
+              '_id discordId username displayName discordAvatar role profileImage',
+          },
+          {
+            path: 'replyTo',
+            select:
+              '_id conversation sender reciever type text media status isPayable price paid paymentTx purchaseContext title description createdAt updatedAt __v',
+          },
+        ])
+        .lean();
+
+      return this.sanitizeMessageForClient(populatedMessage as any);
     } catch (error) {
       console.log(error);
       this.logger.error(error);
@@ -778,7 +801,7 @@ export class ChatService {
       .populate({
         path: 'replyTo',
         select:
-          '_id conversation sender reciever type text media status isPayable price paid paymentTx call callStatus callStartedAt missed durationInSeconds title description createdAt updatedAt __v',
+          '_id conversation sender reciever type text media status isPayable price paid paymentTx purchaseContext call callStatus callStartedAt missed durationInSeconds title description createdAt updatedAt __v',
       })
       .lean()
       .exec();
@@ -881,7 +904,7 @@ export class ChatService {
       .sort({ createdAt: -1, _id: -1 })
       .limit(safeLimit + 1)
       .select(
-        '_id conversation sender reciever type media isPayable price paid title text createdAt updatedAt',
+        '_id conversation sender reciever type media isPayable price paid purchaseContext title text createdAt updatedAt',
       )
       .populate({
         path: 'sender',
@@ -1001,7 +1024,7 @@ export class ChatService {
       .populate({
         path: 'lastMessage',
         select:
-          'id conversation sender reciever type text media status replyTo createdAt updatedAt',
+          'id conversation sender reciever type text media status replyTo purchaseContext createdAt updatedAt',
         populate: [
           {
             path: 'sender',
@@ -1101,7 +1124,7 @@ export class ChatService {
       .populate({
         path: 'lastMessage',
         select:
-          'id conversation sender reciever type text media status replyTo createdAt updatedAt',
+          'id conversation sender reciever type text media status replyTo purchaseContext createdAt updatedAt',
         populate: [
           {
             path: 'sender',
