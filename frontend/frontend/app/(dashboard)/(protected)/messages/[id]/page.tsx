@@ -114,6 +114,7 @@ const ConversationPage = () => {
   return (
     <div className="relative h-full min-h-0 flex gap-4 w-full min-w-0 overflow-hidden pt-4 md:pt-0">
       <MessageContainer
+        key={conversationId}
         sender={{
           _id: user?.discordId ?? '',
           discordId: user?.discordId ?? '',

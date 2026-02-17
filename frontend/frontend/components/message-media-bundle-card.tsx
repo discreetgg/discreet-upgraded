@@ -13,7 +13,6 @@ import { AuthenticatedMedia } from './authenticated-media';
 import { MessageMediaDialog } from './message-media-dialog';
 import { Icon } from './ui/icons';
 
-const MAX_VISIBLE_CHIPS = 6;
 const ORIGIN_SURFACE_LABELS = {
   feed: 'Feed',
   profile: 'Profile',
@@ -125,18 +124,6 @@ export const MessageMediaBundleCard = ({
   const priceLabel = formatBundlePriceLabel(message.price);
   const titleText = (message.title || '').trim();
   const bodyText = (message.description || message.text || '').trim();
-
-  const visiblePreviewCount = summary.isLockedForViewer
-    ? Math.min(summary.previewSlots.length, 4)
-    : Math.min(summary.previewSlots.length, MAX_VISIBLE_CHIPS);
-  const visibleLockedCount = summary.isLockedForViewer
-    ? Math.min(
-        summary.lockedSlots.length,
-        Math.max(0, MAX_VISIBLE_CHIPS - visiblePreviewCount),
-      )
-    : 0;
-  const hiddenCount =
-    summary.totalCount - visiblePreviewCount - visibleLockedCount;
 
   const canUnlock = summary.isLockedForViewer && Boolean(onUnlock);
   const compactStatusLabel = summary.isLockedForViewer
@@ -406,7 +393,7 @@ export const MessageMediaBundleCard = ({
 
       <div className="space-y-2 border-t border-white/10 bg-[linear-gradient(180deg,rgba(12,15,24,0.9)_0%,rgba(9,12,19,0.95)_100%)] px-3 py-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-          {summary.previewSlots.slice(0, visiblePreviewCount).map((slot, index) => (
+          {summary.previewSlots.map((slot, index) => (
             <button
               type="button"
               key={`preview-chip-${slot.media._id || slot.media.url}-${index}`}
@@ -479,7 +466,7 @@ export const MessageMediaBundleCard = ({
           ))}
 
           {summary.isLockedForViewer &&
-            Array.from({ length: visibleLockedCount }, (_, index) => (
+            Array.from({ length: summary.lockedSlots.length }, (_, index) => (
               <div
                 key={`locked-chip-${message._id}-${index}`}
                 className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-white/20 bg-[linear-gradient(160deg,rgba(255,255,255,0.14),rgba(255,255,255,0.04))] text-white"
@@ -488,12 +475,6 @@ export const MessageMediaBundleCard = ({
                 <Icon.lock className="relative h-3.5 w-3.5" />
               </div>
             ))}
-
-          {hiddenCount > 0 && (
-            <div className="inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-[10px] border border-white/20 bg-[#111926]/80 px-2 text-xs font-semibold text-[#F1F5FF]">
-              +{hiddenCount}
-            </div>
-          )}
         </div>
 
         {summary.isLockedForViewer && onUnlock ? (

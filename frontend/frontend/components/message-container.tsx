@@ -10,6 +10,7 @@ import { ComponentLoader } from './ui/component-loader';
 import { DmMenuCreation } from './dm-menu-creation';
 
 const BOTTOM_STICK_THRESHOLD_PX = 96;
+const INITIAL_BOTTOM_STICK_WINDOW_MS = 1200;
 
 export const MessageContainer = ({
   sender,
@@ -48,6 +49,7 @@ export const MessageContainer = ({
   const isInitialLoadRef = useRef(true);
   const wasShowingDMMenuRef = useRef(false);
   const isAtBottomRef = useRef(true);
+  const initialBottomStickUntilRef = useRef(0);
 
   // Keep direct access to the newest message for scroll decisions.
   const newestMessage = useMemo(() => {
@@ -92,10 +94,23 @@ export const MessageContainer = ({
     }
   }, []);
 
+  const snapToBottomImmediately = useCallback(() => {
+    const root = scrollContainerRef.current;
+    if (!root) {
+      return;
+    }
+
+    root.scrollTop = root.scrollHeight;
+    isAtBottomRef.current = true;
+    setShowJumpToLatest(false);
+  }, []);
+
   useEffect(() => {
+    initialBottomStickUntilRef.current = 0;
     isInitialLoadRef.current = true;
     isAtBottomRef.current = true;
     setShowJumpToLatest(false);
+    prevNewestMessageIdRef.current = null;
   }, [conversationId]);
 
   useLayoutEffect(() => {
@@ -112,11 +127,13 @@ export const MessageContainer = ({
       return;
     }
 
-    root.scrollTop = root.scrollHeight;
+    snapToBottomImmediately();
+    initialBottomStickUntilRef.current =
+      Date.now() + INITIAL_BOTTOM_STICK_WINDOW_MS;
     isInitialLoadRef.current = false;
     isAtBottomRef.current = true;
     setShowJumpToLatest(false);
-  }, [conversationId, isLoading, messages.length, showDMMenu]);
+  }, [conversationId, isLoading, messages.length, showDMMenu, snapToBottomImmediately]);
 
   useEffect(() => {
     const root = scrollContainerRef.current;
@@ -127,6 +144,9 @@ export const MessageContainer = ({
     const handleScroll = () => {
       const atBottom = isNearBottom();
       isAtBottomRef.current = atBottom;
+      if (!atBottom) {
+        initialBottomStickUntilRef.current = 0;
+      }
       if (atBottom) {
         setShowJumpToLatest(false);
       }
@@ -136,6 +156,31 @@ export const MessageContainer = ({
     root.addEventListener('scroll', handleScroll, { passive: true });
     return () => root.removeEventListener('scroll', handleScroll);
   }, [conversationId, isNearBottom]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root || showDMMenu || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const content = root.firstElementChild;
+    if (!content) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const stillWithinInitialStickWindow =
+        Date.now() <= initialBottomStickUntilRef.current;
+      if (!stillWithinInitialStickWindow || !isAtBottomRef.current) {
+        return;
+      }
+
+      root.scrollTop = root.scrollHeight;
+    });
+
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [conversationId, isLoading, messages.length, showDMMenu]);
 
   useEffect(() => {
     // Only scroll to bottom on initial load or when a NEW message is added (sent/received)
@@ -150,7 +195,13 @@ export const MessageContainer = ({
         newestMessage?.sender.discordId === sender?.discordId;
 
       if (isInitialLoad || justClosedDMMenu) {
-        scrollToBottom();
+        if (isInitialLoad) {
+          snapToBottomImmediately();
+          initialBottomStickUntilRef.current =
+            Date.now() + INITIAL_BOTTOM_STICK_WINDOW_MS;
+        } else {
+          scrollToBottom();
+        }
         isInitialLoadRef.current = false;
       } else if (isNewMessageAdded) {
         if (newestMessageFromCurrentUser || isAtBottomRef.current) {
@@ -167,6 +218,7 @@ export const MessageContainer = ({
     messages.length,
     newestMessage,
     newestMessageId,
+    snapToBottomImmediately,
     scrollToBottom,
     sender?.discordId,
     showDMMenu,
