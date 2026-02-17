@@ -155,21 +155,6 @@ const MessageItemComponent = ({
     }
     return undefined;
   }, [message.replyTo]);
-  const unlockSourceLabel = useMemo(() => {
-    const origin = message.purchaseContext?.originSurface ?? 'unknown';
-    switch (origin) {
-      case 'feed':
-        return 'Feed';
-      case 'profile':
-        return 'Profile';
-      case 'menu':
-        return 'Menu';
-      case 'dm':
-        return 'DM';
-      default:
-        return 'Unknown';
-    }
-  }, [message.purchaseContext?.originSurface]);
 
   useEffect(() => {
     setOptimisticBundleUnlock(Boolean(message.paid));
@@ -501,9 +486,6 @@ const MessageItemComponent = ({
                         {isOwn 
                           ? 'You have successfully unlocked this content' 
                           : 'Your content has been unlocked'}
-                      </p>
-                      <p className="text-[#9FB4DA] text-[11px] mt-1">
-                        Source: {unlockSourceLabel}
                       </p>
                       <p className="text-[#FF74BE] text-[11px] mt-1 font-medium">
                         Tap to jump to unlocked bundle
