@@ -21,7 +21,7 @@ export function usePrefetchPages(userId: string | undefined) {
 
         // Prefetch conversations
         queryClient.prefetchQuery({
-            queryKey: ['conversations'],
+            queryKey: ['conversations', userId, 'badge'],
             queryFn: () => getConversationsService(),
             staleTime: 30 * 1000, // 30 seconds
         });

@@ -94,29 +94,9 @@ export class WebhooksController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    // // ------------------------------
-    // // Allow any origin for webhooks
-    // // ------------------------------
-    // res.setHeader('Access-Control-Allow-Origin', '*');
-    // res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    // res.setHeader('Access-Control-Allow-Headers', '*');
-
-    // ------------------------------
-    // Log headers and payload
-    // ------------------------------
-    console.log('================ ONDATO WEBHOOK =================');
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Payload:', JSON.stringify(payload, null, 2));
-    console.log('=================================================');
-
-    // ------------------------------
-    // Optional auth validation
-    // ------------------------------
-    // const authHeader = req.headers['authorization'] as string;
-    // const signature = req.headers['x-ondato-signature'] as string;
-    // this.webhookService.validateBasicAuth(authHeader);
-    // this.webhookService.validateOAuth2Token(authHeader);
-    // this.webhookService.validateHmacSignature(payload, signature);
+    const authHeader = req.headers['authorization'] as string;
+    const signature = req.headers['x-ondato-signature'] as string;
+    this.webhookService.validateWebhookRequest(payload, authHeader, signature);
 
     // ------------------------------
     // Handle webhook payload

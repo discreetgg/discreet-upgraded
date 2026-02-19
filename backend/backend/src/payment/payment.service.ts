@@ -8,8 +8,11 @@ import {
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { Menu } from 'src/database/schemas/menu.schema';
-// import { TransactionType } from 'src/database/schemas/transaction.schema';
+import {
+  CollectionType,
+  Menu,
+  PromoType,
+} from 'src/database/schemas/menu.schema';
 import { User } from 'src/database/schemas/user.schema';
 import { WalletService } from 'src/wallet/wallet.service';
 import { TipDto } from './dto/tip.dto';
@@ -28,28 +31,265 @@ import {
   UserSubscription,
 } from 'src/database/schemas/user-subscription.schema';
 import { PayInMessageMediaAssetDto } from './dto/pay-in-message-asset.dto';
-import { Message } from 'src/database/schemas/message.schema';
+import {
+  Message,
+  MessagePurchaseContext,
+  MessagePurchaseType,
+  MessageStatus,
+  MessageType,
+  PurchaseOriginSurface,
+} from 'src/database/schemas/message.schema';
 import { ChatService } from 'src/chat/chat.service';
 import { CreateMessageMenuDto } from 'src/chat/dto/create-message.dto';
 import { ChatGateway } from 'src/chat/chat.gateway';
 import {
   Transaction,
   TransactionStatus,
-  TransactionType,
 } from 'src/database/schemas/transaction.schema';
 import { PayCallDto } from './dto/pay-call.dto';
-import { Wallet } from 'src/database/schemas/wallet.schema';
 import { MenuMedia } from 'src/database/schemas/menu-media.schema';
 import {
   CreateNotificationDto,
   NotificationEntityType,
 } from 'src/notification/dto/in-app-notification.dto';
-// import { PayCallDto } from './dto/pay-call.dto';
-
+import { Media } from 'src/database/schemas/media.schema';
+import { Post } from 'src/database/schemas/post.schema';
+import {
+  getOrderedMenuPreviewMediaIds,
+  getSourcePostPreviewMediaIds,
+} from './menu-preview-resolver';
 @Injectable()
 export class PaymentService {
   private logger = new Logger(PaymentService.name);
-
+  private static readonly MENU_PURCHASE_MODE = {
+    SINGLE: 'single',
+    BUNDLE: 'bundle',
+  } as const;
+  private getMenuPurchasePlan(
+    menu: Pick<Menu, 'collectionType' | 'itemCount' | 'priceToView' | 'promo'>,
+  ) {
+    const pricing = this.resolveMenuUnitPricing(menu);
+    if (pricing.appliedUnitPrice <= 0) {
+      throw new BadRequestException(
+        'Menu price is invalid. Ask the seller to update this menu item.',
+      );
+    }
+    const normalizedItemCount = Math.max(
+      1,
+      Number.isFinite(menu.itemCount)
+        ? Math.floor(menu.itemCount as number)
+        : 1,
+    );
+    const isBundleMenu =
+      menu.collectionType === CollectionType.BUNDLES || normalizedItemCount > 1;
+    const quantity = isBundleMenu ? normalizedItemCount : 1;
+    const totalPrice = pricing.appliedUnitPrice;
+    const mode = isBundleMenu
+      ? PaymentService.MENU_PURCHASE_MODE.BUNDLE
+      : PaymentService.MENU_PURCHASE_MODE.SINGLE;
+    return {
+      mode,
+      quantity,
+      itemCount: normalizedItemCount,
+      unitPrice: pricing.appliedUnitPrice,
+      baseUnitPrice: pricing.baseUnitPrice,
+      discountPerItem: pricing.discountPerItem,
+      promoApplied: pricing.promoApplied,
+      promoMetadata: pricing.promoMetadata,
+      totalPrice,
+    };
+  }
+  private resolveMenuUnitPricing(
+    menu: Pick<Menu, 'priceToView' | 'promo'>,
+    now: Date = new Date(),
+  ) {
+    const baseUnitPrice = Number(menu.priceToView);
+    if (!Number.isFinite(baseUnitPrice) || baseUnitPrice <= 0) {
+      return {
+        baseUnitPrice: 0,
+        appliedUnitPrice: 0,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+    const promo = menu.promo;
+    if (!promo?.isEnabled) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+    const startsAt = promo.startsAt ? new Date(promo.startsAt) : null;
+    const endsAt = promo.endsAt ? new Date(promo.endsAt) : null;
+    const isBeforePromoWindow = startsAt && now < startsAt;
+    const isAfterPromoWindow = endsAt && now > endsAt;
+    if (isBeforePromoWindow || isAfterPromoWindow) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+    const promoValue = Number(promo.value);
+    if (!Number.isFinite(promoValue) || promoValue <= 0) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+    let discountPerItem =
+      promo.type === PromoType.PERCENTAGE
+        ? (baseUnitPrice * promoValue) / 100
+        : promoValue;
+    discountPerItem = Math.max(0, Math.min(discountPerItem, baseUnitPrice));
+    const appliedUnitPrice = Number(
+      (baseUnitPrice - discountPerItem).toFixed(2),
+    );
+    if (appliedUnitPrice <= 0) {
+      return {
+        baseUnitPrice,
+        appliedUnitPrice: baseUnitPrice,
+        discountPerItem: 0,
+        promoApplied: false,
+        promoMetadata: null,
+      };
+    }
+    return {
+      baseUnitPrice,
+      appliedUnitPrice,
+      discountPerItem: Number(discountPerItem.toFixed(2)),
+      promoApplied: true,
+      promoMetadata: {
+        type: promo.type,
+        value: promo.value,
+        startsAt: promo.startsAt,
+        endsAt: promo.endsAt,
+        message: promo.message ?? '',
+      },
+    };
+  }
+  private async getOrderedMenuMedia(menu: {
+    media?: Array<string | Types.ObjectId>;
+  }) {
+    const menuMediaIds = (menu.media ?? []).map((id) => id.toString());
+    if (menuMediaIds.length === 0) {
+      return [];
+    }
+    const menuMediaDocs = await this.menuMediaModel
+      .find({
+        _id: {
+          $in: menuMediaIds.map((id) => new Types.ObjectId(id)),
+        },
+      })
+      .select('_id media')
+      .lean();
+    const menuMediaById = new Map(
+      menuMediaDocs.map((doc) => [doc._id.toString(), doc]),
+    );
+    return menuMediaIds
+      .map((id) => menuMediaById.get(id))
+      .filter((doc): doc is (typeof menuMediaDocs)[number] => Boolean(doc));
+  }
+  private async findExistingCompletedMenuPurchase(args: {
+    buyerUserId: Types.ObjectId;
+    sellerUserId: Types.ObjectId;
+    menuId: Types.ObjectId;
+  }) {
+    const { buyerUserId, sellerUserId, menuId } = args;
+    return this.paymentModel
+      .findOne({
+        type: PaymentType.MENU_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyerUserId,
+        receiver: sellerUserId,
+        'meta.menuId': menuId.toString(),
+      })
+      .sort({ createdAt: -1 });
+  }
+  private normalizeOriginSurface(surface?: string | PurchaseOriginSurface) {
+    if (!surface) {
+      return PurchaseOriginSurface.UNKNOWN;
+    }
+    const normalized = surface.toString().trim().toLowerCase();
+    switch (normalized) {
+      case PurchaseOriginSurface.FEED:
+      case PurchaseOriginSurface.PROFILE:
+      case PurchaseOriginSurface.MENU:
+      case PurchaseOriginSurface.DM:
+        return normalized as PurchaseOriginSurface;
+      default:
+        return PurchaseOriginSurface.UNKNOWN;
+    }
+  }
+  private readDeliveryMeta(meta: Record<string, any> | undefined) {
+    const delivery =
+      meta && typeof meta.delivery === 'object' ? meta.delivery : null;
+    if (!delivery) {
+      return {
+        conversationId: null as string | null,
+        messageId: null as string | null,
+        receiptMessageId: null as string | null,
+      };
+    }
+    const readString = (value: unknown) => {
+      if (typeof value !== 'string') return null;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+    return {
+      conversationId: readString(delivery.conversationId),
+      messageId: readString(delivery.messageId),
+      receiptMessageId: readString(delivery.receiptMessageId),
+    };
+  }
+  private buildMenuPurchaseContext(args: {
+    menuId: string;
+    menuTitle: string;
+    sourcePostId?: string | null;
+    originSurface?: string | PurchaseOriginSurface;
+    sourceConversationId?: string;
+    sourceMessageId?: string;
+  }): MessagePurchaseContext {
+    return {
+      originSurface: this.normalizeOriginSurface(args.originSurface),
+      sourcePostId: args.sourcePostId ?? undefined,
+      sourceMenuId: args.menuId,
+      sourceConversationId: args.sourceConversationId,
+      sourceMessageId: args.sourceMessageId,
+      sourceLabel: args.menuTitle,
+      purchaseType: MessagePurchaseType.MENU,
+    };
+  }
+  private async createPurchaseReceiptMessage(args: {
+    conversationId: string | Types.ObjectId;
+    buyerUserId: string;
+    sellerUserId: string;
+    replyToMessageId: string;
+    priceInDollars: string;
+    purchaseContext?: MessagePurchaseContext;
+  }) {
+    const receiptText = `Content unlocked for $${args.priceInDollars}`;
+    return this.messageModel.create({
+      conversation: args.conversationId,
+      sender: args.buyerUserId,
+      reciever: args.sellerUserId,
+      type: MessageType.TEXT,
+      text: receiptText,
+      status: MessageStatus.SENT,
+      price: args.priceInDollars,
+      replyTo: args.replyToMessageId,
+      purchaseContext: args.purchaseContext,
+    });
+  }
   constructor(
     private readonly walletService: WalletService,
     @Inject(forwardRef(() => ChatService))
@@ -63,6 +303,8 @@ export class PaymentService {
     @InjectModel(Menu.name) private readonly menuModel: Model<Menu>,
     @InjectModel(MenuMedia.name)
     private readonly menuMediaModel: Model<MenuMedia>,
+    @InjectModel(Media.name) private readonly mediaModel: Model<Media>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
     @InjectModel(SubscriptionPlan.name)
     private readonly subscriptionPlanModel: Model<SubscriptionPlan>,
     @InjectModel(UserSubscription.name)
@@ -71,34 +313,21 @@ export class PaymentService {
     private readonly messageModel: Model<Message>,
     @InjectConnection() private readonly connection: Connection,
     @InjectModel(Transaction.name) private txModel: Model<Transaction>,
-    @InjectModel(Wallet.name) private walletModel: Model<Wallet>,
   ) {}
-
-  // private calcFee(amount: number) {
-  //   const fee = Number((amount * PLATFORM_FEE_PERCENT).toFixed(2));
-  //   const net = Number((amount - fee).toFixed(2));
-  //   return { fee, net };
-  // }
-
   async reservePayment(
     payerId: string,
     amount: number,
     meta: any,
     session?: ClientSession,
   ) {
-    // Reserve funds from the payer’s wallet
     const resTx = await this.walletService.reserve(
       payerId,
       amount,
       meta,
       session,
     );
-
-    // Safely derive receiver
     const receiverId = meta.toUser || meta.receiverId;
     if (!receiverId) throw new BadRequestException('Missing receiver in meta');
-
-    // Prepare payment data
     const paymentData = {
       payer: payerId,
       receiver: receiverId,
@@ -108,15 +337,11 @@ export class PaymentService {
       debitTx: resTx.tx._id,
       status: PaymentStatus.RESERVED,
     };
-
-    // Create payment record (within same session)
     const [payment] = await this.paymentModel.create([paymentData], {
       session,
     });
-
     return payment;
   }
-
   async reserveCallPayment(
     payerId: string,
     amount: number,
@@ -124,7 +349,6 @@ export class PaymentService {
     paymentTxId?: string,
     session?: ClientSession,
   ) {
-    let resTx = null;
     if (paymentTxId) {
       const newResTx = await this.walletService.reserve(
         payerId,
@@ -132,27 +356,32 @@ export class PaymentService {
         meta,
         session,
       );
-      const payment = await this.paymentModel.findOneAndUpdate(
+      const paymentQuery = this.paymentModel.findByIdAndUpdate(
+        paymentTxId,
         {
-          _id: paymentTxId,
-        },
-        {
-          $push: { batchDebitTx: newResTx.tx._id.toString() },
+          $push: { batchDebitTx: newResTx.tx._id },
           $inc: { amount: this.walletService.toCent(amount) },
         },
+        { new: true },
       );
-
+      if (session) paymentQuery.session(session);
+      const payment = await paymentQuery;
+      if (!payment) {
+        throw new NotFoundException(
+          'Call payment reservation record not found',
+        );
+      }
       return payment;
     } else {
-      // Reserve funds from the caller’s wallet
-      resTx = await this.walletService.reserve(payerId, amount, meta, session);
-
-      // Safely derive receiver
+      const resTx = await this.walletService.reserve(
+        payerId,
+        amount,
+        meta,
+        session,
+      );
       const receiverId = meta.toUser || meta.receiverId;
       if (!receiverId)
         throw new BadRequestException('Missing receiver in meta');
-
-      // Prepare payment data
       const paymentData = {
         payer: payerId,
         receiver: receiverId,
@@ -160,18 +389,53 @@ export class PaymentService {
         type: meta.type,
         meta: meta ?? null,
         debitTx: resTx.tx._id,
+        batchDebitTx: [resTx.tx._id],
         status: PaymentStatus.RESERVED,
       };
-
-      // Create payment record (within same session)
       const [payment] = await this.paymentModel.create([paymentData], {
         session,
       });
-
       return payment;
     }
   }
-
+  async hasCompletedMediaPurchaseForBuyer(
+    messageAssetId: string,
+    buyerUserId: string,
+  ): Promise<boolean> {
+    const existingPayment = await this.paymentModel.exists({
+      type: PaymentType.MEDIA_PURCHASE,
+      status: PaymentStatus.COMPLETED,
+      payer: new Types.ObjectId(buyerUserId),
+      'meta.MessageAsset': messageAssetId,
+    });
+    return Boolean(existingPayment);
+  }
+  async getCompletedMediaPurchaseAssetIdsForBuyer(
+    buyerUserId: string,
+    messageAssetIds: string[],
+  ): Promise<Set<string>> {
+    if (messageAssetIds.length === 0) {
+      return new Set<string>();
+    }
+    const normalizedIds = [...new Set(messageAssetIds)];
+    const payments = await this.paymentModel
+      .find({
+        type: PaymentType.MEDIA_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: new Types.ObjectId(buyerUserId),
+        'meta.MessageAsset': { $in: normalizedIds },
+      })
+      .select('meta.MessageAsset')
+      .lean();
+    const entitledIds = new Set<string>();
+    for (const payment of payments) {
+      const id = payment?.meta?.MessageAsset;
+      if (typeof id === 'string' && id.length > 0) {
+        entitledIds.add(id);
+      }
+    }
+    return entitledIds;
+  }
   async commitPayment(paymentId: string, session?: ClientSession) {
     let localSession = false;
     if (!session) {
@@ -179,32 +443,16 @@ export class PaymentService {
       session.startTransaction();
       localSession = true;
     }
-
     try {
       const payment = await this.paymentModel
         .findById(paymentId)
         .session(session);
-
       if (!payment || payment.status !== PaymentStatus.RESERVED)
         throw new BadRequestException('Invalid or non-reserved payment');
-
-      // --- Step 1: Commit the reserved funds (payer debit)
       const { commitTx } = await this.walletService.commitReservation(
         payment.debitTx.toString(),
         session,
       );
-
-      // --- Step 2: Credit the receiver
-      // const creditTx = await this.walletService.credit(
-      //   payment.receiver.toString(),
-      //   this.walletService.toDollar(payment.amount),
-      //   {
-      //     type: payment.type,
-      //     fromUser: payment.payer.toString(),
-      //     referencePaymentId: payment._id,
-      //   },
-      //   session,
-      // );
       const meta = { ...payment.meta, referencePaymentId: payment._id };
       const creditTx = await this.walletService.credit(
         payment.receiver.toString(),
@@ -212,57 +460,43 @@ export class PaymentService {
         meta,
         session,
       );
-
-      // --- Step 3: Update payment record
       payment.debitTx = commitTx._id;
       payment.creditTx = creditTx.tx._id;
       payment.status = PaymentStatus.COMPLETED;
       await payment.save({ session });
-
       if (localSession) {
         await session.commitTransaction();
       }
-
       return payment;
     } catch (err) {
       if (localSession) {
         await session.abortTransaction();
       }
-
-      // update status to FAILED outside session
       try {
         await this.paymentModel.findByIdAndUpdate(paymentId, {
           status: PaymentStatus.FAILED,
         });
-      } catch {
-        // ignore
-      }
-
+      } catch {}
       throw err;
     } finally {
       if (localSession) await session.endSession();
     }
   }
-
   async releasePayment(paymentId: string) {
     const session = await this.connection.startSession();
     try {
       session.startTransaction();
-
       const payment = await this.paymentModel
         .findById(paymentId)
         .session(session);
       if (!payment || payment.status !== PaymentStatus.RESERVED)
         throw new BadRequestException('Invalid payment for release');
-
       await this.walletService.releaseReservation(
         payment.debitTx.toString(),
         session,
       );
-
       payment.status = PaymentStatus.RELEASED;
       await payment.save({ session });
-
       await session.commitTransaction();
       return payment;
     } catch (err) {
@@ -272,36 +506,28 @@ export class PaymentService {
       await session.endSession();
     }
   }
-
   async tipCreator(dto: TipDto) {
     if (dto.receiverId === dto.tipperId) {
       throw new Error('You cant tip yourself');
     }
-
     const tipperWallet = await this.walletService.getWallet(dto.tipperId);
     const sellerWallet = await this.walletService.getWallet(dto.receiverId);
-
     if (!tipperWallet) throw new Error('User does not have an active wallet');
     if (!sellerWallet) throw new Error('Seller does not have an active wallet');
-
     if (tipperWallet.balance < dto.amount) {
       throw new BadRequestException('Insufficient funds');
     }
-
     const tipper = await this.userModel.findOne({ discordId: dto.tipperId });
     const receiver = await this.userModel.findOne({
       discordId: dto.receiverId,
     });
-
     const meta = {
       type: PaymentType.TIP,
       fromUser: tipper._id.toString(),
       toUser: receiver._id.toString(),
       ...(dto.postId && { post: dto.postId }),
     };
-
     const session = await this.connection.startSession();
-
     try {
       const payment = await this.reservePayment(
         tipper._id.toString(),
@@ -309,24 +535,19 @@ export class PaymentService {
         meta,
         session,
       );
-
       const result = await this.commitPayment(payment._id.toString());
-
-      // ✅ Only send notifications if payment succeeded
       const receiverMailPayload: SendEmailDto = {
         recipients: [receiver.email],
         subject: 'TIP NOTIFICATION',
         html: `<h1>Hello ${receiver.username}!</h1>
              <p>${tipper.username} tipped you $${dto.amount}.</p>`,
       };
-
       const senderMailPayload: SendEmailDto = {
         recipients: [tipper.email],
         subject: 'TIP NOTIFICATION',
         html: `<h1>Hello ${tipper.username}!</h1>
              <p>You tipped ${receiver.username} $${dto.amount}.</p>`,
       };
-
       const inAppNotficationPayload: CreateNotificationDto = {
         user: receiver._id.toString(),
         sender: tipper._id.toString(),
@@ -337,36 +558,20 @@ export class PaymentService {
           ...(dto.postId && { post: dto.postId }),
         },
       };
-
       await Promise.allSettled([
         this.notificationService.sendEmail(senderMailPayload),
         this.notificationService.sendEmail(receiverMailPayload),
         this.notificationService.createInAppNotication(inAppNotficationPayload),
       ]);
-
-      // return result;
       result.amount = this.walletService.toDollar(result.amount);
       return { success: true, message: 'Tip sent successfully', tx: result };
     } catch (err) {
-      // You can optionally send a “failed tip” email here if desired
       throw err;
     } finally {
       await session.endSession();
     }
   }
-
   async buyMenu(dto: BuyMenuDto) {
-    // const buyerWallet = await this.walletService.getWallet(dto.buyerId);
-    // const sellerWallet = await this.walletService.getWallet(dto.sellerId);
-    // const menu = await this.menuModel.findById(dto.menuId);
-
-    // const buyer = await this.userModel.findOne({
-    //   discordId: dto.buyerId,
-    // });
-    // const seller = await this.userModel.findOne({
-    //   discordId: dto.sellerId,
-    // });
-
     const [buyerWallet, sellerWallet, menu, buyer, seller] = await Promise.all([
       this.walletService.getWallet(dto.buyerId),
       this.walletService.getWallet(dto.sellerId),
@@ -374,176 +579,299 @@ export class PaymentService {
       this.userModel.findOne({ discordId: dto.buyerId }),
       this.userModel.findOne({ discordId: dto.sellerId }),
     ]);
-
     if (!buyerWallet)
       throw new BadRequestException('User does not have an active wallet');
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!menu) throw new NotFoundException('Menu does not exist');
-
-    if (menu.itemCount === menu.itemSold) {
-      throw new BadRequestException('This menu has been sold out');
-    }
-
-    if (menu.itemCount === menu.itemSold) {
-      throw new BadRequestException('This menu has been sold out');
+    if (!buyer || !seller) throw new NotFoundException('User does not exist');
+    if (String(menu.owner) !== seller._id.toString()) {
+      throw new BadRequestException('Menu seller mismatch');
     }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot buy your own menu');
     }
-
-    // fetch random unsold media
-    const unSoldMedia = await this.getRandomUnsoldMedia(
-      menu._id.toString(),
-      dto.itemCount ?? null,
+    const orderedMenuMedia = await this.getOrderedMenuMedia({
+      media: (menu.media ?? []).map((id) => id.toString()),
+    });
+    if (orderedMenuMedia.length === 0) {
+      throw new NotFoundException('No media found for this menu');
+    }
+    const purchasePlan = this.getMenuPurchasePlan({
+      collectionType: menu.collectionType,
+      itemCount: orderedMenuMedia.length,
+      priceToView: menu.priceToView,
+      promo: menu.promo,
+    });
+    const selectedMenuMedia =
+      purchasePlan.mode === PaymentService.MENU_PURCHASE_MODE.BUNDLE
+        ? orderedMenuMedia
+        : orderedMenuMedia.slice(0, 1);
+    const purchasedMedia = selectedMenuMedia.map((entry) => entry.media);
+    const purchasedMediaIds = purchasedMedia.map((mediaId) =>
+      mediaId.toString(),
     );
-    // console.log(unSoldMedia);
-    if (unSoldMedia.length == 0) {
-      if (dto.itemCount && dto.itemCount > 1) {
-        throw new BadRequestException(
-          ` Unsold media available, less than requested count of ${dto.itemCount}`,
-        );
-      } else {
-        throw new NotFoundException('No unsold media found for this menu');
-      }
+    const sourcePostId = menu.sourcePost ? menu.sourcePost.toString() : null;
+    const sourcePostPreviewMediaIds = await getSourcePostPreviewMediaIds({
+      postModel: this.postModel,
+      ownerId: seller._id as Types.ObjectId,
+      sourcePostId,
+    });
+    const previewMediaIds =
+      sourcePostPreviewMediaIds.length > 0
+        ? sourcePostPreviewMediaIds
+        : await getOrderedMenuPreviewMediaIds({
+            mediaModel: this.mediaModel,
+            ownerId: seller._id as Types.ObjectId,
+            previewMedia: menu.previewMedia,
+            coverPublicId: menu.coverImage?.public_id ?? null,
+          });
+    const deliveredMediaIds = Array.from(
+      new Set([...previewMediaIds, ...purchasedMediaIds]),
+    );
+    const purchasedCount = purchasedMedia.length;
+    const purchasedLabel =
+      purchasedCount === 1 ? 'menu item' : `${purchasedCount} bundle items`;
+    const purchasedLabelForBuyer =
+      purchasedCount === 1
+        ? `menu item "${menu.title}"`
+        : `${purchasedCount} items from "${menu.title}" bundle`;
+    const originSurface = this.normalizeOriginSurface(dto.originSurface);
+    const existingPayment = await this.findExistingCompletedMenuPurchase({
+      buyerUserId: buyer._id as Types.ObjectId,
+      sellerUserId: seller._id as Types.ObjectId,
+      menuId: menu._id as Types.ObjectId,
+    });
+    if (existingPayment) {
+      const totalPaid = this.walletService.toDollar(existingPayment.amount);
+      const existingDelivery = this.readDeliveryMeta(
+        existingPayment.meta as Record<string, any> | undefined,
+      );
+      return {
+        success: true,
+        alreadyUnlocked: true,
+        message: 'Menu already unlocked',
+        tx: {
+          _id: existingPayment._id,
+          amount: totalPaid,
+          status: existingPayment.status,
+        },
+        purchaseSummary: {
+          mode: purchasePlan.mode,
+          quantity: purchasedCount,
+          label: purchasedLabel,
+          baseUnitPrice: purchasePlan.baseUnitPrice,
+          unitPrice: purchasePlan.unitPrice,
+          discountPerItem: purchasePlan.discountPerItem,
+          promoApplied: purchasePlan.promoApplied,
+          promo: purchasePlan.promoMetadata,
+          totalPrice: totalPaid,
+        },
+        purchasedMediaIds,
+        delivery: {
+          ...existingDelivery,
+          sourcePostId:
+            typeof existingPayment.meta?.sourcePostId === 'string'
+              ? existingPayment.meta.sourcePostId
+              : sourcePostId,
+          originSurface: this.normalizeOriginSurface(
+            existingPayment.meta?.originSurface,
+          ),
+        },
+      };
     }
-
-    const itemPrice = +menu.priceToView * (dto.itemCount ?? 1);
-
-    let unSoldMediaId;
-    if (unSoldMedia.length > 0) {
-      unSoldMediaId = unSoldMedia.map((m) => m._id);
-    } else {
-      unSoldMediaId = unSoldMedia._id.toString();
-    }
-
+    const menuMediaIds = selectedMenuMedia.map((entry) => entry._id.toString());
     const meta = {
       type: PaymentType.MENU_PURCHASE,
       fromUser: buyer._id.toString(),
       toUser: seller._id.toString(),
       menuId: menu._id.toString(),
-      itemId: unSoldMediaId,
-      itemCount: dto.itemCount ?? 1,
-      price: `${itemPrice}`,
+      itemId: menuMediaIds,
+      itemCount: purchasedCount,
+      baseUnitPrice: `${purchasePlan.baseUnitPrice}`,
+      unitPrice: `${purchasePlan.unitPrice}`,
+      discountPerItem: `${purchasePlan.discountPerItem}`,
+      price: `${purchasePlan.totalPrice}`,
+      purchaseMode: purchasePlan.mode,
+      promoApplied: purchasePlan.promoApplied,
+      promo: purchasePlan.promoMetadata,
+      originSurface,
+      sourcePostId,
     };
-
     const session = await this.connection.startSession();
-
     try {
       const payment = await this.reservePayment(
         buyer._id.toString(),
-        itemPrice,
+        purchasePlan.totalPrice,
         meta,
         session,
       );
-
       const result = await this.commitPayment(payment._id.toString(), session);
-      let purchasedMenuMedia = null;
       if (result.status === PaymentStatus.COMPLETED) {
-        // Ensure unSoldMedia is always an array
-
-        const mediaList = Array.isArray(unSoldMedia)
-          ? unSoldMedia
-          : [unSoldMedia];
-
-        purchasedMenuMedia = await Promise.all(
-          mediaList.map((media) => {
-            return this.menuMediaModel.findByIdAndUpdate(
-              media._id,
-              {
-                buyer: buyer._id.toString(),
-                sold: true,
-                payment: result._id.toString(),
-                meta,
-              },
-              { new: true },
-            );
-          }),
-        );
-
         await this.menuModel.updateOne(
           { _id: menu._id },
-          { $inc: { itemSold: mediaList.length }, canBeUpdated: false },
+          { $inc: { itemSold: 1 } },
           { session },
         );
-
-        const purchasedMedia = purchasedMenuMedia.map((m) => m.media);
-
+        const totalPaid = this.walletService.toDollar(result.amount);
+        const totalPaidLabel = totalPaid.toFixed(2);
+        const basePurchaseContext = this.buildMenuPurchaseContext({
+          menuId: menu._id.toString(),
+          menuTitle: menu.title ?? 'Menu unlock',
+          sourcePostId,
+          originSurface,
+        });
         const menuMessagePayload: CreateMessageMenuDto = {
           sender: seller._id.toString(),
           reciever: buyer._id.toString(),
-          media: purchasedMedia,
+          media: deliveredMediaIds,
           text:
             menu.noteToBuyer ?? `Thank you ${buyer.username} for the purchase`,
-          price: result.amount.toString(),
+          price: totalPaidLabel,
           paymentTx: result._id.toString(),
+          isPayable: true,
+          paid: true,
+          title: menu.title,
+          description: menu.description,
+          purchaseContext: basePurchaseContext,
         };
-
         const sendBuyerMessage =
           await this.chatService.sendMenu(menuMessagePayload);
-
-        try {
-          await this.chatGateway.handleSendMenuMessage({
-            messageId: sendBuyerMessage._id.toString(),
-          });
-        } catch (error) {
-          this.logger.error(error);
-          console.log('error sending buy message ');
+        let deliveredConversationId: string | null = null;
+        if (typeof sendBuyerMessage?.conversation === 'string') {
+          deliveredConversationId = sendBuyerMessage.conversation;
+        } else if (sendBuyerMessage?.conversation instanceof Types.ObjectId) {
+          deliveredConversationId = sendBuyerMessage.conversation.toString();
+        } else {
+          deliveredConversationId =
+            (sendBuyerMessage?.conversation as any)?._id?.toString?.() ?? null;
         }
-
-        // ✅ Only send notifications if payment succeeded
+        const deliveredMessageId = sendBuyerMessage?._id?.toString?.() ?? null;
+        const purchaseContext = this.buildMenuPurchaseContext({
+          menuId: menu._id.toString(),
+          menuTitle: menu.title ?? 'Menu unlock',
+          sourcePostId,
+          originSurface,
+          sourceConversationId: deliveredConversationId ?? undefined,
+          sourceMessageId: deliveredMessageId ?? undefined,
+        });
+        let receiptMessageId: string | null = null;
+        if (deliveredConversationId && deliveredMessageId) {
+          try {
+            const receiptMessage = await this.createPurchaseReceiptMessage({
+              conversationId: deliveredConversationId,
+              buyerUserId: buyer._id.toString(),
+              sellerUserId: seller._id.toString(),
+              replyToMessageId: deliveredMessageId,
+              priceInDollars: totalPaidLabel,
+              purchaseContext,
+            });
+            receiptMessageId = receiptMessage?._id?.toString?.() ?? null;
+          } catch (error) {
+            this.logger.error(error);
+          }
+        }
+        await this.paymentModel.updateOne(
+          { _id: result._id },
+          {
+            $set: {
+              'meta.originSurface': originSurface,
+              'meta.sourcePostId': sourcePostId,
+              'meta.delivery': {
+                conversationId: deliveredConversationId,
+                messageId: deliveredMessageId,
+                receiptMessageId,
+              },
+            },
+          },
+          { session },
+        );
+        if (deliveredMessageId) {
+          void this.chatGateway
+            .handleSendMenuMessage({
+              messageId: deliveredMessageId,
+            })
+            .catch((error) => {
+              this.logger.error(error);
+              console.log('error sending buy message ');
+            });
+        }
+        if (receiptMessageId) {
+          void this.chatGateway
+            .handleSendMenuMessage({
+              messageId: receiptMessageId,
+            })
+            .catch((error) => {
+              this.logger.error(error);
+              console.log('error sending buy receipt message ');
+            });
+        }
         const sellerMailPayload: SendEmailDto = {
           recipients: [seller.email],
           subject: 'Sales Notification',
           html: `<h1>Hello ${seller.username}!</h1>
-             <p>${buyer.username} bought your menu item ${menu.title}.</p>`,
+             <p>${buyer.username} bought ${purchasedLabelForBuyer}.</p>`,
         };
-
         const buyerMailPayload: SendEmailDto = {
           recipients: [buyer.email],
           subject: 'Debit',
           html: `<h1>Hello ${buyer.username}!</h1>
-             <p>You bought ${seller.username}'s menu item  ${menu.title}.</p>`,
+             <p>You bought ${purchasedLabelForBuyer} from ${seller.username}.</p>`,
         };
-
         const inAppNotficationPayload: CreateNotificationDto = {
           user: seller._id.toString(),
           sender: buyer._id.toString(),
           entityType: NotificationEntityType.MenuPurchase,
-          entityId: purchasedMedia[0],
+          entityId: purchasedMediaIds[0],
           metadata: {
-            amount: result.amount.toString(),
+            amount: totalPaidLabel,
             currency: 'USD',
-            menu: purchasedMedia,
+            menu: purchasedMediaIds,
           },
         };
-
-        await Promise.allSettled([
+        void Promise.allSettled([
           this.notificationService.sendEmail(sellerMailPayload),
           this.notificationService.sendEmail(buyerMailPayload),
           this.notificationService.createInAppNotication(
             inAppNotficationPayload,
           ),
         ]);
-
-        // return result;
-        result.amount = this.walletService.toDollar(result.amount);
+        result.amount = totalPaid;
         return {
           success: true,
-          message: 'Menu item bought successfully',
+          message:
+            purchasePlan.mode === PaymentService.MENU_PURCHASE_MODE.BUNDLE
+              ? 'Bundle unlocked successfully'
+              : 'Menu item unlocked successfully',
           tx: result,
-          purchasedMenuMedia,
+          purchaseSummary: {
+            mode: purchasePlan.mode,
+            quantity: purchasedCount,
+            label: purchasedLabel,
+            baseUnitPrice: purchasePlan.baseUnitPrice,
+            unitPrice: purchasePlan.unitPrice,
+            discountPerItem: purchasePlan.discountPerItem,
+            promoApplied: purchasePlan.promoApplied,
+            promo: purchasePlan.promoMetadata,
+            totalPrice: totalPaid,
+          },
+          purchasedMediaIds,
+          delivery: {
+            conversationId: deliveredConversationId,
+            messageId: deliveredMessageId,
+            receiptMessageId,
+            sourcePostId,
+            originSurface,
+          },
         };
       }
       return { success: false };
     } catch (err) {
-      // await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();
     }
   }
-
   async subscribeToPlan(dto: SubscribeUserDto) {
     const [buyerWallet, sellerWallet, plan, buyer, seller] = await Promise.all([
       this.walletService.getWallet(dto.buyerId),
@@ -552,13 +880,11 @@ export class PaymentService {
       this.userModel.findOne({ discordId: dto.buyerId }),
       this.userModel.findOne({ discordId: dto.sellerId }),
     ]);
-
     if (!buyerWallet)
       throw new BadRequestException('User does not have an active wallet');
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!plan) throw new NotFoundException('Plan does not exist');
-
     if (plan.isArchived) {
       throw new BadRequestException(
         'This plan has been archived by the seller',
@@ -570,25 +896,20 @@ export class PaymentService {
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot subscribed to your own plan');
     }
-
     const exist = await this.userSubscriptionModel.findOne({
       plan: dto.planId,
       user: buyer._id.toString(),
     });
-
     if (exist && exist.status === SubscriptionStatus.ACTIVE) {
       throw new BadRequestException('User is already subscribed to this plan');
     }
-
     const duration = plan.duration ?? 1;
     const endDate = this.calculateEndDate({
       value: dto.durationInMonths ?? 1,
       unit: 'month',
     });
     const startDate = new Date();
-
     const totalAmount = +plan.amount * (dto.durationInMonths ?? 1);
-
     const meta = {
       type: PaymentType.SUBSCRIPTION,
       fromUser: buyer._id.toString(),
@@ -601,9 +922,7 @@ export class PaymentService {
       endDate: endDate.toDateString(),
       amount: totalAmount,
     };
-
     const session = await this.connection.startSession();
-
     try {
       const payment = await this.reservePayment(
         buyer._id.toString(),
@@ -611,7 +930,6 @@ export class PaymentService {
         meta,
         session,
       );
-
       const result = await this.commitPayment(payment._id.toString(), session);
       let subscribedPlan = null;
       if (result.status === PaymentStatus.COMPLETED) {
@@ -629,34 +947,27 @@ export class PaymentService {
           ],
           { session },
         );
-
         await this.subscriptionPlanModel.updateOne(
           { _id: plan._id },
           { $inc: { subscribersCount: 1 } },
           { session },
         );
-
-        // ✅ Only send notifications if payment succeeded
         const sellerMailPayload: SendEmailDto = {
           recipients: [seller.email],
           subject: 'Subscriber Notification',
           html: `<h1>Hello ${seller.username}!</h1>
              <p>${buyer.username} subscribed to  your Plan ${plan.name}</p>`,
         };
-
         const buyerMailPayload: SendEmailDto = {
           recipients: [buyer.email],
           subject: 'Debit',
           html: `<h1>Hello ${buyer.username}!</h1>
              <p>You subscribed to ${seller.username}'s plan  ${plan.name}.</p>`,
         };
-
         await Promise.allSettled([
           this.notificationService.sendEmail(sellerMailPayload),
           this.notificationService.sendEmail(buyerMailPayload),
         ]);
-
-        // return result;
         result.amount = this.walletService.toDollar(result.amount);
         return {
           success: true,
@@ -667,13 +978,11 @@ export class PaymentService {
       }
       return { success: false };
     } catch (err) {
-      // await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();
     }
   }
-
   async payForInMessageMediaAsset(dto: PayInMessageMediaAssetDto) {
     const [buyerWallet, sellerWallet, messageAsset, buyer, seller] =
       await Promise.all([
@@ -686,36 +995,71 @@ export class PaymentService {
         this.userModel.findOne({ discordId: dto.buyerId }),
         this.userModel.findOne({ discordId: dto.sellerId }),
       ]);
-
     if (!buyerWallet)
       throw new BadRequestException('User does not have an active wallet');
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!messageAsset) throw new NotFoundException('Message does not exist');
-
     if (!messageAsset.price || +messageAsset.price == 0) {
       throw new BadRequestException('this message Asset has no price');
     }
     if (!messageAsset.isPayable) {
       throw new BadRequestException('This message asset is not payable');
     }
-    if (messageAsset.paid) {
-      throw new BadRequestException('This message asset has been paid for');
-    }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot pay for your own asset');
     }
-
+    const existingPayment = await this.paymentModel
+      .findOne({
+        type: PaymentType.MEDIA_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyer._id,
+        'meta.MessageAsset': messageAsset._id.toString(),
+      })
+      .sort({ createdAt: -1 });
+    const sourceConversationId =
+      (messageAsset as any)?.conversation?.toString?.() ?? dto.conversationId;
+    const mediaPurchaseContext: MessagePurchaseContext = {
+      originSurface: PurchaseOriginSurface.DM,
+      sourceConversationId,
+      sourceMessageId: messageAsset._id.toString(),
+      sourceLabel: messageAsset.title,
+      purchaseType: MessagePurchaseType.MEDIA,
+    };
+    if (existingPayment) {
+      const tx = existingPayment.toObject();
+      tx.amount = this.walletService.toDollar(tx.amount);
+      const existingDelivery = this.readDeliveryMeta(
+        existingPayment.meta as Record<string, any> | undefined,
+      );
+      return {
+        success: true,
+        message: 'Message asset already unlocked',
+        tx,
+        paidMessageAsset: {
+          ...messageAsset.toObject(),
+          paid: true,
+          paymentTx: existingPayment._id,
+        },
+        delivery: {
+          ...existingDelivery,
+          originSurface: this.normalizeOriginSurface(
+            existingPayment.meta?.originSurface,
+          ),
+        },
+      };
+    }
     const meta = {
       type: PaymentType.MEDIA_PURCHASE,
       fromUser: buyer._id.toString(),
       toUser: seller._id.toString(),
       MessageAsset: messageAsset._id.toString(),
       amount: messageAsset.price,
+      originSurface: PurchaseOriginSurface.DM,
+      sourceConversationId,
     };
-
     const session = await this.connection.startSession();
-
+    session.startTransaction();
     try {
       const payment = await this.reservePayment(
         buyer._id.toString(),
@@ -723,42 +1067,74 @@ export class PaymentService {
         meta,
         session,
       );
-
       const result = await this.commitPayment(payment._id.toString(), session);
-      let paidMessageAsset = null;
       if (result.status === PaymentStatus.COMPLETED) {
-        paidMessageAsset = await this.messageModel.findByIdAndUpdate(
-          messageAsset._id,
-          { paid: true, paymentTx: result._id },
-          { new: true, session },
+        await session.commitTransaction();
+        const totalPaid = this.walletService.toDollar(result.amount);
+        const totalPaidLabel = totalPaid.toFixed(2);
+        const paidMessageAsset = {
+          ...messageAsset.toObject(),
+          paid: true,
+          paymentTx: result._id,
+        };
+        let receiptMessageId: string | null = null;
+        try {
+          const receiptMessage = await this.createPurchaseReceiptMessage({
+            conversationId: sourceConversationId,
+            buyerUserId: buyer._id.toString(),
+            sellerUserId: seller._id.toString(),
+            replyToMessageId: messageAsset._id.toString(),
+            priceInDollars: totalPaidLabel,
+            purchaseContext: mediaPurchaseContext,
+          });
+          receiptMessageId = receiptMessage?._id?.toString?.() ?? null;
+        } catch (error) {
+          this.logger.error(error);
+        }
+        await this.paymentModel.updateOne(
+          { _id: result._id },
+          {
+            $set: {
+              'meta.originSurface': PurchaseOriginSurface.DM,
+              'meta.delivery': {
+                conversationId: sourceConversationId,
+                messageId: messageAsset._id.toString(),
+                receiptMessageId,
+              },
+            },
+          },
         );
-
-        // ✅ Only send notifications if payment succeeded
+        if (receiptMessageId) {
+          void this.chatGateway
+            .handleSendMenuMessage({
+              messageId: receiptMessageId,
+            })
+            .catch((error) => {
+              this.logger.error(error);
+            });
+        }
         const sellerMailPayload: SendEmailDto = {
           recipients: [seller.email],
           subject: 'Media Payment Notification',
           html: `<h1>Hello ${seller.username}!</h1>
              <p>${buyer.username} for your in-message media asset </p>`,
         };
-
         const buyerMailPayload: SendEmailDto = {
           recipients: [buyer.email],
           subject: 'Debit',
           html: `<h1>Hello ${buyer.username}!</h1>
              <p>You paid for ${seller.username}'s in-message  media asset.</p>`,
         };
-
         const inAppNotficationPayload: CreateNotificationDto = {
           user: seller._id.toString(),
           sender: buyer._id.toString(),
           entityType: NotificationEntityType.MediaPurchase,
           entityId: messageAsset._id.toString(),
           metadata: {
-            amount: result.amount.toString(),
+            amount: totalPaidLabel,
             currency: 'USD',
           },
         };
-
         await Promise.allSettled([
           this.notificationService.sendEmail(sellerMailPayload),
           this.notificationService.sendEmail(buyerMailPayload),
@@ -766,169 +1142,230 @@ export class PaymentService {
             inAppNotficationPayload,
           ),
         ]);
-
-        // return result;
-        result.amount = this.walletService.toDollar(result.amount);
+        result.amount = totalPaid;
         return {
           success: true,
-          message: 'Plan subscription successful',
+          message: 'Message asset unlocked',
           tx: result,
           paidMessageAsset,
+          delivery: {
+            conversationId: sourceConversationId,
+            messageId: messageAsset._id.toString(),
+            receiptMessageId,
+            originSurface: PurchaseOriginSurface.DM,
+          },
         };
       }
+      await session.commitTransaction();
       return { success: false };
     } catch (err) {
-      // await session.abortTransaction();
+      await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();
     }
   }
-
   async payForCall(dto: PayCallDto) {
-    const [callerWallet, calleeWallet, call, caller, callee] =
-      await Promise.all([
-        this.walletService.getWallet(dto.callerId),
-        this.walletService.getWallet(dto.calleeId),
-        this.messageModel.findById(dto.callId),
-        this.userModel.findOne({ discordId: dto.callerId }),
-        this.userModel.findOne({ discordId: dto.calleeId }),
-      ]);
-
-    if (!callerWallet)
-      throw new BadRequestException('Caller does not have an active wallet');
-    if (!calleeWallet)
-      throw new BadRequestException('Callee does not have an active wallet');
+    const [call, caller, callee] = await Promise.all([
+      this.messageModel.findById(dto.callId),
+      this.userModel.findOne({ discordId: dto.callerId }),
+      this.userModel.findOne({ discordId: dto.calleeId }),
+    ]);
     if (!call) throw new NotFoundException('Call session does not exist');
-
+    if (!caller) throw new NotFoundException('Caller does not exist');
+    if (!callee) throw new NotFoundException('Callee does not exist');
     if (call.paid && call.paymentTx) {
-      throw new BadRequestException('call session has been paid for');
+      const existingPayment = await this.paymentModel.findById(call.paymentTx);
+      if (existingPayment) {
+        const existing = existingPayment.toObject();
+        existing.amount = this.walletService.toDollar(existing.amount);
+        return {
+          success: true,
+          message: 'Call session already settled',
+          tx: existing,
+          paidCall: call,
+        };
+      }
     }
-
     const payment = await this.paymentModel.findOne({
       'meta.callId': call._id.toString(),
     });
-
     if (!payment)
       throw new BadRequestException('No payment found for this call');
-
-    const duration = dto.duration;
-    const totalMinutes = Math.ceil(duration / 60);
+    if (payment.status === PaymentStatus.COMPLETED) {
+      const alreadyPaid = payment.toObject();
+      alreadyPaid.amount = this.walletService.toDollar(alreadyPaid.amount);
+      return {
+        success: true,
+        message: 'Call session already settled',
+        tx: alreadyPaid,
+        paidCall: call,
+      };
+    }
+    const now = Date.now();
+    const startedAt = call.callStartedAt?.getTime();
+    const fallbackDuration =
+      typeof startedAt === 'number'
+        ? Math.max(0, Math.ceil((now - startedAt) / 1000))
+        : 0;
+    const duration = Math.max(0, Math.ceil(dto.duration ?? fallbackDuration));
+    const totalMinutes = Math.max(1, Math.ceil(duration / 60));
     const expectedAmount = this.walletService.toCent(
       callee.callRate * totalMinutes,
     );
-
-    const excess = payment.amount - expectedAmount;
-
+    const reserveTxIds =
+      payment.batchDebitTx?.map((txId) => txId.toString()) ??
+      (payment.debitTx ? [payment.debitTx.toString()] : []);
+    if (reserveTxIds.length === 0) {
+      throw new BadRequestException(
+        'No reserve transactions found for this call',
+      );
+    }
     const session = await this.connection.startSession();
-    //update payment with the right amount to debit
-    await this.paymentModel.findByIdAndUpdate(payment._id, {
-      amount: expectedAmount,
-    });
-
+    session.startTransaction();
     try {
-      const result = await this.commitPayment(payment._id.toString(), session);
-      let paidCall = null;
-      if (result.status === PaymentStatus.COMPLETED) {
-        paidCall = await this.messageModel.findByIdAndUpdate(
-          call._id,
-          { paid: true, paymentTx: result._id },
-          { new: true, session },
+      const reserveTransactions = await this.txModel
+        .find({ _id: { $in: reserveTxIds } })
+        .session(session);
+      const reserveMap = new Map(
+        reserveTransactions.map((tx) => [tx._id.toString(), tx]),
+      );
+      const committedReservationTxIds: string[] = [];
+      for (const reserveTxId of reserveTxIds) {
+        const reserveTx = reserveMap.get(reserveTxId);
+        if (!reserveTx) {
+          throw new NotFoundException(
+            `Reserve transaction ${reserveTxId} does not exist`,
+          );
+        }
+        if (reserveTx.status === TransactionStatus.PENDING) {
+          const { commitTx } = await this.walletService.commitReservation(
+            reserveTxId,
+            session,
+          );
+          committedReservationTxIds.push(commitTx._id.toString());
+          continue;
+        }
+        if (reserveTx.status === TransactionStatus.COMPLETED) {
+          continue;
+        }
+        throw new BadRequestException(
+          `Invalid reserve transaction status: ${reserveTx.status}`,
         );
-
-        if (excess) {
-          const meta = {
+      }
+      if (payment.amount > expectedAmount) {
+        const refundAmount = payment.amount - expectedAmount;
+        await this.walletService.credit(
+          caller._id.toString(),
+          this.walletService.toDollar(refundAmount),
+          {
             type: PaymentType.CALL_SESSION,
+            callId: call._id.toString(),
+            fromUser: callee._id.toString(),
+            toUser: caller._id.toString(),
+            description: `Refund unused reserved call amount for ${call._id.toString()}`,
+            reservedAmount: payment.amount,
+            billedAmount: expectedAmount,
+          },
+          session,
+        );
+      } else if (expectedAmount > payment.amount) {
+        const extraAmount = expectedAmount - payment.amount;
+        await this.walletService.debit(
+          caller._id.toString(),
+          this.walletService.toDollar(extraAmount).toString(),
+          {
+            type: PaymentType.CALL_SESSION,
+            callId: call._id.toString(),
             fromUser: caller._id.toString(),
             toUser: callee._id.toString(),
-            callId: call._id.toString(),
-            callRate: callee.callRate,
-            callDuration: duration,
-            amount: dto.amount,
-            reversedAmount: excess,
-          };
-          const wallet = await this.walletModel.findById(caller._id.toString());
-          console.log('wallet :', wallet);
-          if (wallet.reservedBalance >= excess) {
-            const beforeBalance = wallet.balance;
-            wallet.reservedBalance -= excess;
-            wallet.balance += excess;
-
-            await (session ? wallet.save({ session }) : wallet.save());
-
-            await this.txModel.create(
-              [
-                {
-                  wallet: caller._id,
-                  type: TransactionType.RELEASE,
-                  amount: excess,
-                  balanceBefore: beforeBalance,
-                  balanceAfter: wallet.balance,
-                  status: TransactionStatus.COMPLETED,
-                  meta,
-                },
-              ],
-              { session },
-            );
-          }
-        }
-
-        // ✅ Only send notifications if payment succeeded
-        const sellerMailPayload: SendEmailDto = {
-          recipients: [callee.email],
-          subject: 'Call Payment Notification',
-          html: `<h1>Hello ${callee.username}!</h1>
-             <p>${caller.username} paid for for call session</p>`,
-        };
-
-        const buyerMailPayload: SendEmailDto = {
-          recipients: [caller.email],
-          subject: 'Debit',
-          html: `<h1>Hello ${caller.username}!</h1>
-             <p>${result.amount} has been debited from your wallet for call with ${callee.username}.</p>`,
-        };
-
-        await Promise.allSettled([
-          this.notificationService.sendEmail(sellerMailPayload),
-          this.notificationService.sendEmail(buyerMailPayload),
-        ]);
-
-        // return result;
-        result.amount = this.walletService.toDollar(result.amount);
-        return {
-          success: true,
-          message: 'Call session payment succefull',
-          tx: result,
-          paidCall,
-        };
+            description: `Additional call settlement debit for ${call._id.toString()}`,
+            reservedAmount: payment.amount,
+            billedAmount: expectedAmount,
+          },
+          session,
+        );
       }
-      return { success: false };
+      const creditTx = await this.walletService.credit(
+        callee._id.toString(),
+        this.walletService.toDollar(expectedAmount),
+        {
+          type: PaymentType.CALL_SESSION,
+          callId: call._id.toString(),
+          fromUser: caller._id.toString(),
+          toUser: callee._id.toString(),
+          callRate: callee.callRate,
+          callDuration: duration,
+          billedMinutes: totalMinutes,
+        },
+        session,
+      );
+      payment.amount = expectedAmount;
+      payment.status = PaymentStatus.COMPLETED;
+      payment.creditTx = creditTx.tx._id;
+      if (committedReservationTxIds.length > 0) {
+        payment.debitTx = new Types.ObjectId(
+          committedReservationTxIds[committedReservationTxIds.length - 1],
+        );
+      }
+      payment.meta = {
+        ...(payment.meta ?? {}),
+        callDuration: duration,
+        billedMinutes: totalMinutes,
+      };
+      await payment.save({ session });
+      const paidCall = await this.messageModel.findByIdAndUpdate(
+        call._id,
+        { paid: true, paymentTx: payment._id },
+        { new: true, session },
+      );
+      await session.commitTransaction();
+      const sellerMailPayload: SendEmailDto = {
+        recipients: [callee.email],
+        subject: 'Call Payment Notification',
+        html: `<h1>Hello ${callee.username}!</h1>
+             <p>${caller.username} paid for call session.</p>`,
+      };
+      const buyerMailPayload: SendEmailDto = {
+        recipients: [caller.email],
+        subject: 'Debit',
+        html: `<h1>Hello ${caller.username}!</h1>
+             <p>$${this.walletService.toDollar(expectedAmount)} has been debited from your wallet for call with ${callee.username}.</p>`,
+      };
+      await Promise.allSettled([
+        this.notificationService.sendEmail(sellerMailPayload),
+        this.notificationService.sendEmail(buyerMailPayload),
+      ]);
+      const paymentResponse = payment.toObject();
+      paymentResponse.amount = this.walletService.toDollar(
+        paymentResponse.amount,
+      );
+      return {
+        success: true,
+        message: 'Call session payment successful',
+        tx: paymentResponse,
+        paidCall,
+      };
     } catch (err) {
-      // await session.abortTransaction();
+      await session.abortTransaction();
       throw err;
     } finally {
       await session.endSession();
     }
   }
-
   async billCallMinute(callerId: string, calleeId: string, callId: string) {
     const [caller, callee] = await Promise.all([
       this.userModel.findOne({ discordId: callerId }),
       this.userModel.findOne({ discordId: calleeId }),
     ]);
-
     if (!caller || !callee) {
       throw new BadRequestException('Caller or callee not found');
     }
-
     const rate = callee.callRate;
     if (!rate || rate <= 0) return; // No charge for free calls
-
     const session = await this.connection.startSession();
     session.startTransaction();
-
     try {
-      // Debit caller
       await this.walletService.debit(
         caller._id.toString(),
         rate.toString(),
@@ -940,8 +1377,6 @@ export class PaymentService {
         },
         session,
       );
-
-      // Credit callee
       await this.walletService.credit(
         callee._id.toString(),
         rate,
@@ -953,7 +1388,6 @@ export class PaymentService {
         },
         session,
       );
-
       await session.commitTransaction();
       console.log(`Billed $${rate} for call ${callId}`);
     } catch (error) {
@@ -963,452 +1397,69 @@ export class PaymentService {
       session.endSession();
     }
   }
-
-  // async subscribeToPlan(
-  //   userId: string,
-  //   creatorId: string,
-  //   planId: string,
-  //   amount: number,
-  // ) {
-  //   const meta = {
-  //     type: PaymentType.SUBSCRIPTION,
-  //     fromUser: userId,
-  //     toUser: creatorId,
-  //     planId,
-  //   };
-  //   const payment = await this.reservePayment(userId, amount, meta);
-  //   // create subscription record elsewhere - not shown here
-  //   return await this.commitPayment(payment._id);
-  // }
-
-  // async payForCallSlot(
-  //   callerId: string,
-  //   creatorId: string,
-  //   callId: string,
-  //   amount: number,
-  // ) {
-  //   const meta = {
-  //     type: PaymentType.CALL_BOOKING,
-  //     fromUser: callerId,
-  //     toUser: creatorId,
-  //     callId,
-  //   };
-  //   const payment = await this.reservePayment(callerId, amount, meta);
-  //   // optionally commit only after call completes
-  //   return await this.commitPayment(payment._id);
-  // }
-
-  // async tipCreator(dto: TipDto) {
-  //   const tipperWallet = await this.walletService.getWallet(dto.tipperId);
-  //   const sellerWallet = await this.walletService.getWallet(dto.receiverId);
-
-  //   if (!tipperWallet) throw new Error('User does not have an active wallet');
-  //   if (!sellerWallet) throw new Error('Seller does not have an active wallet');
-
-  //   if (parseFloat(tipperWallet.balance) < dto.amount) {
-  //     throw new BadRequestException('Insufficient funds');
-  //   }
-
-  //   const tipper = await this.userModel.findOne({ discordId: dto.tipperId });
-  //   const receiver = await this.userModel.findOne({
-  //     discordId: dto.receiverId,
-  //   });
-
-  //   const debit = await this.walletService.debit(
-  //     tipper._id.toString(),
-  //     receiver._id.toString(),
-  //     dto.amount.toString(),
-  //     TransactionType.TIP,
-  //   );
-
-  //   if (debit.status !== 'success') {
-  //     throw new Error('Tipping failed');
-  //   }
-  //   const recieverMailPayload: SendEmailDto = {
-  //     recipients: [receiver.email],
-  //     subject: 'TIP NOTIFICATION',
-  //     html: `<h1>Hello! ${receiver.username}</h1><p>${tipper.username} tipped you $${dto.amount}</p>`,
-  //   };
-  //   const senderMailPayload: SendEmailDto = {
-  //     recipients: [tipper.email],
-  //     subject: 'TIP NOTIFICATION',
-  //     html: `<h1>Hello! ${tipper.username}</h1><p>You tipped ${receiver.username} $${dto.amount}</p>`,
-  //   };
-  //   await Promise.allSettled([
-  //     this.notificationService.sendEmail(senderMailPayload),
-  //     this.notificationService.sendEmail(recieverMailPayload),
-  //   ]);
-  //   return { success: true, message: 'Tip sent successfully' };
-  // }
-
   calculateEndDate(duration: { value: number; unit: string }) {
     const now = new Date();
-
     switch (duration.unit) {
       case 'day':
       case 'days':
         return new Date(now.getTime() + duration.value * 24 * 60 * 60 * 1000);
-
       case 'week':
       case 'weeks':
         return new Date(
           now.getTime() + duration.value * 7 * 24 * 60 * 60 * 1000,
         );
-
       case 'month':
       case 'months': {
         const endDate = new Date(now);
         endDate.setMonth(endDate.getMonth() + duration.value);
         return endDate;
       }
-
       case 'year':
       case 'years': {
         const endDate = new Date(now);
         endDate.setFullYear(endDate.getFullYear() + duration.value);
         return endDate;
       }
-
       default:
         throw new Error(`Unsupported duration unit: ${duration.unit}`);
     }
   }
-
-  // async renewSubscription(subscriptionId: string) {
-  //   const sub = await this.userSubscriptionModel
-  //     .findById(subscriptionId)
-  //     .populate('plan user');
-  //   if (!sub) throw new Error('Subscription not found');
-
-  //   if (sub.status === SubscriptionStatus.CANCELED) return;
-
-  //   const totalAmount = +sub.plan.amount * (sub.durationInMonths ?? 1);
-  //   const newEndDate = this.calculateEndDate({
-  //     value: sub.durationInMonths ?? 1,
-  //     unit: 'month',
-  //   });
-
-  //   const meta = {
-  //     type: PaymentType.SUBSCRIPTION_RENEWAL,
-  //     fromUser: sub.,
-  //     toUser: seller._id.toString(),
-  //     planId: plan._id.toString(),
-  //     planName: plan.name,
-  //     planDuration: duration,
-  //     subscriptionDuration: dto.durationInMonths ?? 1,
-  //     startDate: startDate.toISOString(),
-  //     endDate: endDate.toDateString(),
-  //     amount: totalAmount,
-  //   };
-  //   const session = await this.connection.startSession();
-  //   // Process payment
-  //   const payment = await this.reservePayment(sub.user._id, sub.plan.price, {
-  //     type: 'subscription_renewal',
-  //     planId: sub.plan._id,
-  //     planName: sub.plan.name,
-  //   });
-
-  //   const result = await this.commitPayment(payment._id.toString(), session);
-
-  //   sub.startDate = sub.endDate;
-  //   sub.endDate = newEndDate;
-  //   sub.renewCount += 1;
-  //   sub.lastPayment = payment._id;
-  //   sub.status = SubscriptionStatus.ACTIVE;
-  //   await sub.save();
-
-  //   return sub;
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   const result = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // MongoDB collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     { $sample: { size: 1 } }, // pick one random unsold media
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   if (!result.length) {
-  //     throw new NotFoundException('No unsold media found for this menu');
-  //   }
-
-  //   return result[0].media;
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string, count?: number) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   // Aggregate all unsold media for this menu
-  //   const unsoldMedia = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // MongoDB collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   if (!unsoldMedia.length) {
-  //     // throw new NotFoundException('No unsold media found for this menu');
-  //     return [];
-  //   }
-
-  //   // If no count is provided, return one random media
-  //   if (!count) {
-  //     const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-  //     return unsoldMedia[randomIndex].media;
-  //   }
-
-  //   // If count is provided, check if enough unsold media are available
-  //   if (unsoldMedia.length < count) {
-  //     // throw new BadRequestException(
-  //     //   `Only ${unsoldMedia.length} unsold media available, less than requested count of ${count}`,
-  //     // );
-  //     return [];
-  //   }
-
-  //   // Randomly sample `count` items
-  //   const sampled = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias',
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-  //     { $sample: { size: count } },
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         media: '$mediaData',
-  //       },
-  //     },
-  //   ]);
-
-  //   return sampled.map((item) => item.media);
-  // }
-
-  // async getRandomUnsoldMedia(menuId: string, count?: number) {
-  //   const menuObjectId = new Types.ObjectId(menuId);
-
-  //   // 🍀 Step 1: Collect all unique unsold media for this menu
-  //   const unsoldMedia = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias', // collection name
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-
-  //     // ⭐ FIX — Ensure media list is always unique
-  //     {
-  //       $group: {
-  //         _id: '$mediaData._id',
-  //         media: { $first: '$mediaData' },
-  //       },
-  //     },
-
-  //     { $project: { _id: 0, media: 1 } },
-  //   ]);
-
-  //   // 🛑 If no unsold media exists
-  //   if (!unsoldMedia.length) return [];
-
-  //   // 🍀 If only 1 item requested → return a single random media object
-  //   if (!count) {
-  //     const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-  //     return unsoldMedia[randomIndex].media;
-  //   }
-
-  //   // ❌ If request exceeds available items
-  //   if (unsoldMedia.length < count) {
-  //     return [];
-  //   }
-
-  //   // 🍀 Step 2: Randomly sample `count` UNIQUE media
-  //   const sampled = await this.menuModel.aggregate([
-  //     { $match: { _id: menuObjectId } },
-  //     { $unwind: '$media' },
-
-  //     {
-  //       $lookup: {
-  //         from: 'menumedias',
-  //         localField: 'media',
-  //         foreignField: '_id',
-  //         as: 'mediaData',
-  //       },
-  //     },
-
-  //     { $unwind: '$mediaData' },
-  //     { $match: { 'mediaData.sold': false } },
-
-  //     // ⭐ FIX — remove duplicates before sampling
-  //     {
-  //       $group: {
-  //         _id: '$mediaData._id',
-  //         media: { $first: '$mediaData' },
-  //       },
-  //     },
-
-  //     // 🎯 Select exactly `count` unique items
-  //     { $sample: { size: count } },
-
-  //     { $project: { _id: 0, media: 1 } },
-  //   ]);
-
-  //   return sampled.map((item) => item.media);
-  // }
-
-  async getRandomUnsoldMedia(menuId: string, count?: number) {
-    const menuObjectId = new Types.ObjectId(menuId);
-
-    // 🍀 Step 1: Collect all unique unsold media
-    const unsoldMedia = await this.menuModel.aggregate([
-      { $match: { _id: menuObjectId } },
-      { $unwind: '$media' },
-
-      {
-        $lookup: {
-          from: 'menumedias',
-          localField: 'media',
-          foreignField: '_id',
-          as: 'mediaData',
-        },
-      },
-
-      { $unwind: '$mediaData' },
-      { $match: { 'mediaData.sold': false } },
-
-      // ⭐ FIX: Unique media only
-      {
-        $group: {
-          _id: '$mediaData._id',
-          media: { $first: '$mediaData' },
-        },
-      },
-
-      { $project: { _id: 0, media: 1 } },
-    ]);
-
-    // console.log(
-    //   '🔍 All unsold media:',
-    //   unsoldMedia.map((m) => m.media._id.toString()),
-    // );
-
-    if (!unsoldMedia.length) return [];
-
-    // 🍀 Return one random media if count not specified
-    if (!count) {
-      const randomIndex = Math.floor(Math.random() * unsoldMedia.length);
-      const selected = unsoldMedia[randomIndex].media;
-
-      console.log('🎯 Selected ONE random media:', selected._id.toString());
-
-      return selected;
-    }
-
-    // ❌ Not enough media
-    if (unsoldMedia.length < count) {
-      console.log(
-        `⚠ Only ${unsoldMedia.length} unsold available, requested ${count}`,
-      );
-      return [];
-    }
-
-    // 🍀 Step 2: sample count unique media
-    const sampled = await this.menuModel.aggregate([
-      { $match: { _id: menuObjectId } },
-      { $unwind: '$media' },
-
-      {
-        $lookup: {
-          from: 'menumedias',
-          localField: 'media',
-          foreignField: '_id',
-          as: 'mediaData',
-        },
-      },
-
-      { $unwind: '$mediaData' },
-      { $match: { 'mediaData.sold': false } },
-
-      // ⭐ Ensure unique before sampling
-      {
-        $group: {
-          _id: '$mediaData._id',
-          media: { $first: '$mediaData' },
-        },
-      },
-
-      // Randomly pick count
-      { $sample: { size: count } },
-
-      { $project: { _id: 0, media: 1 } },
-    ]);
-
-    const finalMedia = sampled.map((item) => item.media);
-
-    // console.log(
-    //   `🎯 Selected ${count} random UNIQUE media:`,
-    //   finalMedia.map((m) => m._id.toString()),
-    // );
-
-    return finalMedia;
-  }
-
   async getUserPaidMenu(buyerDiscord: string, sellerDiscord: string) {
     const [buyer, seller] = await Promise.all([
       this.userModel.findOne({ discordId: buyerDiscord }),
       this.userModel.findOne({ discordId: sellerDiscord }),
     ]);
-
-    return await this.menuMediaModel
+    if (!buyer || !seller) {
+      return { menuIds: [], purchases: [] };
+    }
+    const payments = await this.paymentModel
       .find({
-        'meta.fromUser': buyer._id.toString(),
-        'meta.toUser': seller._id.toString(),
+        type: PaymentType.MENU_PURCHASE,
+        status: PaymentStatus.COMPLETED,
+        payer: buyer._id,
+        receiver: seller._id,
       })
-      .populate('media');
+      .select('_id amount status createdAt meta.menuId meta.itemCount')
+      .sort({ createdAt: -1 })
+      .lean();
+    const uniqueMenuIds = new Set<string>();
+    const purchases = payments
+      .map((payment) => {
+        const menuId = payment?.meta?.menuId ? String(payment.meta.menuId) : '';
+        if (!menuId) return null;
+        uniqueMenuIds.add(menuId);
+        return {
+          paymentId: payment._id.toString(),
+          menuId,
+          itemCount: Number(payment?.meta?.itemCount ?? 1),
+          totalPaid: this.walletService.toDollar(payment.amount),
+          purchasedAt: (payment as any).createdAt,
+        };
+      })
+      .filter((entry) => entry !== null);
+    return {
+      menuIds: [...uniqueMenuIds],
+      purchases,
+    };
   }
 }

@@ -2,14 +2,15 @@ import { useMessageSearch } from '@/context/message-search-context';
 import type { MessageType } from '@/types/global';
 import { format, parseISO } from 'date-fns';
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type RefObject,
 } from 'react';
 import { MessageItem } from './message-item';
-import { ComponentLoader } from './ui/component-loader';
 
 interface MessageChatListProps {
   messages: MessageType[];
@@ -20,13 +21,14 @@ interface MessageChatListProps {
   hasMoreMessages?: boolean;
   onLoadOlder?: () => void;
   onReloadMessages?: () => Promise<void>;
-  onSendUnlockMessage?: (
-    messageId: string,
-    price: string,
-    sellerId: string,
-  ) => Promise<void>;
   scrollRootRef?: RefObject<HTMLDivElement | null>;
+  conversationKey?: string;
 }
+
+const MAX_JUMP_LOAD_ATTEMPTS = 20;
+const AUTO_TOP_LOAD_COOLDOWN_MS = 220;
+const PREPEND_LAYOUT_STABILIZE_MS = 900;
+const AUTO_TOP_LOAD_SCROLL_THRESHOLD_PX = 72;
 
 export const MessageChatList = ({
   messages,
@@ -37,74 +39,213 @@ export const MessageChatList = ({
   hasMoreMessages = false,
   onLoadOlder,
   onReloadMessages,
-  onSendUnlockMessage,
   scrollRootRef,
+  conversationKey,
 }: MessageChatListProps) => {
-  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
-  const hasIntersectedTopRef = useRef(false);
   const pendingJumpMessageIdRef = useRef<string | null>(null);
   const jumpLoadAttemptsRef = useRef(0);
-  const MAX_JUMP_LOAD_ATTEMPTS = 20;
-  type ScrollAnchor = {
-    type: 'day' | 'message';
-    key: string;
-    topOffset: number;
-  };
+  const lastSearchJumpKeyRef = useRef<string | null>(null);
+  const lastConversationKeyRef = useRef<string | null>(null);
+  const lastMatchingIdsKeyRef = useRef<string>('');
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const autoTopLoadAtRef = useRef(0);
+  const autoTopLoadLockedRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+
+  const prependCompensationRef = useRef<{
+    active: boolean;
+    lastContentHeight: number;
+    disableTimer: number | null;
+  }>({
+    active: false,
+    lastContentHeight: 0,
+    disableTimer: null,
+  });
+
   const pendingPrependAdjustRef = useRef<{
     active: boolean;
     scrollTop: number;
     scrollHeight: number;
-    anchor: ScrollAnchor | null;
+    messageCount: number;
   }>({
     active: false,
     scrollTop: 0,
     scrollHeight: 0,
-    anchor: null,
+    messageCount: 0,
   });
-  const { searchValue, isSearchActive, setMatchingMessageIds } =
-    useMessageSearch();
 
-  const getVisibleAnchor = (root: HTMLDivElement): ScrollAnchor | null => {
-    const rootRect = root.getBoundingClientRect();
-    const entries: Array<{ top: number; anchor: ScrollAnchor }> = [];
+  const {
+    searchValue,
+    isSearchActive,
+    setMatchingMessageIds,
+    matchingMessageIds,
+    currentMatchIndex,
+  } = useMessageSearch();
+  const [promotedMessageOrder, setPromotedMessageOrder] = useState<
+    Record<string, number>
+  >({});
 
-    const labels = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-day-label]'),
+  const getEffectiveSortTime = useCallback(
+    (message: MessageType) => {
+      const promotedAt = promotedMessageOrder[message._id];
+      if (typeof promotedAt === 'number' && Number.isFinite(promotedAt)) {
+        return promotedAt;
+      }
+      return new Date(message.createdAt || 0).getTime();
+    },
+    [promotedMessageOrder],
+  );
+
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const aSortTime = getEffectiveSortTime(a);
+      const bSortTime = getEffectiveSortTime(b);
+      if (aSortTime !== bSortTime) {
+        return aSortTime - bSortTime;
+      }
+
+      return (
+        new Date(a.createdAt || 0).getTime() -
+        new Date(b.createdAt || 0).getTime()
+      );
+    });
+  }, [getEffectiveSortTime, messages]);
+
+  const visibleMessages = sortedMessages;
+
+  useEffect(() => {
+    const key = conversationKey ?? '__default_conversation__';
+    if (lastConversationKeyRef.current === key) {
+      return;
+    }
+    lastConversationKeyRef.current = key;
+    pendingJumpMessageIdRef.current = null;
+    jumpLoadAttemptsRef.current = 0;
+    setPromotedMessageOrder({});
+  }, [conversationKey]);
+
+  const matchingMessages = useMemo(() => {
+    if (!isSearchActive) return [];
+    if (!searchValue) return [];
+
+    const searchTerm = searchValue.trim().toLowerCase();
+    if (!searchTerm) return [];
+
+    return sortedMessages.filter((message) =>
+      message.text?.toLowerCase().includes(searchTerm),
     );
-    for (const label of labels) {
-      const key = label.dataset.dayLabel;
-      if (!key) continue;
-      const rect = label.getBoundingClientRect();
-      if (rect.bottom <= rootRect.top || rect.top >= rootRect.bottom) continue;
-      entries.push({
-        top: rect.top - rootRect.top,
-        anchor: { type: 'day', key, topOffset: rect.top - rootRect.top },
+  }, [sortedMessages, searchValue, isSearchActive]);
+
+  useEffect(() => {
+    const matchingIds = matchingMessages.map((message) => message._id);
+    const matchingIdsKey = matchingIds.join('|');
+    if (lastMatchingIdsKeyRef.current === matchingIdsKey) {
+      return;
+    }
+    lastMatchingIdsKeyRef.current = matchingIdsKey;
+    setMatchingMessageIds(matchingIds);
+  }, [matchingMessages, setMatchingMessageIds]);
+
+  const { grouped, dayKeys } = useMemo(() => {
+    const groupedData = visibleMessages.reduce((accumulator, message) => {
+      const effectiveTimestamp = getEffectiveSortTime(message);
+      const key = format(
+        new Date(
+          Number.isFinite(effectiveTimestamp)
+            ? effectiveTimestamp
+            : Date.now(),
+        ),
+        'yyyy-MM-dd',
+      );
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+      accumulator[key].push(message);
+      return accumulator;
+    }, {} as Record<string, MessageType[]>);
+
+    const keys = Object.keys(groupedData).sort((a, b) => a.localeCompare(b));
+
+    return { grouped: groupedData, dayKeys: keys };
+  }, [getEffectiveSortTime, visibleMessages]);
+
+  const handlePromoteMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId) {
+        return;
+      }
+
+      const currentMaxSortTime = messages.reduce((maxValue, message) => {
+        return Math.max(maxValue, getEffectiveSortTime(message));
+      }, Date.now());
+      const promotedAt = currentMaxSortTime + 1;
+      setPromotedMessageOrder((previous) => ({
+        ...previous,
+        [messageId]: Math.max(previous[messageId] ?? 0, promotedAt),
+      }));
+
+      const root = scrollRootRef?.current;
+      if (!root) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        root.scrollTo({
+          top: root.scrollHeight,
+          behavior: 'smooth',
+        });
       });
+    },
+    [getEffectiveSortTime, messages, scrollRootRef],
+  );
+
+  const schedulePrependCompensationReset = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
     }
 
-    const messages = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-message-id]'),
-    );
-    for (const message of messages) {
-      const key = message.dataset.messageId;
-      if (!key) continue;
-      const rect = message.getBoundingClientRect();
-      if (rect.bottom <= rootRect.top || rect.top >= rootRect.bottom) continue;
-      entries.push({
-        top: rect.top - rootRect.top,
-        anchor: { type: 'message', key, topOffset: rect.top - rootRect.top },
-      });
+    const state = prependCompensationRef.current;
+    if (state.disableTimer !== null) {
+      window.clearTimeout(state.disableTimer);
     }
 
-    if (entries.length === 0) {
-      return null;
+    state.disableTimer = window.setTimeout(() => {
+      prependCompensationRef.current.active = false;
+      prependCompensationRef.current.disableTimer = null;
+    }, PREPEND_LAYOUT_STABILIZE_MS);
+  }, []);
+
+  const enablePrependCompensation = useCallback(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
     }
 
-    entries.sort((a, b) => Math.abs(a.top) - Math.abs(b.top));
-    return entries[0].anchor;
-  };
+    prependCompensationRef.current.active = true;
+    prependCompensationRef.current.lastContentHeight = content.scrollHeight;
+    schedulePrependCompensationReset();
+  }, [schedulePrependCompensationReset]);
 
-  const highlightJumpTarget = (element: HTMLElement) => {
+  const preparePrependAdjustment = useCallback(() => {
+    const root = scrollRootRef?.current;
+    if (!root) {
+      return;
+    }
+
+    pendingPrependAdjustRef.current = {
+      active: true,
+      scrollTop: root.scrollTop,
+      scrollHeight: root.scrollHeight,
+      messageCount: visibleMessages.length,
+    };
+    enablePrependCompensation();
+  }, [
+    enablePrependCompensation,
+    scrollRootRef,
+    visibleMessages.length,
+  ]);
+
+  const highlightJumpTarget = useCallback((element: HTMLElement) => {
     const previousTransition = element.style.transition;
     const previousBoxShadow = element.style.boxShadow;
 
@@ -116,33 +257,41 @@ export const MessageChatList = ({
         element.style.transition = previousTransition;
       }, 180);
     }, 900);
-  };
+  }, []);
 
-  const scrollToMessageById = (messageId: string) => {
-    const root = scrollRootRef?.current ?? null;
-    const queryRoot: ParentNode = root ?? document;
-    const target = queryRoot.querySelector<HTMLElement>(
-      `[data-message-id="${messageId}"]`,
-    );
+  const scrollToMessageById = useCallback(
+    (messageId: string) => {
+      const root = scrollRootRef?.current ?? null;
+      const queryRoot: ParentNode = root ?? document;
+      const target = queryRoot.querySelector<HTMLElement>(
+        `[data-message-id="${messageId}"]`,
+      );
 
-    if (!target) {
-      return false;
-    }
+      if (!target) {
+        return false;
+      }
 
-    target.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    });
-    highlightJumpTarget(target);
-    return true;
-  };
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      highlightJumpTarget(target);
+      return true;
+    },
+    [highlightJumpTarget, scrollRootRef],
+  );
 
-  const tryLoadOlderForJump = () => {
-    if (!pendingJumpMessageIdRef.current) {
+  const tryLoadOlderForJump = useCallback(() => {
+    const pendingMessageId = pendingJumpMessageIdRef.current;
+    if (!pendingMessageId) {
       return;
     }
 
     if (!onLoadOlder || !hasMoreMessages || isLoadingMore) {
+      if (!hasMoreMessages) {
+        pendingJumpMessageIdRef.current = null;
+        jumpLoadAttemptsRef.current = 0;
+      }
       return;
     }
 
@@ -153,103 +302,88 @@ export const MessageChatList = ({
     }
 
     jumpLoadAttemptsRef.current += 1;
+    preparePrependAdjustment();
     onLoadOlder();
-  };
+  }, [
+    hasMoreMessages,
+    isLoadingMore,
+    onLoadOlder,
+    preparePrependAdjustment,
+  ]);
 
-  // Filter messages that match the search term
-  const matchingMessages = useMemo(() => {
-    if (!isSearchActive) return [];
-    if (!searchValue) return [];
-
-    const searchTerm = searchValue.trim().toLowerCase();
-    if (!searchTerm) return [];
-
-    return messages.filter((message) =>
-      message.text?.toLowerCase().includes(searchTerm)
-    );
-  }, [messages, searchValue, isSearchActive]);
-
-  // Update the search context with matching message IDs
-  useEffect(() => {
-    const matchingIds = matchingMessages.map((msg) => msg._id);
-    setMatchingMessageIds(matchingIds);
-  }, [matchingMessages, setMatchingMessageIds]);
-
-  // Memoize grouped messages to unnecessary recalculations
-  const { grouped, dayKeys } = useMemo(() => {
-    const sorted = [...messages].sort(
-      (a, b) =>
-        new Date(a.createdAt || 0).getTime() -
-        new Date(b.createdAt || 0).getTime()
-    );
-
-    const groupedData = sorted.reduce((acc, message) => {
-      const key = format(new Date(message.createdAt || Date.now()), 'yyyy-MM-dd'); // sortable
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(message);
-      return acc;
-    }, {} as Record<string, MessageType[]>);
-
-    const keys = Object.keys(groupedData).sort((a, b) => a.localeCompare(b));
-
-    return { grouped: groupedData, dayKeys: keys };
-  }, [messages]);
-
-  // Intersection Observer for infinite scroll
-  useEffect(() => {
-    if (!onLoadOlder || !hasMoreMessages || isLoadingMore) return;
-    const rootElement = scrollRootRef?.current ?? null;
-    if (scrollRootRef && !rootElement) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting) {
-          if (hasIntersectedTopRef.current || !hasMoreMessages || isLoadingMore) {
-            return;
-          }
-
-          if (rootElement) {
-            const anchor = getVisibleAnchor(rootElement);
-            pendingPrependAdjustRef.current = {
-              active: true,
-              scrollTop: rootElement.scrollTop,
-              scrollHeight: rootElement.scrollHeight,
-              anchor,
-            };
-          }
-
-          hasIntersectedTopRef.current = true;
-          onLoadOlder();
-          return;
-        }
-
-        hasIntersectedTopRef.current = false;
-      },
-      {
-        root: rootElement,
-        rootMargin: '0px',
-        threshold: 0.1,
-      }
-    );
-
-    const trigger = loadMoreTriggerRef.current;
-    if (trigger) {
-      observer.observe(trigger);
+  const triggerAutoTopLoad = useCallback(() => {
+    if (isLoadingMore) {
+      return false;
     }
 
-    return () => {
-      if (trigger) {
-        observer.unobserve(trigger);
+    if (!onLoadOlder || !hasMoreMessages) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (now - autoTopLoadAtRef.current < AUTO_TOP_LOAD_COOLDOWN_MS) {
+      return false;
+    }
+
+    autoTopLoadAtRef.current = now;
+    preparePrependAdjustment();
+    onLoadOlder();
+    return true;
+  }, [
+    hasMoreMessages,
+    isLoadingMore,
+    onLoadOlder,
+    preparePrependAdjustment,
+  ]);
+
+  useEffect(() => {
+    autoTopLoadAtRef.current = 0;
+    autoTopLoadLockedRef.current = false;
+    lastScrollTopRef.current = 0;
+  }, [conversationKey]);
+
+  useEffect(() => {
+    const root = scrollRootRef?.current;
+    if (!root) {
+      return;
+    }
+
+    lastScrollTopRef.current = root.scrollTop;
+
+    const handleScroll = () => {
+      const currentScrollTop = root.scrollTop;
+      const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
+      lastScrollTopRef.current = currentScrollTop;
+
+      if (!isScrollingUp) {
+        if (currentScrollTop > AUTO_TOP_LOAD_SCROLL_THRESHOLD_PX) {
+          autoTopLoadLockedRef.current = false;
+        }
+        return;
+      }
+
+      if (root.scrollTop > AUTO_TOP_LOAD_SCROLL_THRESHOLD_PX) {
+        autoTopLoadLockedRef.current = false;
+        return;
+      }
+
+      if (autoTopLoadLockedRef.current) {
+        return;
+      }
+
+      const triggered = triggerAutoTopLoad();
+      if (triggered) {
+        autoTopLoadLockedRef.current = true;
       }
     };
-  }, [onLoadOlder, hasMoreMessages, isLoadingMore, scrollRootRef]);
+
+    root.addEventListener('scroll', handleScroll, { passive: true });
+    return () => root.removeEventListener('scroll', handleScroll);
+  }, [conversationKey, scrollRootRef, triggerAutoTopLoad]);
 
   useLayoutEffect(() => {
     const root = scrollRootRef?.current;
-    if (!root || isLoadingMore) {
+    if (!root) {
       return;
     }
 
@@ -258,38 +392,82 @@ export const MessageChatList = ({
       return;
     }
 
-    let adjusted = false;
-    if (pending.anchor) {
-      const selector =
-        pending.anchor.type === 'day'
-          ? `[data-day-label=\"${pending.anchor.key}\"]`
-          : `[data-message-id=\"${pending.anchor.key}\"]`;
-      const target = root.querySelector<HTMLElement>(selector);
-      if (target) {
-        const rootRect = root.getBoundingClientRect();
-        const currentTop = target.getBoundingClientRect().top - rootRect.top;
-        const delta = currentTop - pending.anchor.topOffset;
-        if (Math.abs(delta) > 1) {
-          root.scrollTop += delta;
-        }
-        adjusted = true;
-      }
-    }
-
-    if (!adjusted) {
-      const heightDelta = root.scrollHeight - pending.scrollHeight;
-      if (heightDelta !== 0) {
-        root.scrollTop = pending.scrollTop + heightDelta;
-      }
-    }
-
-    pendingPrependAdjustRef.current = {
-      active: false,
-      scrollTop: 0,
-      scrollHeight: 0,
-      anchor: null,
+    const resetPendingPrependAdjustment = () => {
+      pendingPrependAdjustRef.current = {
+        active: false,
+        scrollTop: 0,
+        scrollHeight: 0,
+        messageCount: 0,
+      };
+      autoTopLoadLockedRef.current = false;
     };
-  }, [messages.length, isLoadingMore, scrollRootRef]);
+
+    const hasPrependedMessages = visibleMessages.length > pending.messageCount;
+    if (!hasPrependedMessages) {
+      if (isLoadingMore) {
+        // Wait until older messages are actually inserted.
+        return;
+      }
+
+      // Loading completed without unseen prepend.
+      resetPendingPrependAdjustment();
+      return;
+    }
+
+    const heightDelta = root.scrollHeight - pending.scrollHeight;
+    if (heightDelta !== 0) {
+      root.scrollTop = pending.scrollTop + heightDelta;
+    }
+    // Baseline compensation from the post-prepend height so ResizeObserver
+    // only handles late media/layout growth and not the initial prepend delta.
+    prependCompensationRef.current.lastContentHeight = root.scrollHeight;
+
+    resetPendingPrependAdjustment();
+  }, [isLoadingMore, scrollRootRef, visibleMessages.length]);
+
+  useEffect(() => {
+    const root = scrollRootRef?.current;
+    const content = contentRef.current;
+    if (!root || !content || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const state = prependCompensationRef.current;
+      if (!state.active) {
+        return;
+      }
+
+      const nextContentHeight = content.scrollHeight;
+      const heightDelta = nextContentHeight - state.lastContentHeight;
+      if (heightDelta !== 0) {
+        root.scrollTop += heightDelta;
+        state.lastContentHeight = nextContentHeight;
+        schedulePrependCompensationReset();
+      }
+    });
+
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [
+    conversationKey,
+    schedulePrependCompensationReset,
+    scrollRootRef,
+    visibleMessages.length,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const timer = prependCompensationRef.current.disableTimer;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -315,7 +493,46 @@ export const MessageChatList = ({
     return () => {
       window.removeEventListener('messages:jump-to', handler as EventListener);
     };
-  }, [hasMoreMessages, isLoadingMore, onLoadOlder, scrollRootRef]);
+  }, [scrollToMessageById, tryLoadOlderForJump]);
+
+  useEffect(() => {
+    if (
+      !isSearchActive ||
+      currentMatchIndex < 0 ||
+      currentMatchIndex >= matchingMessageIds.length
+    ) {
+      lastSearchJumpKeyRef.current = null;
+      return;
+    }
+
+    const messageId = matchingMessageIds[currentMatchIndex];
+    if (!messageId) {
+      return;
+    }
+
+    const jumpKey = `${currentMatchIndex}:${messageId}`;
+    if (lastSearchJumpKeyRef.current === jumpKey) {
+      return;
+    }
+    lastSearchJumpKeyRef.current = jumpKey;
+
+    pendingJumpMessageIdRef.current = messageId;
+    jumpLoadAttemptsRef.current = 0;
+
+    const found = scrollToMessageById(messageId);
+    if (found) {
+      pendingJumpMessageIdRef.current = null;
+      return;
+    }
+
+    tryLoadOlderForJump();
+  }, [
+    currentMatchIndex,
+    isSearchActive,
+    matchingMessageIds,
+    scrollToMessageById,
+    tryLoadOlderForJump,
+  ]);
 
   useEffect(() => {
     const pendingId = pendingJumpMessageIdRef.current;
@@ -331,16 +548,16 @@ export const MessageChatList = ({
     }
 
     tryLoadOlderForJump();
-  }, [messages.length, hasMoreMessages, isLoadingMore, onLoadOlder, scrollRootRef]);
+  }, [
+    hasMoreMessages,
+    isLoadingMore,
+    scrollToMessageById,
+    tryLoadOlderForJump,
+    visibleMessages.length,
+  ]);
 
   return (
-    <div className="p-4 space-y-6">
-      {/* Load more trigger at the top */}
-      {hasMoreMessages && (
-        <div ref={loadMoreTriggerRef} className="flex justify-center py-4">
-          {isLoadingMore && <ComponentLoader className="scale-75" />}
-        </div>
-      )}
+    <div ref={contentRef} className="p-4 space-y-6">
       {dayKeys.map((dayKey) => {
         const dayMessages = grouped[dayKey];
         const label = format(parseISO(dayKey), 'MMMM dd, yyyy');
@@ -357,7 +574,7 @@ export const MessageChatList = ({
             <div className="space-y-5">
               {dayMessages.map((message, messageIndex) => {
                 const isOwn = message.sender.discordId === currentUserId;
-                const messageKey = `${message._id}-${message.createdAt ?? 'no-time'}-${messageIndex}`;
+                const messageKey = message._id || `message-${dayKey}-${messageIndex}`;
 
                 return (
                   <MessageItem
@@ -367,7 +584,7 @@ export const MessageChatList = ({
                     onRetryMessage={onRetryMessage}
                     onMarkAsRead={onMarkAsRead}
                     onReloadMessages={onReloadMessages}
-                    onSendUnlockMessage={onSendUnlockMessage}
+                    onPromoteMessage={handlePromoteMessage}
                   />
                 );
               })}

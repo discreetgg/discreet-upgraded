@@ -7,10 +7,11 @@ import {
 	DialogTrigger,
 } from "@/components/ui/dialog";
 import { FALLBACK_IMAGE } from "@/constants/constants";
-import { getBlurredImage } from "@/lib/utils";
+import { cn, getBlurredImage } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { AuthenticatedMedia } from "./authenticated-media";
 
 export const ProfilePostMediaDialog = ({
 	children,
@@ -60,11 +61,11 @@ export const ProfilePostMediaDialog = ({
 				className="p-0 max-w-full bg-black/90"
 				onClick={(e) => e.stopPropagation()}
 			>
-				<div className="flex items-center justify-center h-full w-full">
-					{current.type === "image" ? (
-						<div 
-							className="relative w-full h-full flex items-center justify-center bg-black"
-							onContextMenu={(e) => e.preventDefault()}
+					<div className="flex items-center justify-center h-full w-full">
+						{current.type === "image" ? (
+							<div 
+								className="relative w-full h-full flex items-center justify-center bg-black"
+								onContextMenu={(e) => e.preventDefault()}
 						>
 							<Image
 								src={
@@ -84,31 +85,32 @@ export const ProfilePostMediaDialog = ({
 									if (result.currentTarget.width === 0) {
 										handleImageError(current.mediaUrl);
 									}
-								}}
-							/>
-						</div>
-					) : current.type === "video" ? (
-						<video
-							src={current.mediaUrl}
-							controls
-							autoPlay
-							className="max-h-[90vh] w-auto mx-auto rounded-lg"
-							onError={() => handleImageError(current.mediaUrl)}
-							onLoad={(result) => {
-								if (result.currentTarget.width === 0) {
-									handleImageError(current.mediaUrl);
-								}
-							}}
-						>
-							<track
-								kind="captions"
-								src=""
-								srcLang="en"
-								label="English captions"
-								default
-							/>
-						</video>
-					) : null}
+									}}
+								/>
+							</div>
+						) : current.type === "video" ? (
+							<div className="relative w-full h-full flex items-center justify-center bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)] px-2 md:px-8">
+								<AuthenticatedMedia
+									type="video"
+									src={current.mediaUrl}
+									alt={"Post media"}
+									className={cn(
+										"h-full w-full max-h-[92vh] rounded-xl",
+										!showExplicitContent && "blur-2xl scale-110 brightness-50"
+									)}
+									customVideoPlayer={showExplicitContent}
+									videoPlayerFit="contain"
+									videoPlayerCaption="Post media video"
+									videoProps={{
+										controls: showExplicitContent,
+										autoPlay: true,
+										playsInline: true,
+										preload: "metadata",
+									}}
+									onMediaError={() => handleImageError(current.mediaUrl)}
+								/>
+							</div>
+						) : null}
 					{failedImages.has(current.mediaUrl) && (
 						<div className="absolute  left-1/2 -translate-x-1/2 rounded-full text-accent-gray px-3 py-1 text-2xl font-bold  w-full uppercase text-center">
 							unable to load {current.type}

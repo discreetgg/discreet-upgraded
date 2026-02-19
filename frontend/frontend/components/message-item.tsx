@@ -2,17 +2,20 @@
 
 import { useMessageSearch } from '@/context/message-search-context';
 import { useMessageReadTracker } from '@/hooks/use-message-read-tracker';
-import { cn, getEmojiSizeClass } from '@/lib/utils';
+import { cn, getEmojiSizeClass, getUserDiscordAvatar } from '@/lib/utils';
 import type { MessageType } from '@/types/global';
 import { format } from 'date-fns';
 import Image from 'next/image';
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageMedia } from './message-media';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { MessageMediaPaid } from './message-media-paid';
 import { useGlobal } from '@/context/global-context-provider';
 import { Icon } from './ui/icons';
-import { DMMenuPreview } from './dm-menu-preview';
+import { MessageMediaBundleCard } from './message-media-bundle-card';
+import { unlockMessageAssetService } from '@/lib/services';
+import { toast } from 'sonner';
+import { useWallet } from '@/context/wallet-context-provider';
+import { formatBundlePriceLabel } from '@/lib/message-media-bundle';
 
 interface MessageItemProps {
   message: MessageType;
@@ -20,11 +23,7 @@ interface MessageItemProps {
   onRetryMessage?: (messageId: string) => void;
   onMarkAsRead?: (messageId: string) => void;
   onReloadMessages?: () => Promise<void>;
-  onSendUnlockMessage?: (
-    messageId: string,
-    price: string,
-    sellerId: string,
-  ) => Promise<void>;
+  onPromoteMessage?: (messageId: string) => void;
 }
 
 const MessageItemComponent = ({
@@ -33,9 +32,10 @@ const MessageItemComponent = ({
   onRetryMessage,
   onMarkAsRead,
   onReloadMessages,
-  onSendUnlockMessage,
+  onPromoteMessage,
 }: MessageItemProps) => {
   const { user } = useGlobal();
+  const { setIsFundWalletDialogOpen } = useWallet();
   const messageRef = useRef<HTMLDivElement>(null);
   const { observeMessage, setMarkAsReadCallback } = useMessageReadTracker({
     threshold: 1000, // Mark as read after 1 second of viewing
@@ -82,12 +82,162 @@ const MessageItemComponent = ({
   }, [isOwn, message._id, message.status, observeMessage]);
 
   const mediaArray = message.media || [];
+  const hasHeavyMedia =
+    ((message.type === 'media' || message.type === 'menu') &&
+      mediaArray.length > 0) ||
+    message.type === 'in_message_media';
+  const [shouldRenderHeavyMedia, setShouldRenderHeavyMedia] = useState(
+    !hasHeavyMedia || isOwn || message.status === 'sending' || isCurrentMatch,
+  );
+
+  useEffect(() => {
+    const shouldEagerLoad =
+      !hasHeavyMedia || isOwn || message.status === 'sending' || isCurrentMatch;
+
+    if (shouldEagerLoad) {
+      setShouldRenderHeavyMedia(true);
+      return;
+    }
+
+    setShouldRenderHeavyMedia(false);
+
+    const node = messageRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry?.isIntersecting) {
+          setShouldRenderHeavyMedia(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '700px 0px',
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasHeavyMedia, isCurrentMatch, isOwn, message._id, message.status]);
 
   // Check if this is a tip message (has price and text contains "Tip sent")
   const isTipMessage = message.price && message.text?.includes('Tip sent');
   
   // Check if this is an unlock message (has price and text contains "Content unlocked" or "Media unlocked")
   const isUnlockMessage = message.price && (message.text?.includes('Content unlocked') || message.text?.includes('Media unlocked'));
+  // Canonical paid-media card path for DMs so payable media, bundles, and in-message drops
+  // share one visual/interaction model instead of splitting across legacy components.
+  const isBundleMessage =
+    ((message.type === 'media' &&
+      mediaArray.length > 0 &&
+      Boolean(message.isPayable)) ||
+      (message.type === 'menu' && mediaArray.length > 0)) ||
+    (message.type === 'in_message_media' && mediaArray.length > 0);
+  const [isBundleUnlocking, setIsBundleUnlocking] = useState(false);
+  const [optimisticBundleUnlock, setOptimisticBundleUnlock] = useState(
+    Boolean(message.paid),
+  );
+  const unlockTargetMessageId = useMemo(() => {
+    const replyTarget = message.replyTo;
+    if (!replyTarget) {
+      return undefined;
+    }
+    if (typeof replyTarget === 'string') {
+      return replyTarget;
+    }
+    if (typeof replyTarget === 'object' && typeof replyTarget._id === 'string') {
+      return replyTarget._id;
+    }
+    return undefined;
+  }, [message.replyTo]);
+
+  useEffect(() => {
+    setOptimisticBundleUnlock(Boolean(message.paid));
+  }, [message._id, message.paid]);
+
+  const handleBundleUnlock = useCallback(async () => {
+    if (
+      !user?.discordId ||
+      !message.sender?.discordId ||
+      !message.conversation ||
+      !message._id
+    ) {
+      toast.error('Missing required information to unlock media');
+      return;
+    }
+
+    const unlockPriceLabel = formatBundlePriceLabel(message.price);
+    if (typeof window !== 'undefined') {
+      const shouldUnlock = window.confirm(
+        `Unlock this bundle for ${unlockPriceLabel}?`,
+      );
+      if (!shouldUnlock) {
+        return;
+      }
+    }
+
+    setIsBundleUnlocking(true);
+
+    unlockMessageAssetService({
+      buyerId: user.discordId,
+      sellerId: message.sender.discordId,
+      conversationId: message.conversation,
+      messageId: message._id,
+    })
+      .then(async () => {
+        toast.success('Media unlocked successfully!');
+        setOptimisticBundleUnlock(true);
+
+        if (onReloadMessages) {
+          try {
+            await onReloadMessages();
+          } catch {
+            toast.info('Media unlocked. Reloading thread failed.');
+          }
+        }
+
+        onPromoteMessage?.(message._id);
+      })
+      .catch((error: { message?: string }) => {
+        toast.error('Failed to unlock media', {
+          description: error?.message || 'Something went wrong',
+        });
+
+        if (error?.message === 'Insufficient funds') {
+          setIsFundWalletDialogOpen(true);
+        }
+      })
+      .finally(() => {
+        setIsBundleUnlocking(false);
+      });
+  }, [
+    message._id,
+    message.conversation,
+    message.price,
+    message.sender?.discordId,
+    onReloadMessages,
+    onPromoteMessage,
+    setIsFundWalletDialogOpen,
+    user?.discordId,
+  ]);
+
+  const handleOpenUnlockedBundle = useCallback(() => {
+    if (!unlockTargetMessageId || typeof window === 'undefined') {
+      toast.info('Original unlocked bundle not found in this thread yet.');
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('messages:jump-to', {
+        detail: { messageId: unlockTargetMessageId },
+      }),
+    );
+  }, [unlockTargetMessageId]);
 
   return (
     <div
@@ -109,7 +259,10 @@ const MessageItemComponent = ({
                   <AvatarImage
                     src={
                       message.sender?.profileImage?.url ??
-                      `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                      getUserDiscordAvatar({
+                        discordId: message.sender.discordId,
+                        discordAvatar: message.sender.discordAvatar,
+                      })
                     }
                     alt={message.sender.displayName || message.sender.username}
                   />
@@ -144,7 +297,10 @@ const MessageItemComponent = ({
                     <AvatarImage
                       src={
                         message.sender?.profileImage?.url ??
-                        `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                        getUserDiscordAvatar({
+                          discordId: message.sender.discordId,
+                          discordAvatar: message.sender.discordAvatar,
+                        })
                       }
                       alt={
                         message.sender.displayName || message.sender.username
@@ -264,7 +420,10 @@ const MessageItemComponent = ({
                     <AvatarImage
                       src={
                         message.sender?.profileImage?.url ??
-                        `https://cdn.discordapp.com/avatars/${message.sender.discordId}/${message.sender.discordAvatar}.png`
+                        getUserDiscordAvatar({
+                          discordId: message.sender.discordId,
+                          discordAvatar: message.sender.discordAvatar,
+                        })
                       }
                       alt={message.sender.displayName || message.sender.username}
                     />
@@ -292,7 +451,11 @@ const MessageItemComponent = ({
               
               {/* Unlock Card - Redesigned */}
               <div className="relative max-w-[437px] w-full mx-auto">
-                <div className="relative rounded-[12px] overflow-hidden bg-gradient-to-br from-[#ff007f]/10 via-[#ff007f]/5 to-transparent border border-[#ff007f]/20">
+                <button
+                  type="button"
+                  onClick={handleOpenUnlockedBundle}
+                  className="relative w-full rounded-[12px] overflow-hidden bg-gradient-to-br from-[#ff007f]/10 via-[#ff007f]/5 to-transparent border border-[#ff007f]/20 text-left"
+                >
                   {/* Background glow effect */}
                   <div className="absolute inset-0 bg-gradient-to-br from-[#ff007f]/20 via-transparent to-transparent opacity-50" />
                   
@@ -324,12 +487,15 @@ const MessageItemComponent = ({
                           ? 'You have successfully unlocked this content' 
                           : 'Your content has been unlocked'}
                       </p>
+                      <p className="text-[#FF74BE] text-[11px] mt-1 font-medium">
+                        Tap to jump to unlocked bundle
+                      </p>
                     </div>
                   </div>
                   
                   {/* Decorative bottom border */}
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#ff007f]/50 to-transparent" />
-                </div>
+                </button>
               </div>
               
               {/* Status indicator for own messages */}
@@ -374,8 +540,8 @@ const MessageItemComponent = ({
               )}
             </div>
           ) : (
-            <div className="ml-8">
-              {message.text && (
+            <div className={cn(isBundleMessage ? 'ml-0' : 'ml-8')}>
+              {message.text && !isBundleMessage && (
                 <div className="">
                   <p
                     className={cn(
@@ -388,17 +554,24 @@ const MessageItemComponent = ({
                 </div>
               )}
 
-              {(message.type === 'media' || message.type === 'menu') &&
+              {(message.type === 'media' ||
+                message.type === 'menu' ||
+                message.type === 'in_message_media') &&
                 mediaArray.length > 0 && (
                   <div className="mt-2">
-                    {message.isPayable && !message.paid ? (
-                      <MessageMediaPaid
-                        media={mediaArray}
-                        buyerId={user?.discordId}
-                        sellerId={message.sender.discordId}
-                        conversationId={message.conversation}
-                        messageId={message._id}
-                        price={message.price}
+                    {!shouldRenderHeavyMedia ? (
+                      <div className="h-[180px] w-full rounded-xl bg-[#1A1C1F] animate-pulse" />
+                    ) : isBundleMessage ? (
+                      <MessageMediaBundleCard
+                        message={message}
+                        viewerDiscordId={user?.discordId}
+                        onUnlock={
+                          message.reciever?.discordId === user?.discordId
+                            ? handleBundleUnlock
+                            : undefined
+                        }
+                        isUnlocking={isBundleUnlocking}
+                        overridePaid={optimisticBundleUnlock}
                       />
                     ) : (
                       <MessageMedia
@@ -408,17 +581,6 @@ const MessageItemComponent = ({
                     )}
                   </div>
                 )}
-
-              {message.type === 'in_message_media' && (
-                <div className="mt-2">
-                  <DMMenuPreview 
-                    mediaArray={message.media} 
-                    message={message}
-                    onReloadMessages={onReloadMessages}
-                    onSendUnlockMessage={onSendUnlockMessage}
-                  />
-                </div>
-              )}
 
               {!isTipMessage && !isUnlockMessage && message.type !== 'call' && (
                 <div className="flex items-center absolute bottom-0 right-0 gap-1 mt-1 text-xs text-[#8A8C95] justify-start">

@@ -36,7 +36,7 @@ export enum TransactionStatus {
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -68,8 +68,8 @@ export class Transaction {
   @Prop({ required: true })
   balanceAfter: number;
 
-  // @Prop({ required: true })
-  // reference: string; // unique tx id
+  @Prop()
+  reference?: string; // idempotency key / unique tx reference
 
   // @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
   // sender?: mongoose.Types.ObjectId | User;
@@ -82,7 +82,8 @@ export class Transaction {
 }
 
 export const TransactionSchema = SchemaFactory.createForClass(Transaction);
-// TransactionSchema.index({ user: 1, reference: 1 }, { unique: true });
+TransactionSchema.index({ wallet: 1, createdAt: -1 });
+TransactionSchema.index({ reference: 1 }, { unique: true, sparse: true });
 
 // TransactionSchema.virtual('amountDollar').get(function () {
 //   return this.amount / 100;

@@ -15,7 +15,7 @@ export enum MediaType {
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       // delete ret._id; // casing error for returns media in arrays
       delete ret.__v;
       return ret;

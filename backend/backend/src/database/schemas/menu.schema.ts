@@ -12,16 +12,54 @@ export enum CollectionType {
   BUNDLES = 'bundles',
 }
 
+export enum PromoType {
+  PERCENTAGE = 'percentage',
+  FIXED = 'fixed',
+}
+
 export type Image = {
   url: string;
   public_id: string;
 };
 
+export type PreviewMedia = {
+  url: string;
+  public_id: string;
+  type: 'image' | 'video';
+};
+
+@Schema({ _id: false })
+export class MenuPromo {
+  @Prop({ default: false })
+  isEnabled: boolean;
+
+  @Prop({
+    type: String,
+    enum: Object.values(PromoType),
+    default: PromoType.PERCENTAGE,
+  })
+  type: PromoType;
+
+  @Prop({ type: String, default: '0' })
+  value: string;
+
+  @Prop({ type: Date, default: null })
+  startsAt: Date | null;
+
+  @Prop({ type: Date, default: null })
+  endsAt: Date | null;
+
+  @Prop({ type: String, default: '' })
+  message: string;
+}
+
+export const MenuPromoSchema = SchemaFactory.createForClass(MenuPromo);
+
 @Schema({
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -52,6 +90,12 @@ export class Menu {
   itemCount: number;
 
   @Prop({ default: 0 })
+  imageCount: number;
+
+  @Prop({ default: 0 })
+  videoCount: number;
+
+  @Prop({ default: 0 })
   itemSold: number;
 
   @Prop({ default: true })
@@ -69,6 +113,19 @@ export class Menu {
   noteToBuyer: string;
 
   @Prop({
+    type: MenuPromoSchema,
+    default: () => ({
+      isEnabled: false,
+      type: PromoType.PERCENTAGE,
+      value: '0',
+      startsAt: null,
+      endsAt: null,
+      message: '',
+    }),
+  })
+  promo: MenuPromo;
+
+  @Prop({
     type: {
       url: String,
       public_id: String,
@@ -76,8 +133,23 @@ export class Menu {
   })
   coverImage: Image;
 
+  @Prop({
+    type: [
+      {
+        url: { type: String, required: true },
+        public_id: { type: String, required: true },
+        type: { type: String, enum: ['image', 'video'], required: true },
+      },
+    ],
+    default: [],
+  })
+  previewMedia: PreviewMedia[];
+
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true })
   owner: mongoose.Schema.Types.ObjectId | User;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Post', default: null })
+  sourcePost: mongoose.Types.ObjectId | null;
 
   @Prop({ default: false })
   isArchived: boolean;

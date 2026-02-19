@@ -54,10 +54,14 @@ export const SubscriptionsCreatePlanDialog = ({
 	editData,
 	isUpdating = false,
 	children,
+	open,
+	onOpenChange,
 }: {
 	editData?: SubscriptionPlanType;
 	isUpdating?: boolean;
-	children: React.ReactNode;
+	children?: React.ReactNode;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) => {
 	const { user } = useGlobal();
 	const queryClient = useQueryClient();
@@ -75,6 +79,8 @@ export const SubscriptionsCreatePlanDialog = ({
 
 	const [isOpen, setIsOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
+	const dialogOpen = open ?? isOpen;
+	const setDialogOpen = onOpenChange ?? setIsOpen;
 
 	const onSubmit = async (data: z.infer<typeof FormSchema>) => {
 		setIsLoading(true);
@@ -97,10 +103,10 @@ export const SubscriptionsCreatePlanDialog = ({
 						description: error.message,
 					});
 				})
-				.finally(() => {
-					setIsOpen(false);
-					setIsLoading(false);
-				});
+					.finally(() => {
+						setDialogOpen(false);
+						setIsLoading(false);
+					});
 			return;
 		}
 
@@ -120,11 +126,11 @@ export const SubscriptionsCreatePlanDialog = ({
 					description: error.message,
 				});
 			})
-			.finally(() => {
-				setIsOpen(false);
-				setIsLoading(false);
-			});
-	};
+				.finally(() => {
+					setDialogOpen(false);
+					setIsLoading(false);
+				});
+		};
 
 	const [name, amount, description, icon] = form.watch([
 		"name",
@@ -148,8 +154,8 @@ export const SubscriptionsCreatePlanDialog = ({
 	}
 
 	return (
-		<Dialog open={isOpen} onOpenChange={setIsOpen}>
-			<DialogTrigger asChild>{children}</DialogTrigger>
+		<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+			{children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
 
 			<DialogContent className="space-y-[51px]">
 				<DialogDescription className="sr-only">

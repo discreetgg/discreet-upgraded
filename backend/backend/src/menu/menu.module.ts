@@ -12,6 +12,7 @@ import {
   MenuMedia,
   MenuMediaSchema,
 } from 'src/database/schemas/menu-media.schema';
+import { MenuPromoService } from './menu-promo.service';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import {
       { name: MenuMedia.name, schema: MenuMediaSchema },
     ]),
   ],
-  providers: [MenuService],
+  providers: [MenuService, MenuPromoService],
   controllers: [MenuController],
   exports: [MenuService],
 })

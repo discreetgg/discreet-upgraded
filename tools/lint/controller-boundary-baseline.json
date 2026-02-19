@@ -1,0 +1,15 @@
+{
+  "backend/backend/src/auth/auth.controller.ts": 10,
+  "backend/backend/src/chat/chat.controller.ts": 14,
+  "backend/backend/src/creator/creator.controller.ts": 9,
+  "backend/backend/src/menu/menu.controller.ts": 9,
+  "backend/backend/src/notification/notification.controller.ts": 2,
+  "backend/backend/src/payment/payment.controller.ts": 5,
+  "backend/backend/src/payment-analytics/payment-analytics.controller.ts": 3,
+  "backend/backend/src/post/post.controller.ts": 21,
+  "backend/backend/src/report/report.controller.ts": 1,
+  "backend/backend/src/subscription/subscription.controller.ts": 8,
+  "backend/backend/src/user/user.controller.ts": 14,
+  "backend/backend/src/wallet/wallet.controller.ts": 4,
+  "backend/backend/src/webhooks/webhooks.controller.ts": 3
+}

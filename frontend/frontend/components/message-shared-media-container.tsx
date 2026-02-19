@@ -1,21 +1,22 @@
 'use client';
 
-import type { MediaType, MessageType } from '@/types/global';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ComponentLoader } from './ui/component-loader';
-import { useParams } from 'next/navigation';
-import { getConversationByIdService } from '@/lib/services';
-import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useSharedMediaTab } from '@/hooks/use-shared-media-tab';
 import { useGlobal } from '@/context/global-context-provider';
+import { useSharedMediaTab } from '@/hooks/use-shared-media-tab';
+import { getConversationSharedMediaService } from '@/lib/services';
+import { getMessageBundleSummary } from '@/lib/message-media-bundle';
+import { cn, getProxiedMediaUrl } from '@/lib/utils';
+import type { MediaType, MessageType } from '@/types/global';
+import { useParams } from 'next/navigation';
+import { Play } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { AuthenticatedMedia } from './authenticated-media';
+import { MessageMediaDialog } from './message-media-dialog';
+import { Button } from './ui/button';
+import { ComponentLoader } from './ui/component-loader';
 import { EmptyStates } from './ui/empty-states';
 import { Icon } from './ui/icons';
-import { Button } from './ui/button';
-import { cn, getProxiedMediaUrl } from '@/lib/utils';
-import { MessageMediaDialog } from './message-media-dialog';
-import { ArrowLeft, Lock, Play } from 'lucide-react';
 
 const validTabs = [
   'all',
@@ -28,70 +29,65 @@ const validTabs = [
 type SharedMediaTab = (typeof validTabs)[number];
 
 const mediaMessageTypes = new Set(['media', 'menu', 'in_message_media']);
+const SHARED_MEDIA_PAGE_LIMIT = 40;
 
-type SharedMediaItem = {
+type SharedMediaTile = {
   media: MediaType;
   messageId: string;
-  conversationId: string;
-  isPurchased: boolean;
+  createdAt: string;
   isLocked: boolean;
-  price?: string;
-  messageTitle?: string;
+  isPurchased: boolean;
 };
 
-type LockedBundle = {
-  messageId: string;
-  conversationId: string;
-  price?: string;
-  messageTitle?: string;
-  previewMedia: MediaType;
-  itemCount: number;
-  imageCount: number;
-  videoCount: number;
-};
-
-const getPriceLabel = (price?: string) => {
-  if (!price) {
+const getVideoTilePosterUrl = (rawUrl?: string) => {
+  const normalizedUrl = (rawUrl ?? '').trim();
+  if (!normalizedUrl) {
     return '';
   }
 
-  const numericPrice = Number(price);
-  if (Number.isFinite(numericPrice)) {
-    return `$${numericPrice.toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    })}`;
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    if (
+      !parsedUrl.hostname.includes('res.cloudinary.com') ||
+      !parsedUrl.pathname.includes('/video/upload/')
+    ) {
+      return '';
+    }
+
+    const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
+    const uploadIndex = pathSegments.findIndex((segment) => segment === 'upload');
+    if (uploadIndex === -1) {
+      return '';
+    }
+
+    const versionIndex = pathSegments.findIndex(
+      (segment, index) => index > uploadIndex && /^v\d+$/.test(segment),
+    );
+    const publicIdSegments =
+      versionIndex >= 0
+        ? pathSegments.slice(versionIndex + 1)
+        : pathSegments.slice(uploadIndex + 1);
+
+    if (publicIdSegments.length === 0) {
+      return '';
+    }
+
+    const lastSegment = publicIdSegments[publicIdSegments.length - 1];
+    publicIdSegments[publicIdSegments.length - 1] = lastSegment.replace(
+      /\.[^/.]+$/,
+      '',
+    );
+
+    const basePrefix = pathSegments.slice(0, uploadIndex + 1).join('/');
+    const versionPath = versionIndex >= 0 ? `/${pathSegments[versionIndex]}` : '';
+
+    parsedUrl.pathname = `/${basePrefix}/so_0,w_260,h_260,c_fill,f_jpg,q_auto${versionPath}/${publicIdSegments.join('/')}.jpg`;
+    parsedUrl.search = '';
+    parsedUrl.hash = '';
+    return parsedUrl.toString();
+  } catch {
+    return '';
   }
-
-  return `$${price}`;
-};
-
-const isMediaLockedForViewer = (
-  message: MessageType,
-  media: MediaType,
-  viewerDiscordId?: string,
-) => {
-  if (!viewerDiscordId) {
-    return false;
-  }
-
-  const isReceiver = message.reciever?.discordId === viewerDiscordId;
-  if (!isReceiver) {
-    return false;
-  }
-
-  if (!message.isPayable || message.paid || media.paid) {
-    return false;
-  }
-
-  if (message.type === 'in_message_media') {
-    const caption = (media.caption ?? '').toLowerCase();
-    const isFreePreview =
-      caption.includes('free preview') || caption.includes('cover image');
-    return !isFreePreview;
-  }
-
-  return true;
 };
 
 export const MessageSharedMediaContainer = ({ showTitle = true }) => {
@@ -102,38 +98,148 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
 
   const [messages, setMessages] = useState<MessageType[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isBackfillingHistory, setIsBackfillingHistory] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const sharedMediaRequestIdRef = useRef(0);
+  const tileScrollRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchConversationMessages = useCallback(
-    async (background = false) => {
-      if (!conversationId) {
-        setMessages([]);
+  const appendUniqueMessages = useCallback(
+    (currentMessages: MessageType[], incomingMessages: MessageType[]) => {
+      if (incomingMessages.length === 0) {
+        return currentMessages;
+      }
+
+      const seenMessageIds = new Set(
+        currentMessages
+          .map((message) => message?._id)
+          .filter((messageId): messageId is string => Boolean(messageId)),
+      );
+      const mergedMessages = [...currentMessages];
+
+      for (const incoming of incomingMessages) {
+        if (!incoming?._id || seenMessageIds.has(incoming._id)) {
+          continue;
+        }
+        seenMessageIds.add(incoming._id);
+        mergedMessages.push(incoming);
+      }
+
+      return mergedMessages;
+    },
+    [],
+  );
+
+  const dedupeMessageBatch = useCallback((batch: MessageType[]) => {
+    const uniqueMessages: MessageType[] = [];
+    const seenMessageIds = new Set<string>();
+    for (const message of batch) {
+      if (!message?._id || seenMessageIds.has(message._id)) {
+        continue;
+      }
+      seenMessageIds.add(message._id);
+      uniqueMessages.push(message);
+    }
+    return uniqueMessages;
+  }, []);
+
+  const fetchConversationMessages = useCallback(async () => {
+    if (!conversationId) {
+      setMessages([]);
+      setNextCursor(null);
+      setHasMoreHistory(false);
+      setIsBackfillingHistory(false);
+      return;
+    }
+
+    const requestId = sharedMediaRequestIdRef.current + 1;
+    sharedMediaRequestIdRef.current = requestId;
+    let hasRenderedMessages = false;
+
+    try {
+      setLoading(true);
+      setIsBackfillingHistory(false);
+      setNextCursor(null);
+      setHasMoreHistory(false);
+
+      const firstPage = await getConversationSharedMediaService(conversationId, {
+        limit: SHARED_MEDIA_PAGE_LIMIT,
+      });
+      if (sharedMediaRequestIdRef.current !== requestId) {
         return;
       }
 
-      try {
-        if (!background) {
-          setLoading(true);
-        }
-
-        const response = await getConversationByIdService(conversationId, {
-          limit: 200,
-          force: true,
-        });
-
-        setMessages(Array.isArray(response) ? response : []);
-      } catch (error: any) {
+      const firstBatch = dedupeMessageBatch(firstPage?.messages ?? []);
+      setMessages(firstBatch);
+      hasRenderedMessages = firstBatch.length > 0;
+      setNextCursor(firstPage?.nextCursor ?? null);
+      setHasMoreHistory(Boolean(firstPage?.hasMore && firstPage?.nextCursor));
+      setLoading(false);
+    } catch (error: any) {
+      if (!hasRenderedMessages) {
         setMessages([]);
+        setNextCursor(null);
+        setHasMoreHistory(false);
         toast.error('Error fetching shared media', {
           description: error?.message ?? 'Something went wrong.',
         });
-      } finally {
-        if (!background) {
-          setLoading(false);
-        }
+      } else {
+        toast.warning('Some older shared media could not be loaded');
       }
-    },
-    [conversationId],
-  );
+    } finally {
+      if (sharedMediaRequestIdRef.current === requestId) {
+        setLoading(false);
+        setIsBackfillingHistory(false);
+      }
+    }
+  }, [conversationId, dedupeMessageBatch]);
+
+  const loadMoreConversationMessages = useCallback(async () => {
+    if (
+      !conversationId ||
+      isBackfillingHistory ||
+      !hasMoreHistory ||
+      !nextCursor
+    ) {
+      return;
+    }
+
+    const requestId = sharedMediaRequestIdRef.current;
+
+    try {
+      setIsBackfillingHistory(true);
+      const response = await getConversationSharedMediaService(conversationId, {
+        limit: SHARED_MEDIA_PAGE_LIMIT,
+        cursor: nextCursor,
+      });
+
+      if (sharedMediaRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const batch = dedupeMessageBatch(response?.messages ?? []);
+      if (batch.length > 0) {
+        setMessages((currentMessages) =>
+          appendUniqueMessages(currentMessages, batch),
+        );
+      }
+      setNextCursor(response?.nextCursor ?? null);
+      setHasMoreHistory(Boolean(response?.hasMore && response?.nextCursor));
+    } catch {
+      toast.warning('Some older shared media could not be loaded');
+    } finally {
+      if (sharedMediaRequestIdRef.current === requestId) {
+        setIsBackfillingHistory(false);
+      }
+    }
+  }, [
+    appendUniqueMessages,
+    conversationId,
+    dedupeMessageBatch,
+    hasMoreHistory,
+    isBackfillingHistory,
+    nextCursor,
+  ]);
 
   useEffect(() => {
     void fetchConversationMessages();
@@ -142,91 +248,59 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
   const { user } = useGlobal();
   const isBuyer = user?.role === 'buyer';
 
-  const sharedMedia = useMemo<SharedMediaItem[]>(() => {
-    return messages.flatMap((message) => {
-      if (!mediaMessageTypes.has(message.type) || !Array.isArray(message.media)) {
-        return [];
-      }
-
-      return message.media.flatMap((entry) => {
-        if (!entry || typeof entry === 'string') {
+  const sharedTiles = useMemo<SharedMediaTile[]>(() => {
+    return messages
+      .flatMap((message) => {
+        if (!mediaMessageTypes.has(message.type) || !Array.isArray(message.media)) {
           return [];
         }
 
-        if (entry.type !== 'image' && entry.type !== 'video') {
+        const summary = getMessageBundleSummary(message, user?.discordId);
+        if (summary.totalCount === 0) {
           return [];
         }
+        const purchasedByContext = Boolean(
+          summary.isReceiver &&
+            (summary.purchaseType === 'menu' || summary.purchaseType === 'media'),
+        );
 
-        const isLocked = isMediaLockedForViewer(message, entry, user?.discordId);
-        const isReceiver = message.reciever?.discordId === user?.discordId;
-        const isPayable = Boolean(message.isPayable);
-        const isPurchased =
-          isReceiver && isPayable && Boolean(message.paid || entry.paid);
+        const tiles: SharedMediaTile[] = [];
+        for (const slot of summary.allSlots) {
+          if (slot.media.type !== 'image' && slot.media.type !== 'video') {
+            continue;
+          }
 
-        return [
-          {
-            media: entry,
+          tiles.push({
+            media: slot.media,
             messageId: message._id,
-            conversationId: message.conversation,
-            isPurchased,
-            isLocked,
-            price: message.price,
-            messageTitle: message.title || message.text || '',
-          },
-        ];
-      });
-    });
-  }, [messages, user?.discordId]);
-
-  const mediaByTab = useMemo(
-    () => ({
-      all: sharedMedia,
-      purchased: sharedMedia.filter((item) => item.isPurchased),
-      unlocked: sharedMedia.filter((item) => !item.isLocked),
-      locked: sharedMedia.filter((item) => item.isLocked),
-      images: sharedMedia.filter((item) => item.media.type === 'image'),
-      videos: sharedMedia.filter((item) => item.media.type === 'video'),
-    }),
-    [sharedMedia],
-  );
-
-  const lockedBundles = useMemo<LockedBundle[]>(() => {
-    const groupedByMessageId = new Map<string, SharedMediaItem[]>();
-
-    mediaByTab.locked.forEach((item) => {
-      const existing = groupedByMessageId.get(item.messageId) ?? [];
-      existing.push(item);
-      groupedByMessageId.set(item.messageId, existing);
-    });
-
-    return Array.from(groupedByMessageId.entries())
-      .map(([messageId, items]) => {
-        const imageCount = items.filter(
-          (entry) => entry.media.type === 'image',
-        ).length;
-        const videoCount = items.length - imageCount;
-        const firstItem = items[0];
-        const messageTitle =
-          items.find((entry) => entry.messageTitle?.trim())?.messageTitle?.trim() ||
-          '';
-
-        return {
-          messageId,
-          conversationId: firstItem.conversationId,
-          price: firstItem.price,
-          messageTitle,
-          previewMedia: firstItem.media,
-          itemCount: items.length,
-          imageCount,
-          videoCount,
-        };
+            createdAt:
+              slot.media.createdAt || slot.media.uploadedAt || message.createdAt,
+            isLocked: slot.isLocked,
+            isPurchased:
+              (summary.isPurchasedByReceiver || purchasedByContext) &&
+              !slot.isLocked,
+          });
+        }
+        return tiles;
       })
       .sort((a, b) => {
-        const aTime = new Date(a.previewMedia.createdAt ?? 0).getTime();
-        const bTime = new Date(b.previewMedia.createdAt ?? 0).getTime();
+        const aTime = new Date(a.createdAt || 0).getTime();
+        const bTime = new Date(b.createdAt || 0).getTime();
         return bTime - aTime;
       });
-  }, [mediaByTab.locked]);
+  }, [messages, user?.discordId]);
+
+  const tilesByTab = useMemo(
+    () => ({
+      all: sharedTiles,
+      purchased: sharedTiles.filter((tile) => tile.isPurchased),
+      unlocked: sharedTiles.filter((tile) => !tile.isLocked),
+      locked: sharedTiles.filter((tile) => tile.isLocked),
+      images: sharedTiles.filter((tile) => tile.media.type === 'image'),
+      videos: sharedTiles.filter((tile) => tile.media.type === 'video'),
+    }),
+    [sharedTiles],
+  );
 
   const handleJumpToMessage = useCallback((messageId: string) => {
     if (!messageId || typeof window === 'undefined') {
@@ -267,6 +341,32 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
   )
     ? (currentTab as SharedMediaTab)
     : (allowedTabs[0] ?? 'all');
+  const activeTiles = tilesByTab[activeTab];
+
+  useEffect(() => {
+    const scrollNode = tileScrollRef.current;
+    if (!scrollNode) {
+      return;
+    }
+
+    const handleScroll = () => {
+      if (isBackfillingHistory || !hasMoreHistory) {
+        return;
+      }
+
+      const thresholdPx = 120;
+      const distanceToBottom =
+        scrollNode.scrollHeight - (scrollNode.scrollTop + scrollNode.clientHeight);
+      if (distanceToBottom <= thresholdPx) {
+        void loadMoreConversationMessages();
+      }
+    };
+
+    scrollNode.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      scrollNode.removeEventListener('scroll', handleScroll);
+    };
+  }, [activeTab, hasMoreHistory, isBackfillingHistory, loadMoreConversationMessages]);
 
   if (loading) {
     return (
@@ -284,8 +384,13 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
   };
 
   return (
-    <div className="px-1.5">
+    <div className="min-h-0 px-1.5">
       {showTitle && <h3 className="py-0 text-sm font-medium">Shared Media</h3>}
+      {isBackfillingHistory && (
+        <p className="text-[11px] text-muted-foreground py-1">
+          Loading older shared media...
+        </p>
+      )}
 
       <div className={cn('space-y-3', showTitle ? 'pt-3' : 'pt-0')}>
         <Tabs
@@ -297,57 +402,41 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
                 : 'all',
             });
           }}
+          className="min-h-0"
         >
-          <TabsList className="bg-transparent p-0 -mb-[1px] gap-2 flex-wrap h-auto justify-start">
+          <TabsList className="grid w-full grid-cols-3 gap-1.5 bg-transparent p-0 h-auto">
             {tabConfig.map((item) => (
               <TabsTrigger
                 key={item.tab}
                 value={item.tab}
-                className="text-xs text-[#D4D4D8] font-medium data-[state=active]:rounded-[8px] data-[state=active]:px-3 px-0 py-1 h-auto border-none data-[state=active]:bg-[#2E2E32]"
+                className="min-w-0 text-[11px] text-[#D4D4D8] font-medium rounded-[8px] px-2 py-1.5 h-auto border border-transparent leading-tight text-center data-[state=active]:border-[#2D3342] data-[state=active]:bg-[#1D2230]"
               >
-                {item.label} (
-                {item.tab === 'locked' && isBuyer
-                  ? lockedBundles.length
-                  : mediaByTab[item.tab].length}
-                )
+                {item.label} ({tilesByTab[item.tab].length})
               </TabsTrigger>
             ))}
           </TabsList>
 
           {tabConfig.map(({ tab }) => (
             <TabsContent key={tab} value={tab} className="mt-3">
-              {tab === 'locked' && isBuyer ? (
-                lockedBundles.length > 0 ? (
-                  <div className="space-y-2.5">
-                    <p className="text-[11px] text-[#8A8C95]">
-                      Grouped by locked bundle
+              {tilesByTab[tab].length > 0 ? (
+                <div
+                  ref={activeTab === tab ? tileScrollRef : undefined}
+                  className="max-h-[62dvh] overflow-y-auto pr-1 hidden_scrollbar"
+                >
+                  {tab === 'locked' && (
+                    <p className="mb-2 text-[11px] text-[#8A8C95]">
+                      Locked tiles: tap one to jump to the message in chat.
                     </p>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      {lockedBundles.map((bundle) => (
-                        <LockedBundlePreview
-                          key={bundle.messageId}
-                          bundle={bundle}
-                          onJumpToMessage={handleJumpToMessage}
-                        />
-                      ))}
-                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    {tilesByTab[tab].map((tile, index) => (
+                      <SharedMediaTileCard
+                        key={`${tile.messageId}-${tile.media._id || tile.media.url || index}`}
+                        tile={tile}
+                        onJumpToMessage={handleJumpToMessage}
+                      />
+                    ))}
                   </div>
-                ) : (
-                  <EmptyStates className="mt-10">
-                    <EmptyStates.Icon icon={Icon.image}>
-                      {emptyLabels[tab]}
-                    </EmptyStates.Icon>
-                  </EmptyStates>
-                )
-              ) : mediaByTab[tab].length > 0 ? (
-                <div className="grid grid-cols-2 gap-2.5">
-                  {mediaByTab[tab].map((item, index) => (
-                    <SharedMediaPreview
-                      key={`${item.messageId}-${item.media._id}-${index}`}
-                      item={item}
-                      onJumpToMessage={handleJumpToMessage}
-                    />
-                  ))}
                 </div>
               ) : (
                 <EmptyStates className="mt-10">
@@ -359,198 +448,111 @@ export const MessageSharedMediaContainer = ({ showTitle = true }) => {
             </TabsContent>
           ))}
         </Tabs>
+        {hasMoreHistory && (
+          <div className="flex justify-center pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isBackfillingHistory}
+              className="h-8 rounded-md px-3 text-xs"
+              onClick={() => {
+                void loadMoreConversationMessages();
+              }}
+            >
+              {isBackfillingHistory
+                ? 'Loading more...'
+                : activeTiles.length > 0
+                  ? 'Load more tiles'
+                  : 'Load more'}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-const LockedBundlePreview = ({
-  bundle,
+const SharedMediaTileCard = ({
+  tile,
   onJumpToMessage,
 }: {
-  bundle: LockedBundle;
+  tile: SharedMediaTile;
   onJumpToMessage: (messageId: string) => void;
 }) => {
-  const previewUrl = getProxiedMediaUrl(
-    bundle.previewMedia._id,
-    bundle.previewMedia.url,
-  );
+  const mediaUrl = getProxiedMediaUrl(tile.media._id, tile.media.url);
+  const posterUrl = tile.media.type === 'video' ? getVideoTilePosterUrl(mediaUrl) : '';
 
-  const mediaBreakdownParts = [
-    bundle.imageCount > 0
-      ? `${bundle.imageCount} image${bundle.imageCount > 1 ? 's' : ''}`
-      : '',
-    bundle.videoCount > 0
-      ? `${bundle.videoCount} video${bundle.videoCount > 1 ? 's' : ''}`
-      : '',
-  ].filter(Boolean);
-
-  return (
-    <div className="relative aspect-square overflow-hidden rounded-[10px] border border-[#1E2227] bg-[#0F1114]">
-      {bundle.previewMedia.type === 'image' ? (
+  const tileBody = (
+    <div
+      className={cn(
+        'relative aspect-square overflow-hidden rounded-[14px] border',
+        tile.isLocked
+          ? 'border-[#2A2F3A] bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),linear-gradient(180deg,#20242D_0%,#141821_100%)]'
+          : 'border-[#232A37] bg-[#0F131C]',
+      )}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {tile.isLocked ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="rounded-full border border-white/20 bg-black/45 p-2 text-white">
+            <Icon.lock className="h-4 w-4" />
+          </div>
+        </div>
+      ) : tile.media.type === 'image' ? (
         <AuthenticatedMedia
           type="image"
-          src={previewUrl}
-          alt={bundle.messageTitle || 'Locked bundle'}
+          src={mediaUrl}
+          alt={tile.media.caption || 'Shared image'}
           fill
-          className="object-cover blur-2xl scale-110 brightness-45"
+          className="object-cover"
+          sizes="(max-width: 1024px) 33vw, 140px"
+        />
+      ) : posterUrl ? (
+        <AuthenticatedMedia
+          type="image"
+          src={posterUrl}
+          alt={tile.media.caption || 'Shared video preview'}
+          fill
+          className="object-cover"
+          sizes="(max-width: 1024px) 33vw, 140px"
         />
       ) : (
-        <AuthenticatedMedia
-          type="video"
-          src={previewUrl}
-          alt={bundle.messageTitle || 'Locked bundle'}
-          className="h-full w-full object-contain blur-2xl scale-110 brightness-45"
-          videoProps={{
-            muted: true,
-            playsInline: true,
-            preload: 'metadata',
-          }}
-        />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,#1B2233_0%,#0F1422_100%)]" />
       )}
 
-      <div className="absolute inset-0 flex flex-col justify-between bg-gradient-to-b from-black/35 via-black/45 to-black/80 p-2.5">
-        <div className="flex items-center justify-between gap-1">
-          <div className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/50 px-2 py-1 text-[10px] text-white">
-            <Lock className="size-3" />
-            Locked bundle
+      {tile.media.type === 'video' && !tile.isLocked && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="rounded-full bg-black/50 p-2 text-white">
+            <Play className="size-4 fill-current" />
           </div>
-          {bundle.price && (
-            <div className="rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-medium text-white/90">
-              {getPriceLabel(bundle.price)}
-            </div>
-          )}
         </div>
+      )}
 
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold text-white/95">
-            {bundle.itemCount} locked item{bundle.itemCount > 1 ? 's' : ''}
-          </p>
-          {bundle.messageTitle && (
-            <p className="truncate text-[10px] text-white/75">
-              {bundle.messageTitle}
-            </p>
-          )}
-          <p className="text-[10px] text-white/65">
-            {mediaBreakdownParts.join(' • ')}
-          </p>
+      {tile.media.type === 'video' && (
+        <div className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+          <Icon.videoIcon className="h-2.5 w-2.5" />
+          <span>Video</span>
         </div>
-
-        <Button
-          type="button"
-          onClick={() => onJumpToMessage(bundle.messageId)}
-          className={cn(
-            'h-8 w-full rounded-md px-2 text-[11px] font-medium',
-            'bg-black/55 hover:bg-black/70 border border-white/20 text-white',
-          )}
-        >
-          <ArrowLeft className="size-3.5" />
-          <span className="truncate">Open in chat</span>
-        </Button>
-      </div>
+      )}
     </div>
   );
-};
 
-const SharedMediaPreview = ({
-  item,
-  onJumpToMessage,
-}: {
-  item: SharedMediaItem;
-  onJumpToMessage: (messageId: string) => void;
-}) => {
-  const mediaUrl = getProxiedMediaUrl(item.media._id, item.media.url);
-
-  if (item.isLocked) {
+  if (tile.isLocked) {
     return (
-      <div className="relative aspect-square overflow-hidden rounded-[10px] border border-[#1E2227] bg-[#0F1114]">
-        {item.media.type === 'image' ? (
-          <AuthenticatedMedia
-            type="image"
-            src={mediaUrl}
-            alt={item.media.caption || 'Locked media'}
-            fill
-            className="object-cover blur-2xl scale-110 brightness-50"
-          />
-        ) : (
-          <AuthenticatedMedia
-            type="video"
-            src={mediaUrl}
-            alt={item.media.caption || 'Locked video'}
-            className="h-full w-full object-contain blur-2xl scale-110 brightness-50"
-            videoProps={{
-              muted: true,
-              playsInline: true,
-              preload: 'metadata',
-            }}
-          />
-        )}
-        <div className="absolute inset-0 flex flex-col justify-between bg-gradient-to-b from-black/35 via-black/45 to-black/75 p-2.5">
-          <div className="flex items-center justify-between gap-1">
-            <div className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/50 px-2 py-1 text-[10px] text-white">
-              <Lock className="size-3" />
-              Locked
-            </div>
-            {item.price && (
-              <div className="rounded-full border border-white/15 bg-black/55 px-2 py-1 text-[10px] font-medium text-white/90">
-                {getPriceLabel(item.price)}
-              </div>
-            )}
-          </div>
-
-          <Button
-            type="button"
-            onClick={() => onJumpToMessage(item.messageId)}
-            className={cn(
-              'h-8 w-full rounded-md px-2 text-[11px] font-medium',
-              'bg-black/55 hover:bg-black/70 border border-white/20 text-white',
-            )}
-          >
-            <ArrowLeft className="size-3.5" />
-            <span className="truncate">Open in chat</span>
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (item.media.type === 'image') {
-    return (
-      <MessageMediaDialog media={[item.media]} activeMediaIndex={0}>
-        <div className="relative aspect-square overflow-hidden rounded-[10px] border border-[#1E2227] bg-[#0F1114] cursor-zoom-in">
-          <AuthenticatedMedia
-            type="image"
-            src={mediaUrl}
-            alt={item.media.caption || 'Shared image'}
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 50vw, 33vw"
-          />
-        </div>
-      </MessageMediaDialog>
+      <button
+        type="button"
+        onClick={() => onJumpToMessage(tile.messageId)}
+        className="text-left"
+      >
+        {tileBody}
+      </button>
     );
   }
 
   return (
-    <MessageMediaDialog media={[item.media]} activeMediaIndex={0}>
-      <div className="relative aspect-square overflow-hidden rounded-[10px] border border-[#1E2227] bg-black cursor-zoom-in">
-        <AuthenticatedMedia
-          type="video"
-          src={mediaUrl}
-          alt={item.media.caption || 'Shared video'}
-          className="h-full w-full object-contain"
-          videoProps={{
-            muted: true,
-            playsInline: true,
-            preload: 'metadata',
-          }}
-        />
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="rounded-full bg-black/60 p-3 text-white">
-            <Play className="size-6 fill-current" />
-          </div>
-        </div>
-      </div>
+    <MessageMediaDialog media={[tile.media]} activeMediaIndex={0}>
+      {tileBody}
     </MessageMediaDialog>
   );
 };

@@ -114,6 +114,29 @@ export type PostType = {
   content: string;
   visibility: string;
   priceToView: string;
+  unlockableType?: 'none' | 'single' | 'bundle';
+  linkedMenu?: {
+    _id: string;
+    title: string;
+    priceToView: string;
+    collectionType: 'single' | 'bundles';
+    itemCount?: number;
+    itemSold?: number;
+    imageCount?: number;
+    videoCount?: number;
+    promo?: {
+      isEnabled: boolean;
+      type: 'percentage' | 'fixed';
+      value: string;
+      startsAt: string | null;
+      endsAt: string | null;
+      message?: string;
+    };
+    coverImage?: {
+      url: string;
+      public_id: string;
+    };
+  } | null;
   tippingEnabled: boolean;
   categories?: string[];
   scheduledPost: {
@@ -198,6 +221,23 @@ export type MessageMediaType =
   | 'call'
   | 'in_message_media';
 
+export type PurchaseOriginSurface =
+  | 'feed'
+  | 'profile'
+  | 'menu'
+  | 'dm'
+  | 'unknown';
+
+export type MessagePurchaseContextType = {
+  originSurface?: PurchaseOriginSurface;
+  sourcePostId?: string;
+  sourceMenuId?: string;
+  sourceConversationId?: string;
+  sourceMessageId?: string;
+  sourceLabel?: string;
+  purchaseType?: 'menu' | 'media';
+};
+
 export type MessageType = {
   _id: string;
   conversation: string;
@@ -206,10 +246,12 @@ export type MessageType = {
   text: string;
   type: MessageMediaType;
   media: MediaType[];
+  replyTo?: string | MessageType | null;
   isPayable?: boolean;
   price?: string;
   paid?: boolean;
   paymentTx?: string;
+  purchaseContext?: MessagePurchaseContextType;
   call: 'audio' | 'video';
   callStatus: string;
   callStartedAt: string;
@@ -238,6 +280,19 @@ export type ConversationType = {
   createdAt: string;
   updatedAt: string;
   __v: number;
+};
+
+export type PaginatedConversationsResponseType = {
+  conversations: ConversationType[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalUnreadCount: number;
+};
+
+export type PaginatedConversationMessagesResponseType = {
+  messages: MessageType[];
+  nextCursor: string | null;
+  hasMore: boolean;
 };
 
 export type Tag = {

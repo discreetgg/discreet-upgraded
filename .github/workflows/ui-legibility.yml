@@ -1,0 +1,74 @@
+name: UI Legibility
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  ui-journeys:
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ui-check') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/frontend/package-lock.json
+
+      - name: Resolve Chrome path
+        run: |
+          set -euo pipefail
+
+          CHROME_BIN=""
+          for candidate in google-chrome google-chrome-stable chromium-browser chromium; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              CHROME_BIN="$(command -v "$candidate")"
+              break
+            fi
+          done
+
+          if [[ -z "$CHROME_BIN" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+            for candidate in chromium-browser chromium; do
+              if command -v "$candidate" >/dev/null 2>&1; then
+                CHROME_BIN="$(command -v "$candidate")"
+                break
+              fi
+            done
+          fi
+
+          if [[ -z "$CHROME_BIN" ]]; then
+            echo "Unable to find Chrome/Chromium executable." >&2
+            exit 1
+          fi
+
+          echo "UI_BROWSER_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
+          echo "Using browser: $CHROME_BIN"
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend/frontend
+
+      - name: Run UI legibility journeys
+        env:
+          UI_BASE_URL: http://127.0.0.1:3000
+          UI_AUTOSTART: '1'
+          UI_MOCK_API: '1'
+        run: ./scripts/ci ui
+
+      - name: Upload UI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-legibility-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ui/**
+          if-no-files-found: warn

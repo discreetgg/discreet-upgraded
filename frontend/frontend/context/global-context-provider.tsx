@@ -2,7 +2,11 @@
 
 import type { NotificationFormSchema } from '@/components/settings-notifications-content';
 import type { EditProfileFormSchema } from '@/components/settings-profile-content';
-import { getUserService, logoutUserService } from '@/lib/services';
+import {
+  clearConversationRequestCaches,
+  getUserService,
+  logoutUserService,
+} from '@/lib/services';
 import type { SubscriptionPlanType, Tag, UserType } from '@/types/global';
 import type React from 'react';
 import {
@@ -19,6 +23,7 @@ import { toast } from 'sonner';
 import type { z } from 'zod';
 import { useAuth } from './auth-context-provider';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 
 type GlobalContextValue = {
   user: UserType | null;
@@ -68,6 +73,7 @@ const GlobalContextProvider = ({
 }) => {
   const didHydrate = useRef(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { setIsAuthenticated } = useAuth();
 
   // Initialize user from server-provided data
@@ -227,6 +233,8 @@ const GlobalContextProvider = ({
       await clearDiscordIdCookie();
       setUser(null);
       setIsAuthenticated(false);
+      clearConversationRequestCaches();
+      queryClient.clear();
       // Clear entire localStorage to remove any persisted state for guest mode
       localStorage.clear();
       localStorage.setItem(manualLogoutKey, '1');
@@ -243,7 +251,7 @@ const GlobalContextProvider = ({
       router.replace('/auth');
       router.refresh();
     }
-  }, [clearDiscordIdCookie, setIsAuthenticated, router]);
+  }, [clearDiscordIdCookie, queryClient, setIsAuthenticated, router]);
 
   const value = useMemo(
     () => ({

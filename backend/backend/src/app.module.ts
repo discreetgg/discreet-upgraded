@@ -22,11 +22,21 @@ import { ReportModule } from './report/report.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AdminModule } from './admin/admin.module';
+import { RedisModule } from './redis/redis.module';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   //DiscordBotModule
   imports: [
     EventEmitterModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        ttl: Number(process.env.THROTTLE_TTL_SECONDS ?? 60) * 1000,
+        limit: Number(process.env.THROTTLE_LIMIT ?? 120),
+      },
+    ]),
+    RedisModule,
     DatabaseModule,
     AuthModule,
     UserModule,
@@ -48,6 +58,12 @@ import { AdminModule } from './admin/admin.module';
     // PurchaseContentModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

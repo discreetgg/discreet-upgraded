@@ -29,25 +29,32 @@ import { Textarea } from './ui/textarea';
 import { useGlobal } from '@/context/global-context-provider';
 import { useState, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
-// import { getSubscriptionPlansService } from '@/lib/services';
 import { toast } from 'sonner';
 import { ComponentLoader } from './ui/component-loader';
-import type { Tag } from '@/types/global';
 import { createPostService } from '@/lib/services';
 import { createMenuCategory } from '@/actions/menu-item';
 import { useMenuCategories } from '@/hooks/queries/use-menu-categories';
 import { toastPresets } from '@/lib/toast-presets';
+import { PostComposerUnlockMediaPanel } from './post-composer-unlock-media-panel';
+import { PostComposerLivePreview } from './post-composer-live-preview';
+const MAX_POST_CONTENT_LENGTH = 560;
 
 const FormSchema = z
   .object({
-    content: z.string({ required_error: 'Content is required' }),
+    content: z
+      .string({ required_error: 'Content is required' })
+      .max(
+        MAX_POST_CONTENT_LENGTH,
+        `Keep post content under ${MAX_POST_CONTENT_LENGTH} characters.`
+      ),
     visibility: z.string({ required_error: 'Visibility is required.' }),
-    // price: z.string().optional(),
     categoryInput: z.string().optional(),
     tippingEnabled: z.boolean(),
-    subscription: z.string().optional(),
-    // categories are optional now
     categories: z.array(z.string()).optional(),
+    unlockableType: z.enum(['none', 'single', 'bundle']),
+    unlockPrice: z.string().optional(),
+    menuTitle: z.string().optional(),
+    noteToBuyer: z.string().optional(),
     scheduledPost: z.object({
       isScheduled: z.boolean(),
       scheduledFor: z.string().datetime().optional(),
@@ -55,31 +62,24 @@ const FormSchema = z
     isDraft: z.boolean(),
   })
   .superRefine((data, ctx) => {
-    // Price is required when visibility is 'subscribers'
-    // if (
-    //   data.visibility === 'subscribers' &&
-    //   (!data.price || data.price.trim() === '')
-    // ) {
-    //   ctx.addIssue({
-    //     code: z.ZodIssueCode.custom,
-    //     message: 'Price is required for paid content',
-    //     path: ['price'],
-    //   });
-    // }
+    if (data.unlockableType !== 'none') {
+      const unlockPrice = Number(data.unlockPrice);
+      if (!Number.isFinite(unlockPrice) || unlockPrice <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Enter a valid unlock price greater than 0.',
+          path: ['unlockPrice'],
+        });
+      }
+      if (!data.categories || data.categories.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Select at least one menu category for unlockable content.',
+          path: ['categories'],
+        });
+      }
+    }
 
-    // Subscription is required when visibility is 'custom_plan'
-    // if (
-    //   data.visibility === 'custom_plan' &&
-    //   (!data.subscription || data.subscription.trim() === '')
-    // ) {
-    //   ctx.addIssue({
-    //     code: z.ZodIssueCode.custom,
-    //     message: 'Subscription plan is required for subscription content',
-    //     path: ['subscription'],
-    //   });
-    // }
-
-    // Scheduled date is only required when isScheduled is true (optional validation)
     if (
       data.scheduledPost.isScheduled &&
       (!data.scheduledPost.scheduledFor ||
@@ -98,11 +98,7 @@ export const ContentCreatorAddPostDialog = ({
 }: {
   children: React.ReactNode;
 }) => {
-  const {
-    user,
-    // subscriptionPlans,
-    // setSubscriptionPlans,
-  } = useGlobal();
+  const { user } = useGlobal();
 
   const queryClient = useQueryClient();
 
@@ -111,11 +107,13 @@ export const ContentCreatorAddPostDialog = ({
     defaultValues: {
       content: '',
       visibility: '',
-      // price: '',
       categoryInput: '',
       tippingEnabled: false,
-      subscription: '',
       categories: [],
+      unlockableType: 'none',
+      unlockPrice: '',
+      menuTitle: '',
+      noteToBuyer: '',
       scheduledPost: {
         isScheduled: false,
         scheduledFor: undefined,
@@ -125,37 +123,49 @@ export const ContentCreatorAddPostDialog = ({
   });
 
   const [showTagInput, setShowTagInput] = useState<boolean>(false);
-  // const [subscriptionIsLoading, setIsSubscriptionsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraftSubmitting, setIsDraftSubmitting] = useState(false);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaPreview, setMediaPreview] = useState<string[]>([]);
+  const [unlockMediaFiles, setUnlockMediaFiles] = useState<File[]>([]);
   const [showHashtagSuggestions, setShowHashtagSuggestions] = useState(false);
   const [hashtagQuery, setHashtagQuery] = useState('');
   const [hashtagPosition, setHashtagPosition] = useState({ top: 0, left: 0 });
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Use React Query hook for menu categories
-  const {
-    data: menuCategories = [],
-  } = useMenuCategories(user?.discordId || '');
+  const { data: menuCategories = [] } = useMenuCategories(user?.discordId || '');
 
-  // Media handling functions
-  const handleMediaSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-
+  const appendMediaFiles = (
+    files: File[],
+    setFiles: React.Dispatch<React.SetStateAction<File[]>>,
+    setPreview?: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
     for (const file of files) {
-      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-        setMediaFiles((prev) => [...prev, file]);
-
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+        continue;
+      }
+      setFiles((prev) => [...prev, file]);
+      if (setPreview) {
         const reader = new FileReader();
         reader.onload = (e) => {
-          setMediaPreview((prev) => [...prev, e.target?.result as string]);
+          setPreview((prev) => [...prev, e.target?.result as string]);
         };
         reader.readAsDataURL(file);
       }
     }
+  };
+
+  const handleMediaSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    appendMediaFiles(
+      Array.from(event.target.files || []),
+      setMediaFiles,
+      setMediaPreview
+    );
+  };
+
+  const handleUnlockMediaSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    appendMediaFiles(Array.from(event.target.files || []), setUnlockMediaFiles);
   };
 
   const removeMedia = (index: number) => {
@@ -163,10 +173,29 @@ export const ContentCreatorAddPostDialog = ({
     setMediaPreview((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const removeUnlockMedia = (index: number) => {
+    setUnlockMediaFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const onSubmit = async (data: z.infer<typeof FormSchema>) => {
     if (!user?.discordId) {
       toast.error('User not authenticated');
       return;
+    }
+
+    if (data.unlockableType !== 'none') {
+      if (unlockMediaFiles.length === 0) {
+        toast.error('Add locked media files for this unlockable offer.');
+        return;
+      }
+      if (data.unlockableType === 'single' && unlockMediaFiles.length !== 1) {
+        toast.error('Single unlockable posts require exactly 1 media file.');
+        return;
+      }
+      if (data.unlockableType === 'bundle' && unlockMediaFiles.length < 2) {
+        toast.error('Bundle unlockable posts require at least 2 media files.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -181,38 +210,30 @@ export const ContentCreatorAddPostDialog = ({
     }
 
     try {
-      // Create FormData for multipart/form-data
       const formData = new FormData();
 
-      // Add basic form fields
       formData.append('content', data.content);
       formData.append('visibility', 'general'); // Temporary hardcode cause visibility is removed and no subscriptions yet
       formData.append('tippingEnabled', data.tippingEnabled.toString());
       formData.append('isDraft', data.isDraft.toString());
+      formData.append('unlockableType', data.unlockableType);
 
-      // Add visibility-specific fields
-      // if (data.visibility === 'subscribers' && data.price) {
-      //   const priceNumber = Number.parseFloat(data.price.replace(/,/g, ''));
-      //   formData.append('priceToView', priceNumber.toString());
-      // }
+      if (data.unlockableType !== 'none') {
+        const priceNumber = Number.parseFloat(data.unlockPrice || '0');
+        formData.append('priceToView', priceNumber.toString());
+        formData.append('category', data.categories?.[0] || '');
+        if (data.menuTitle?.trim()) {
+          formData.append('menuTitle', data.menuTitle.trim());
+        }
+        if (data.noteToBuyer?.trim()) {
+          formData.append('noteToBuyer', data.noteToBuyer.trim());
+        }
+      }
 
-      // if (data.visibility === "custom_plan") {
-      // 	if (data.subscription) {
-      // 		formData.append("visibleToPlan", data.subscription);
-      // 	} else {
-      // 		// This should be caught by form validation, but adding as safety check
-      // 		throw new Error(
-      // 			"Subscription plan is required for custom plan visibility"
-      // 		);
-      // 	}
-      // }
-
-      // Add categories (optional)
       for (const categoryId of data.categories || []) {
         formData.append('categories[]', categoryId);
       }
 
-      // Add scheduled post data as JSON string
       const scheduledPostData = {
         isScheduled: data.scheduledPost.isScheduled,
         ...(data.scheduledPost.isScheduled &&
@@ -222,34 +243,39 @@ export const ContentCreatorAddPostDialog = ({
       };
       formData.append('scheduledPost', JSON.stringify(scheduledPostData));
 
-      // Compress and add media files
-      const compressedFiles: File[] = [];
-      for (const file of mediaFiles) {
-        if (file.type.startsWith('image/')) {
-          try {
-            // Compress images to speed up upload (max 1MB, 1920px)
-            const compressed = await imageCompression(file, {
-              maxSizeMB: 1,
-              maxWidthOrHeight: 1920,
-              useWebWorker: true,
-            });
-            compressedFiles.push(compressed);
-          } catch (err) {
-            console.warn('Image compression failed, using original:', err);
-            compressedFiles.push(file);
+      const compressFiles = async (inputFiles: File[]) => {
+        const outputFiles: File[] = [];
+        for (const file of inputFiles) {
+          if (file.type.startsWith('image/')) {
+            try {
+              const compressed = await imageCompression(file, {
+                maxSizeMB: 1,
+                maxWidthOrHeight: 1920,
+                useWebWorker: true,
+              });
+              outputFiles.push(compressed);
+            } catch (err) {
+              console.warn('Image compression failed, using original:', err);
+              outputFiles.push(file);
+            }
+          } else {
+            outputFiles.push(file);
           }
-        } else {
-          // Don't compress videos
-          compressedFiles.push(file);
         }
-      }
+        return outputFiles;
+      };
 
-      // Add compressed files
+      const compressedFiles = await compressFiles(mediaFiles);
+      const compressedUnlockFiles = await compressFiles(unlockMediaFiles);
+
       for (const file of compressedFiles) {
         formData.append('files', file);
       }
 
-      // Add media metadata as JSON string
+      for (const file of compressedUnlockFiles) {
+        formData.append('unlockFiles', file);
+      }
+
       if (compressedFiles.length > 0) {
         const mediaMetaData = compressedFiles.map((file) => {
           const generalType = file.type.startsWith('image/')
@@ -257,15 +283,13 @@ export const ContentCreatorAddPostDialog = ({
             : 'video';
           return {
             type: generalType,
-            caption: '', // Empty caption for now
+            caption: '',
           };
         });
 
-        // Append as a single JSON string with comma-separated objects
         formData.append('mediaMeta', JSON.stringify(mediaMetaData).slice(1, -1));
       }
 
-      // Create optimistic post for instant feedback
       const optimisticId = `temp_${Date.now()}`;
       if (!data.isDraft) {
         const optimisticPost = {
@@ -288,7 +312,6 @@ export const ContentCreatorAddPostDialog = ({
           isOptimistic: true,
         };
 
-        // Add optimistic post to feed immediately
         queryClient.setQueryData(['posts', 'general', 10], (oldData: any) => {
           if (!oldData?.pages?.[0]) return oldData;
           const newPages = [...oldData.pages];
@@ -299,15 +322,12 @@ export const ContentCreatorAddPostDialog = ({
           return { ...oldData, pages: newPages };
         });
 
-        // Close dialog immediately for better UX
         setIsOpen(false);
       }
 
-      // Create the post in background
       const response = await createPostService({ formData });
 
       if (response.data || response.statusText === 'Created') {
-        // Replace optimistic post with real post
         if (!data.isDraft && response.data) {
           queryClient.setQueryData(['posts', 'general', 10], (oldData: any) => {
             if (!oldData?.pages?.[0]) return oldData;
@@ -332,17 +352,27 @@ export const ContentCreatorAddPostDialog = ({
           setIsOpen(false);
         }
 
-        // Reset form and state
         form.reset();
         setMediaFiles([]);
         setMediaPreview([]);
+        setUnlockMediaFiles([]);
         setShowTagInput(false);
 
-        // Invalidate and refetch menu categories after successful posting to refresh the list
         if (user?.discordId) {
+          queryClient.invalidateQueries({
+            queryKey: ['creatorPosts', user.discordId],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ['creator-posts'],
+          });
           queryClient.invalidateQueries({
             queryKey: ['menu_categories', user.discordId],
           });
+          if (data.unlockableType !== 'none') {
+            queryClient.invalidateQueries({
+              queryKey: ['menu_item', user.discordId],
+            });
+          }
         }
       } else {
         if (!data.isDraft) {
@@ -370,7 +400,6 @@ export const ContentCreatorAddPostDialog = ({
     } catch (error: any) {
       console.error('Failed to create post:', error);
 
-      // Remove optimistic post on error
       if (!data.isDraft) {
         queryClient.setQueryData(['posts', 'general', 10], (oldData: any) => {
           if (!oldData?.pages?.[0]) return oldData;
@@ -407,7 +436,6 @@ export const ContentCreatorAddPostDialog = ({
             className=" w-full space-y-[27px]"
             onSubmit={form.handleSubmit(onSubmit)}
           >
-
             <div className="bg-black rounded-2xl border border-[#232323] overflow-hidden">
               <div className="overflow-y-auto max-h-[calc(100vh-200px)] sm:max-h-[650px] space-y-4 sm:space-y-8 p-3 sm:p-4">
                 <FormField
@@ -420,7 +448,6 @@ export const ContentCreatorAddPostDialog = ({
                       const textBeforeCursor = textarea.value.substring(0, cursorPosition);
                       const lastHashIndex = textBeforeCursor.lastIndexOf('#');
                       
-                      // Check if user just typed # or is typing after #
                       if (e.key === '#' || (e.key !== 'Escape' && lastHashIndex !== -1)) {
                         const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
                         const hasSpace = textAfterHash.includes(' ');
@@ -429,7 +456,6 @@ export const ContentCreatorAddPostDialog = ({
                           setHashtagQuery(textAfterHash);
                           setShowHashtagSuggestions(true);
                           
-                          // Calculate position for suggestions dropdown
                           const textareaRect = textarea.getBoundingClientRect();
                           const scrollTop = textarea.scrollTop;
                           const lineHeight = 20;
@@ -504,7 +530,7 @@ export const ContentCreatorAddPostDialog = ({
                     const filteredHashtagCategories = menuCategories.filter((cat) =>
                       cat.text.toLowerCase().includes(hashtagQuery.toLowerCase())
                     );
-                    
+                    const contentLength = field.value?.length ?? 0;
                     return (
                       <FormItem className="relative">
                         <FormControl>
@@ -516,6 +542,7 @@ export const ContentCreatorAddPostDialog = ({
                               }}
                               placeholder="What do you want to post?"
                               className="!bg-transparent p-0 w-full border-0 !ring-0 font-medium resize-none placeholder:text-[#3C3C42] min-h-[90px]"
+                              maxLength={MAX_POST_CONTENT_LENGTH}
                               onKeyDown={handleKeyDown}
                               onChange={handleChange}
                               onClick={() => {
@@ -537,8 +564,7 @@ export const ContentCreatorAddPostDialog = ({
                                   }
                                 }
                               }}
-                            />
-                            
+                              />
                             {showHashtagSuggestions && filteredHashtagCategories.length > 0 && (
                               <div
                                 className="absolute z-50 bg-[#0A0A0A] border border-[#1F2227] rounded-lg shadow-lg max-h-48 overflow-y-auto"
@@ -573,45 +599,29 @@ export const ContentCreatorAddPostDialog = ({
                             )}
                           </div>
                         </FormControl>
+                        <div className="mt-1 text-right text-[11px] text-[#6F7280]">
+                          {contentLength}/{MAX_POST_CONTENT_LENGTH}
+                        </div>
                         <FormMessage />
                       </FormItem>
                     );
                   }}
                 />
-                {/* Media Preview */}
-                {mediaPreview.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                    {mediaPreview.map((preview, index) => (
-                      <div key={index} className="relative">
-                        {mediaFiles[index]?.type.startsWith('image/') ? (
-                          <img
-                            src={preview}
-                            alt="Preview"
-                            className="w-full h-32 object-cover rounded-lg"
-                          />
-                        ) : (
-                          <video
-                            src={preview}
-                            className="w-full h-32 object-cover rounded-lg"
-                            muted
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeMedia(index)}
-                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <label htmlFor="media-upload" className="cursor-pointer">
-                      <Icon.image />
+                <div className="space-y-3 rounded-[10px] border border-[#1F2227] bg-[#0F1114] p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[14px] font-semibold text-[#F8F8F8]">
+                        Public preview (optional)
+                      </p>
+                      <p className="text-xs text-[#8A8C95]">
+                        These files are visible in feed and profile posts.
+                      </p>
+                    </div>
+                    <label
+                      htmlFor="media-upload"
+                      className="cursor-pointer rounded-md border border-[#FF007F]/50 bg-[#FF007F]/10 px-3 py-2 text-xs font-medium text-[#FF007F] hover:bg-[#FF007F]/20 transition-colors"
+                    >
+                      Add preview media
                       <input
                         id="media-upload"
                         type="file"
@@ -621,170 +631,37 @@ export const ContentCreatorAddPostDialog = ({
                         className="hidden"
                       />
                     </label>
-                    <label htmlFor="video-upload" className="cursor-pointer">
-                      <Icon.videoIcon />
-                      <input
-                        id="video-upload"
-                        type="file"
-                        multiple
-                        accept="video/*"
-                        onChange={handleMediaSelect}
-                        className="hidden"
-                      />
-                    </label>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* <span className='text-[#8A8C95] font-medium'>
-                    Who can see this:
-                  </span> */}
-                    {/* <FormField
-                      control={form.control}
-                      name="visibility"
-                      render={({ field }) => (
-                        <FormItem className="w-full">
-                          <Select
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
+                  {mediaPreview.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {mediaPreview.map((preview, index) => (
+                        <div key={index} className="relative">
+                          {mediaFiles[index]?.type.startsWith('image/') ? (
+                            <img
+                              src={preview}
+                              alt="Preview"
+                              className="w-full h-32 object-cover rounded-lg border border-[#1F2227]"
+                            />
+                          ) : (
+                            <video
+                              src={preview}
+                              className="w-full h-32 object-cover rounded-lg border border-[#1F2227]"
+                              muted
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeMedia(index)}
+                            className="absolute top-2 right-2 h-6 w-6 rounded-full bg-[#101014]/90 text-[#F8F8F8] border border-[#2A2D31]"
                           >
-                            <FormControl>
-                              <SelectTrigger
-                                icon={Icon.downIcon}
-                                className="px-4 py-[14px] h-auto shadow-[2px_2px_0_0_#1F2227] text-[15px]  text-[#FF007F] border-[#1F2227] bg-[#0A0A0A] rounded-[4px]"
-                              >
-                                <SelectValue
-                                  placeholder="Select Visibility"
-                                  asChild
-                                >
-                                  <span>
-                                    {visibility.find(
-                                      (v) => v.value === field.value
-                                    )?.label || 'Select Visibility'}
-                                  </span>
-                                </SelectValue>
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent className="rounded shadow-[2px_2px_0_0_#1F2227] p-4 border-[#1F2227] border !bg-[#0F1114]">
-                              {visibility.map((option) => (
-                                <SelectItem
-                                  key={option.value}
-                                  className="py-4 first:pt-0 last:pb-0 last:border-none text-[15px] text-[#D4D4D8] hover:text-white border-b rounded-none"
-                                  value={option.value}
-                                >
-                                  <option.icon className="size-5 mr-2" />
-                                  {option.label}
-                                  {option.description &&
-                                    ` (${option.description})`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    /> */}
-                  </div>
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-[18px]">
-                  {/* {form.watch('visibility') === 'subscribers' && ( */}
-                  {/* <FormField
-                    control={form.control}
-                    name="price"
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className="relative">
-                          <Icon.moneySendOutline className="absolute -translate-y-1/2 top-1/2 left-4" />
-                          <FormControl>
-                            <Input
-                              {...field}
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="Prices"
-                              className="bg-[#0F1114] border-[#0F1114] h-auto p-4 pl-12 placeholder:text-[#9E9E9E] rounded-[8px]"
-                              onChange={(e) => {
-                                const raw = e.target.value.replace(
-                                  /[^\d]/g,
-                                  ''
-                                );
-                                const formatted = raw
-                                  ? new Intl.NumberFormat('en-US').format(
-                                      Number(raw)
-                                    )
-                                  : '';
-                                field.onChange(formatted);
-                              }}
-                            />
-                          </FormControl>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  /> */}
-                  {/* )} */}
-
-                  {/* {form.watch('visibility') === 'custom_plan' && (
-                    <FormField
-                      control={form.control}
-                      name="subscription"
-                      render={({ field }) => (
-                        <FormItem className="space-y-6">
-                          <FormLabel className="text-[15px] text-[#8A8C95] font-medium">
-                            Select subscription Tiers
-                          </FormLabel>
-                          <FormControl>
-                            <RadioGroup
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                              className="grid grid-cols-2 !overflow-y-scroll max-h-[100px]"
-                            >
-                              {subscriptionIsLoading ? (
-                                <ComponentLoader />
-                              ) : subscriptionPlans ? (
-                                subscriptionPlans?.map((subscription) => (
-                                  <FormItem
-                                    key={subscription._id}
-                                    className="relative"
-                                  >
-                                    <FormControl>
-                                      <FormLabel
-                                        htmlFor={subscription._id}
-                                        className="flex items-center gap-4 p-4 rounded-[8px] border border-[#1F2227] justify-between w-full  transition-colors peer-data-[state=checked]:border-[#FF007F]"
-                                      >
-                                        <div className="flex items-center gap-4">
-                                          <Icon.all />
-                                          <div className="flex flex-col">
-                                            <span className="text-[15px] font-medium text-[#D4D4D8]">
-                                              {subscription.name}
-                                            </span>
-                                            <span className="text-xs text-[#8A8C95]">
-                                              {subscription.amount} USD/monthly
-                                            </span>
-                                          </div>
-                                        </div>
-                                        <RadioGroupItem
-                                          id={subscription._id}
-                                          value={subscription._id}
-                                          className="peer"
-                                        />
-                                      </FormLabel>
-                                    </FormControl>
-                                  </FormItem>
-                                ))
-                              ) : (
-                                <EmptyStates>
-                                  <EmptyStates.Icon icon={IconMoodSad}>
-                                    You've don't have any subscription plans
-                                    yet.
-                                  </EmptyStates.Icon>
-                                </EmptyStates>
-                              )}
-                            </RadioGroup>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )} */}
-
                   <FormField
                     control={form.control}
                     name="tippingEnabled"
@@ -802,6 +679,108 @@ export const ContentCreatorAddPostDialog = ({
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name="unlockableType"
+                    render={({ field }) => (
+                      <FormItem className="space-y-3">
+                        <FormLabel className="text-[15px] text-[#8A8C95] font-medium">
+                          Unlockable content
+                        </FormLabel>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { value: 'none', label: 'No unlock' },
+                            { value: 'single', label: 'Single unlock' },
+                            { value: 'bundle', label: 'Bundle unlock' },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => field.onChange(option.value)}
+                              className={cn(
+                                'h-auto px-3 py-2 border rounded text-sm font-medium transition-all',
+                                field.value === option.value
+                                  ? 'border-[#34D399] text-[#34D399] bg-[#34D399]/10'
+                                  : 'border-[#1F2227] text-[#8A8C95] bg-[#0A0A0A]'
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {form.watch('unlockableType') !== 'none' && (
+                    <div className="space-y-3 rounded-[8px] border border-[#1F2227] bg-[#0F1114] p-3">
+                      <FormField
+                        control={form.control}
+                        name="unlockPrice"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-[14px] text-[#8A8C95] font-medium">
+                              Unlock price (USD)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="15.00"
+                                className="bg-[#0A0A0A] border-[#1F2227] h-auto p-3 rounded-[8px]"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="menuTitle"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-[14px] text-[#8A8C95] font-medium">
+                              Menu title (optional)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="Holiday Bundle 2026"
+                                className="bg-[#0A0A0A] border-[#1F2227] h-auto p-3 rounded-[8px]"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="noteToBuyer"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-[14px] text-[#8A8C95] font-medium">
+                              Buyer note (optional)
+                            </FormLabel>
+                            <FormControl>
+                              <Textarea
+                                {...field}
+                                placeholder="Thanks for unlocking."
+                                className="!bg-[#0A0A0A] border-[#1F2227] min-h-[70px] p-3 rounded-[8px]"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <PostComposerUnlockMediaPanel
+                        files={unlockMediaFiles}
+                        onSelect={handleUnlockMediaSelect}
+                        onRemove={removeUnlockMedia}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
@@ -820,6 +799,12 @@ export const ContentCreatorAddPostDialog = ({
                       </button>
                     )}
                   </div>
+                  {form.watch('unlockableType') !== 'none' && (
+                    <p className="text-xs text-[#8A8C95]">
+                      Unlockable posts require a category. The first selected
+                      category is used for menu listing.
+                    </p>
+                  )}
 
                   {showTagInput && (
                     <FormField
@@ -842,18 +827,37 @@ export const ContentCreatorAddPostDialog = ({
                                     const newTag = field.value?.trim();
                                     if (newTag && user?.discordId) {
                                       try {
-                                        // Create menu category via API
                                         const response = await createMenuCategory({
                                           owner: user.discordId,
                                           category: newTag,
                                         });
 
                                         if (response.data) {
-                                          // Invalidate query to trigger background refetch
-                                          queryClient.invalidateQueries({
+                                          const createdCategoryId =
+                                            response.data?._id ||
+                                            response.data?.id ||
+                                            '';
+                                          if (createdCategoryId) {
+                                            const currentlySelected =
+                                              form.getValues('categories') || [];
+                                            form.setValue(
+                                              'categories',
+                                              Array.from(
+                                                new Set([
+                                                  ...currentlySelected,
+                                                  createdCategoryId,
+                                                ])
+                                              ),
+                                              { shouldValidate: true }
+                                            );
+                                          }
+
+                                          await queryClient.invalidateQueries({
                                             queryKey: ['menu_categories', user.discordId],
                                           });
-
+                                          await queryClient.refetchQueries({
+                                            queryKey: ['menu_categories', user.discordId],
+                                          });
                                           field.onChange('');
                                           setShowTagInput(false);
                                           toast.success(
@@ -885,11 +889,20 @@ export const ContentCreatorAddPostDialog = ({
                     control={form.control}
                     name="categories"
                     render={() => {
-                      // Get last 5 menu categories
-                      const displayCategories = (menuCategories ?? []).slice(-5);
+                      const selectedValues = form.getValues('categories') || [];
+                      const displayCategories = [...(menuCategories ?? [])].sort(
+                        (first, second) => {
+                          const firstSelected = selectedValues.includes(first.id);
+                          const secondSelected = selectedValues.includes(second.id);
+                          if (firstSelected !== secondSelected) {
+                            return firstSelected ? -1 : 1;
+                          }
+                          return first.text.localeCompare(second.text);
+                        }
+                      );
                       
                       return (
-                        <FormItem className="flex gap-2 flex-wrap">
+                        <FormItem className="flex gap-2 flex-wrap max-h-[180px] overflow-y-auto pr-1">
                           {displayCategories.map((item) => (
                           <FormField
                             key={item.id}
@@ -916,7 +929,6 @@ export const ContentCreatorAddPostDialog = ({
                                       ]);
                                     }
                                     
-                                    // Add hashtag to content
                                     const contentField = form.getValues('content');
                                     const textarea = textareaRef.current;
                                     if (textarea) {
@@ -927,7 +939,6 @@ export const ContentCreatorAddPostDialog = ({
                                         contentField.substring(cursorPosition);
                                       form.setValue('content', newContent);
                                       
-                                      // Set cursor position after inserted hashtag
                                       setTimeout(() => {
                                         const newPosition = cursorPosition + item.text.length + 2; // +2 for # and space
                                         textarea.setSelectionRange(newPosition, newPosition);
@@ -1010,13 +1021,11 @@ export const ContentCreatorAddPostDialog = ({
                             return;
                           }
                           const [h, m] = timeString.split(':').map(Number);
-                          // Use selected date or today's date if no date is selected yet
                           const baseDate = dateValue ?? new Date();
                           const combined = setMinutes(setHours(new Date(baseDate), h), m);
                           field.onChange(combined.toISOString());
                         };
                         
-                        // Get time value for the input
                         const timeInputValue = hours && minutes 
                           ? `${hours}:${minutes}`
                           : '';
@@ -1093,7 +1102,6 @@ export const ContentCreatorAddPostDialog = ({
                                 >
                                   <div className="p-3 sm:p-4">
                                     <div className="flex items-start gap-3 sm:gap-4">
-                                      {/* Hours */}
                                       <div className="flex flex-col items-center gap-2">
                                         <span className="text-xs text-[#8A8C95] font-medium mb-1">Hour</span>
                                         <div 
@@ -1130,7 +1138,6 @@ export const ContentCreatorAddPostDialog = ({
                                       
                                       <span className="text-[#D4D4D8] text-base sm:text-lg font-medium mt-7 sm:mt-8">:</span>
                                       
-                                      {/* Minutes */}
                                       <div className="flex flex-col items-center gap-2">
                                         <span className="text-xs text-[#8A8C95] font-medium mb-1">Minute</span>
                                         <div 
@@ -1176,6 +1183,20 @@ export const ContentCreatorAddPostDialog = ({
                     />
                   )}
                 </div>
+                <PostComposerLivePreview
+                  authorUsername={user?.username}
+                  authorAvatarUrl={user?.profileImage?.url}
+                  content={form.watch('content') || ''}
+                  media={mediaPreview.map((url, index) => ({
+                    url,
+                    type: mediaFiles[index]?.type.startsWith('video/')
+                      ? 'video'
+                      : 'image',
+                  }))}
+                  unlockableType={form.watch('unlockableType')}
+                  unlockPrice={form.watch('unlockPrice')}
+                  lockedMediaCount={unlockMediaFiles.length}
+                />
               </div>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
@@ -1208,24 +1229,3 @@ export const ContentCreatorAddPostDialog = ({
     </Dialog>
   );
 };
-
-// const visibility = [
-//   {
-//     value: 'general',
-//     label: 'Everyone',
-//     description: 'Free content',
-//     icon: Icon.subscription,
-//   },
-//   {
-//     value: 'subscribers',
-//     label: 'All Subscribers',
-//     description: 'Paid content for all subscribers',
-//     icon: Icon.subscription,
-//   },
-//   {
-//     value: 'custom_plan',
-//     label: 'Specific Subscription Tier',
-//     description: 'Content for selected tier only',
-//     icon: Icon.subscription,
-//   },
-// ];

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -12,6 +13,7 @@ import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { WalletService } from './wallet.service';
 import { TopUpDto } from './dto/wallet.dto';
 import { JwtAuthGuard } from 'src/auth/guards/auth.guard';
+import { Role } from 'src/database/schemas/user.schema';
 
 @ApiTags('Wallet')
 @Controller('wallet')
@@ -19,14 +21,22 @@ export class WalletController {
   constructor(private readonly walletService: WalletService) {}
 
   @Get(':discordId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get wallet by Discord ID' })
-  async getWallet(@Param('discordId') discordId: string) {
+  async getWallet(@Param('discordId') discordId: string, @Req() req: any) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot access another user wallet');
+    }
     return this.walletService.getWallet(discordId);
   }
 
   @Get(':discordId/balance')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get wallet balance' })
-  async getBalance(@Param('discordId') discordId: string) {
+  async getBalance(@Param('discordId') discordId: string, @Req() req: any) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot access another user wallet balance');
+    }
     return this.walletService.getWalletBalance(discordId);
   }
 
@@ -34,6 +44,13 @@ export class WalletController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Fund wallet ' })
   async topUp(@Body() dto: TopUpDto, @Req() req: any) {
+    const allowLocalFunding = process.env.ALLOW_LOCAL_WALLET_FUND === 'true';
+    const isAdmin = req.user.role === Role.ADMIN;
+    if (!allowLocalFunding && !isAdmin) {
+      throw new ForbiddenException(
+        'Direct wallet funding is disabled in this environment',
+      );
+    }
     const userId = req.user.userId;
     return this.walletService.topUp(userId, dto.amount);
   }
@@ -55,12 +72,19 @@ export class WalletController {
   //   }
 
   @Get(':discordId/transactions')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get recent wallet transactions' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getTransactions(
     @Param('discordId') discordId: string,
     @Query('limit') limit = 100,
+    @Req() req: any,
   ) {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException(
+        'Cannot access another user wallet transactions',
+      );
+    }
     return this.walletService.getWalletTransaction(discordId, Number(limit));
   }
 }

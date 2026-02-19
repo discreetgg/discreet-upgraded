@@ -2,7 +2,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProfilePostsMediaContent } from './profile-posts-media-content';
 import { ProfilePostsPostContent } from './profile-posts-post-content';
 
-export const PublicProfilePostsSection = () => {
+export const PublicProfilePostsSection = ({
+  discordId,
+  media = [],
+}: {
+  discordId: string;
+  media?: Parameters<typeof ProfilePostsMediaContent>[0]['media'];
+}) => {
   return (
     <Tabs defaultValue='account' className='min-h-[45%] mt-[86px]'>
       <div className='border-b border-b-[#1E1E21] w-full justify-start rounded-none '>
@@ -29,13 +35,13 @@ export const PublicProfilePostsSection = () => {
         value='account'
         className='h-full flex items-center justify-center'
       >
-        <ProfilePostsPostContent />
+        <ProfilePostsPostContent discordId={discordId} />
       </TabsContent>
       <TabsContent
         value='password'
         className='h-full flex items-center justify-center'
       >
-        <ProfilePostsMediaContent />
+        <ProfilePostsMediaContent media={media} />
       </TabsContent>
     </Tabs>
   );

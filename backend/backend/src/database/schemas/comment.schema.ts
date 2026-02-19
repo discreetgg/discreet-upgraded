@@ -9,7 +9,7 @@ export type CommentDocument = mongoose.HydratedDocument<Comment>;
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -37,3 +37,5 @@ export class Comment {
 }
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
+CommentSchema.index({ post: 1, parentComment: 1, createdAt: -1 });
+CommentSchema.index({ author: 1, createdAt: -1 });

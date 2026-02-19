@@ -10,10 +10,12 @@ import {
 	useRef,
 	useState,
 } from "react";
+import axios from "axios";
 import { type Socket, io } from "socket.io-client";
 import { useGlobal } from "./global-context-provider";
 import { NotificationType } from "@/types/global";
 import { getOnlineUsersService } from "@/lib/services";
+import { baseURL } from "@/lib/data";
 
 type ConnectionQuality = 'excellent' | 'good' | 'fair' | 'poor' | 'disconnected';
 
@@ -43,6 +45,7 @@ export const SocketContextProvider = ({
 	const latencyHistoryRef = useRef<number[]>([]);
 	const reconnectCountRef = useRef(0);
 	const lastMessageTimeRef = useRef<number>(Date.now());
+	const socketRefreshInFlightRef = useRef(false);
 
 	// Initial fetch of online users on mount - no polling
 	useEffect(() => {
@@ -63,10 +66,17 @@ export const SocketContextProvider = ({
 
 	useEffect(() => {
 		if (!user?.discordId) return;
+		const apiBaseUrl =
+			process.env.NEXT_PUBLIC_BASE_API_URL ?? "https://api.discreet.fans/api";
+		const socketBaseUrl =
+			process.env.NEXT_PUBLIC_WS_URL ??
+			apiBaseUrl.replace(/\/api\/?$/, "");
 
 		// Initialize socket connection
-		const s = io("https://api.discreet.fans", {
+		const s = io(socketBaseUrl.replace(/\/$/, ""), {
 			query: { discordId: user?.discordId },
+			// Use httpOnly auth cookies for socket auth; avoids stale localStorage token mismatches.
+			withCredentials: true,
 		});
 
 		// Calculate connection quality based on latency
@@ -154,6 +164,31 @@ export const SocketContextProvider = ({
 				clearInterval(pingIntervalRef.current);
 				pingIntervalRef.current = null;
 			}
+
+			const errorMessage =
+				typeof err?.message === "string" ? err.message.toLowerCase() : "";
+			const isAuthError =
+				errorMessage.includes("unauthorized") ||
+				errorMessage.includes("invalid authentication payload");
+
+			// Recover from expired access cookie by refreshing once and reconnecting.
+			if (isAuthError && !socketRefreshInFlightRef.current) {
+				socketRefreshInFlightRef.current = true;
+				void axios
+					.post(`${baseURL}/auth/refresh`, {}, { withCredentials: true })
+					.then(() => {
+						if (!s.connected) {
+							s.connect();
+						}
+					})
+					.catch(() => {
+						// Let global auth handling manage unrecoverable sessions.
+					})
+					.finally(() => {
+						socketRefreshInFlightRef.current = false;
+					});
+			}
+
 			// Log connection errors for debugging (but not DNS errors which are expected in dev)
 			if (process.env.NODE_ENV === 'development') {
 				console.warn('Socket connection error:', err.message);

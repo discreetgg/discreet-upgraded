@@ -50,24 +50,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
 	const { conversations } = useMessage();
 	const { data: fetchedConversations } = useQuery({
-		queryKey: ["conversations"],
-		queryFn: getConversationsService,
+		queryKey: ["conversations", user?.discordId ?? "guest", "badge"],
+		queryFn: () => getConversationsService(),
 		enabled: Boolean(user?.discordId),
-		staleTime: 30 * 1000,
+		staleTime: 60 * 1000,
 		gcTime: 5 * 60 * 1000,
-		refetchOnWindowFocus: true,
+		refetchOnWindowFocus: false,
+		refetchOnReconnect: true,
 	});
 
 	const totalUnreadConversations = useMemo(() => {
-		const source = (conversations ??
-			fetchedConversations ??
-			[]) as ConversationType[];
+		const apiTotalUnread = fetchedConversations?.totalUnreadCount || 0;
+		if (!Array.isArray(conversations)) {
+			return apiTotalUnread;
+		}
 
-		if (source.length === 0) return 0;
-
-		return source.reduce((total: number, conversation: ConversationType) => {
+		const contextualTotal = conversations.reduce((total: number, conversation: ConversationType) => {
 			return total + (conversation.unreadCount || 0);
 		}, 0);
+		return Math.max(apiTotalUnread, contextualTotal);
 	}, [conversations, fetchedConversations]);
 
 	const windowWidth = useWindowWidth();

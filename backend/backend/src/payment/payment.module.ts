@@ -27,6 +27,8 @@ import {
   MenuMedia,
   MenuMediaSchema,
 } from 'src/database/schemas/menu-media.schema';
+import { Media, MediaSchema } from 'src/database/schemas/media.schema';
+import { Post, PostSchema } from 'src/database/schemas/post.schema';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import {
       { name: Transaction.name, schema: TransactionSchema },
       { name: Menu.name, schema: MenuSchema },
       { name: MenuMedia.name, schema: MenuMediaSchema },
+      { name: Media.name, schema: MediaSchema },
+      { name: Post.name, schema: PostSchema },
       { name: SubscriptionPlan.name, schema: SubscriptionPlanSchema },
       { name: UserSubscription.name, schema: UserSubscriptionSchema },
       { name: Message.name, schema: MessageSchema },

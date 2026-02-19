@@ -1,6 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
+import { PurchaseOriginSurface } from 'src/database/schemas/message.schema';
 
 export class BuyMenuDto {
   @ApiProperty({
@@ -28,8 +36,42 @@ export class BuyMenuDto {
   menuId: string;
 
   @ApiProperty({ example: '2', description: 'Number of Item to buy' })
-  @Transform(({ value }) => parseFloat(value)) // 👈 Converts string to number
-  @IsNumber()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? value : parsed;
+  })
+  @IsInt()
+  @Min(1)
   @IsOptional()
-  itemCount: number;
+  itemCount?: number;
+
+  @ApiProperty({
+    example: PurchaseOriginSurface.FEED,
+    enum: PurchaseOriginSurface,
+    required: false,
+    default: PurchaseOriginSurface.UNKNOWN,
+    description: 'Surface where unlock was initiated',
+  })
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') {
+      return PurchaseOriginSurface.UNKNOWN;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === PurchaseOriginSurface.FEED ||
+      normalized === PurchaseOriginSurface.PROFILE ||
+      normalized === PurchaseOriginSurface.MENU ||
+      normalized === PurchaseOriginSurface.DM
+    ) {
+      return normalized;
+    }
+    return PurchaseOriginSurface.UNKNOWN;
+  })
+  @IsOptional()
+  @IsEnum(PurchaseOriginSurface)
+  originSurface?: PurchaseOriginSurface;
 }

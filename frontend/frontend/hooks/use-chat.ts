@@ -44,7 +44,7 @@ const resolveConversationIdentifier = (
 type ConversationThreadCacheEntry = {
   messages: MessageType[];
   hasMoreMessages: boolean;
-  oldestMessageDate: string | null;
+  nextCursor: string | null;
   updatedAt: number;
 };
 
@@ -94,7 +94,7 @@ const upsertMessageIntoConversationThreadCache = (
   upsertConversationThreadCache(conversationKey, {
     messages: nextMessages,
     hasMoreMessages: cached.hasMoreMessages,
-    oldestMessageDate: cached.oldestMessageDate,
+    nextCursor: cached.nextCursor,
   });
 };
 
@@ -121,7 +121,7 @@ export const useChat = (
   );
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [oldestMessageDate, setOldestMessageDate] = useState<string | null>(
+  const [nextMessagesCursor, setNextMessagesCursor] = useState<string | null>(
     null,
   );
   const router = useRouter();
@@ -152,6 +152,16 @@ export const useChat = (
   }, [sender]);
 
   useEffect(() => {
+    // Conversation thread cache is process-local and must not leak between accounts.
+    conversationThreadCache.clear();
+    loadedConversationIdRef.current = null;
+    previousConversationIdRef.current = undefined;
+    setMessages([]);
+    setHasMoreMessages(true);
+    setNextMessagesCursor(null);
+  }, [sender?.discordId]);
+
+  useEffect(() => {
     socketRef.current = socket;
   }, [socket]);
 
@@ -166,12 +176,12 @@ export const useChat = (
       upsertConversationThreadCache(previousConversationId, {
         messages,
         hasMoreMessages,
-        oldestMessageDate,
+        nextCursor: nextMessagesCursor,
       });
     }
 
     previousConversationIdRef.current = actualConversationId;
-  }, [actualConversationId, hasMoreMessages, messages, oldestMessageDate]);
+  }, [actualConversationId, hasMoreMessages, messages, nextMessagesCursor]);
 
   useEffect(() => {
     if (!actualConversationId) {
@@ -185,9 +195,9 @@ export const useChat = (
     upsertConversationThreadCache(actualConversationId, {
       messages,
       hasMoreMessages,
-      oldestMessageDate,
+      nextCursor: nextMessagesCursor,
     });
-  }, [actualConversationId, hasMoreMessages, messages, oldestMessageDate]);
+  }, [actualConversationId, hasMoreMessages, messages, nextMessagesCursor]);
 
   // Stable normalizeIncomingMessage callback using refs to avoid recreation
   const normalizeIncomingMessage = useCallback(
@@ -260,17 +270,12 @@ export const useChat = (
       loadedConversationIdRef.current = actualConversationId;
 
       // Inline normalization to avoid dependency on normalizeIncomingMessage callback
-      const normalized = (data || []).map((message: MessageType) => ({
+      const normalized = (data?.messages || []).map((message: MessageType) => ({
         ...message,
         conversation:
           resolveConversationIdentifier(message.conversation) ??
           actualConversationId,
       }));
-
-      const nextOldestMessageDate =
-        normalized.length > 0
-          ? (normalized[normalized.length - 1].createdAt ?? null)
-          : null;
 
       // Mark all unread messages from other users as read immediately
       const unreadMessages = normalized.filter(
@@ -292,18 +297,14 @@ export const useChat = (
       });
 
       setMessages(messagesWithReadStatus);
-
-      // Set oldest message date for infinite scroll (use last message as it's the oldest)
-      setOldestMessageDate(nextOldestMessageDate);
-
-      // If we got fewer than 50 messages, we've reached the end
-      const nextHasMoreMessages = normalized.length >= 50;
+      setNextMessagesCursor(data?.nextCursor ?? null);
+      const nextHasMoreMessages = Boolean(data?.hasMore) || normalized.length >= 50;
       setHasMoreMessages(nextHasMoreMessages);
 
       upsertConversationThreadCache(actualConversationId, {
         messages: messagesWithReadStatus,
         hasMoreMessages: nextHasMoreMessages,
-        oldestMessageDate: nextOldestMessageDate,
+        nextCursor: data?.nextCursor ?? null,
       });
 
       // Emit socket events for marking messages as read (batched)
@@ -1338,279 +1339,98 @@ export const useChat = (
     ],
   );
 
-  const sendUnlockMessage = useCallback(
-    async (messageId: string, price: string, sellerId: string) => {
-      if (!sender?.discordId || !sellerId) {
-        console.error('âŒ Missing sender or seller for unlock message', {
-          sender: sender?.discordId,
-          sellerId,
-        });
-        return;
-      }
-
-      try {
-        // Get or create conversation between users
-        const conversation = await getConversationBetweenUsersService([
-          sender.discordId,
-          sellerId,
-        ]);
-
-        const targetConversationId =
-          (conversation as { _id?: string })?._id ||
-          (conversation as { id?: string })?.id ||
-          (actualConversationId ?? conversationId);
-
-        if (!targetConversationId) {
-          console.error('âŒ No conversation ID for unlock message', {
-            conversation,
-            actualConversationId,
-            conversationId,
-          });
-          return;
-        }
-
-        const tempId = generateTempId();
-        const unlockMessageText = `Content unlocked for $${Number(price).toFixed(2)}`;
-
-        const optimisticMessage: MessageType = {
-          _id: tempId,
-          conversation: targetConversationId,
-          sender: {
-            id: sender.discordId,
-            discordId: sender.discordId,
-            displayName: sender.displayName ?? '',
-            discordAvatar: sender.discordAvatar ?? '',
-            profileImage: sender.profileImage ?? null,
-            username: sender.username ?? '',
-            role: 'sender',
-          },
-          reciever: {
-            id: sellerId,
-            discordId: sellerId,
-            displayName: '',
-            discordAvatar: '',
-            profileImage: null,
-            username: '',
-            role: '',
-          },
-          text: unlockMessageText,
-          type: 'text',
-          media: [],
-          price: price,
-          call: 'audio',
-          callStatus: '',
-          callStartedAt: '',
-          missed: false,
-          durationInSeconds: '',
-          status: 'sending',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          __v: 0,
-        };
-
-        // Add optimistic message
-        setMessages((prev) => [...prev, optimisticMessage]);
-
-        if (socket?.connected) {
-          socket.emit(
-            'message:send',
-            {
-              sender: sender.discordId,
-              reciever: sellerId,
-              text: unlockMessageText,
-              type: 'text',
-              price: price,
-              conversation: targetConversationId,
-              status: 'sent',
-            },
-            (response: any) => {
-
-              if (response?.error) {
-                console.error('âŒ Socket error response:', response.error);
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg._id === tempId ? { ...msg, status: 'failed' } : msg,
-                  ),
-                );
-                return;
-              }
-
-              try {
-                const serverMessage = normalizeIncomingMessage(
-                  {
-                    conversation: (response as ConversationResponseType)
-                      .conversation.id,
-                    ...(response as object),
-                  } as MessageType,
-                  targetConversationId,
-                );
-
-
-                // Replace optimistic message with server response
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg._id === tempId
-                      ? { ...serverMessage, status: 'sent' }
-                      : msg,
-                  ),
-                );
-
-                // Update conversation list
-                const resolvedConversationId =
-                  resolveConversationIdentifier(serverMessage.conversation) ??
-                  targetConversationId;
-
-                if (resolvedConversationId) {
-                  updateConversationLastMessage(
-                    resolvedConversationId,
-                    {
-                      ...serverMessage,
-                      status: 'sent',
-                    },
-                    false, // Don't increment unread for own messages
-                  );
-                }
-              } catch (normalizeError) {
-                console.error(
-                  'âŒ Error normalizing server message:',
-                  normalizeError,
-                );
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg._id === tempId ? { ...msg, status: 'failed' } : msg,
-                  ),
-                );
-              }
-            },
-          );
-        } else {
-          console.error('âŒ Socket not connected', {
-            socket: !!socket,
-            connected: socket?.connected,
-          });
-          // Mark as failed if no socket
-          setTimeout(() => {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg._id === tempId ? { ...msg, status: 'failed' } : msg,
-              ),
-            );
-          }, 1000);
-        }
-      } catch (err) {
-        console.error('âŒ Failed to send unlock message:', err);
-      }
-    },
-    [
-      sender,
-      actualConversationId,
-      conversationId,
-      socket,
-      normalizeIncomingMessage,
-      updateConversationLastMessage,
-    ],
-  );
-
-  // Track last loaded date to prevent duplicate requests with same params
-  const lastLoadedOldestDateRef = useRef<string | null>(null);
-
   // Load older messages (infinite scroll)
   const loadOlderMessages = useCallback(async () => {
     if (!actualConversationId || isLoadingMore || !hasMoreMessages) {
       return;
     }
 
-    // Get current messages from state setter to avoid dependency
-    let currentMessages: MessageType[] = [];
-    setMessages((prev) => {
-      currentMessages = prev;
-      return prev;
-    });
+    let cursorToUse = nextMessagesCursor;
+    if (!cursorToUse) {
+      let oldestCreatedAt: string | null = null;
+      let oldestTimestamp = Number.POSITIVE_INFINITY;
 
-    // Use the oldest message date we have (last message in array since sorted newest first)
-    const oldestDate =
-      oldestMessageDate ||
-      currentMessages[currentMessages.length - 1]?.createdAt;
+      for (const message of messages) {
+        const createdAt = message?.createdAt;
+        if (typeof createdAt !== 'string' || createdAt.length === 0) {
+          continue;
+        }
+        const timestamp = new Date(createdAt).getTime();
+        if (!Number.isFinite(timestamp)) {
+          continue;
+        }
+        if (timestamp < oldestTimestamp) {
+          oldestTimestamp = timestamp;
+          oldestCreatedAt = createdAt;
+        }
+      }
 
-    if (!oldestDate) {
-      setHasMoreMessages(false);
-      return;
-    }
-
-    // Prevent duplicate requests with the same date
-    if (lastLoadedOldestDateRef.current === oldestDate) {
-      return;
-    }
-
-    try {
-      setIsLoadingMore(true);
-      lastLoadedOldestDateRef.current = oldestDate;
-
-      const data = await getConversationByIdService(actualConversationId, {
-        limit: 50,
-        to: oldestDate, // Load messages before this date
-      });
-
-      if (!data || data.length === 0) {
+      if (!oldestCreatedAt) {
         setHasMoreMessages(false);
         return;
       }
 
-      // Inline normalization to avoid dependency on callback
-      const normalized = (data || []).map((message: MessageType) => ({
+      cursorToUse = `legacy:${oldestCreatedAt}`;
+    }
+
+    try {
+      setIsLoadingMore(true);
+
+      const data = await getConversationByIdService(actualConversationId, {
+        limit: 50,
+        cursor: cursorToUse,
+      });
+
+      const normalized = (data?.messages || []).map((message: MessageType) => ({
         ...message,
         conversation:
           resolveConversationIdentifier(message.conversation) ??
           actualConversationId,
       }));
 
-      // Get the oldest message from the new batch (last in array)
-      const newOldestDate = normalized[normalized.length - 1]?.createdAt;
-
-      // If the new oldest date is the same as or newer than what we had, we're stuck in a loop
-      if (newOldestDate && oldestDate && newOldestDate >= oldestDate) {
-        // Filter out messages we already have to avoid duplicates
-        const existingIds = new Set(currentMessages.map((m) => m._id));
-        const newMessages = normalized.filter(
-          (m: MessageType) => !existingIds.has(m._id),
-        );
-
-        if (newMessages.length === 0) {
-          setHasMoreMessages(false);
-          return;
-        }
+      if (normalized.length === 0) {
+        setHasMoreMessages(false);
+        setNextMessagesCursor(null);
+        return;
       }
 
       // Prepend older messages to existing messages
       setMessages((prev) => {
-        const combined = [...normalized, ...prev];
-        // Remove duplicates
-        const unique = combined.filter(
-          (msg, index, self) =>
-            index === self.findIndex((m) => m._id === msg._id),
+        const existingIds = new Set(prev.map((message) => message._id));
+        const unseenMessages = normalized.filter(
+          (message) => !existingIds.has(message._id),
         );
-        return unique;
+        if (unseenMessages.length === 0) {
+          return prev;
+        }
+        return [...unseenMessages, ...prev];
       });
 
-      // Update oldest message date for next load (use last message - the oldest)
-      if (normalized.length > 0 && newOldestDate) {
-        setOldestMessageDate(newOldestDate);
-        // Reset the lastLoaded ref so we can load the next batch
-        lastLoadedOldestDateRef.current = null;
-      }
-
-      // If we got fewer than 50 messages, we've reached the end
-      if (normalized.length < 50) {
-        setHasMoreMessages(false);
-      }
+      setNextMessagesCursor(data?.nextCursor ?? null);
+      const nextHasMoreMessages = Boolean(data?.hasMore) || normalized.length >= 50;
+      setHasMoreMessages(nextHasMoreMessages);
     } catch (err) {
       console.error('Failed to load older messages', err);
-      setHasMoreMessages(false);
-      lastLoadedOldestDateRef.current = null;
+      const status =
+        typeof err === 'object' && err !== null && 'status' in err
+          ? (err as { status?: number }).status ?? null
+          : null;
+
+      // Stop retrying only when the cursor is no longer valid.
+      if (status === 400 || status === 404) {
+        setHasMoreMessages(false);
+        setNextMessagesCursor(null);
+      }
     } finally {
       setIsLoadingMore(false);
     }
-  }, [actualConversationId, isLoadingMore, hasMoreMessages, oldestMessageDate]);
+  }, [
+    actualConversationId,
+    hasMoreMessages,
+    isLoadingMore,
+    messages,
+    nextMessagesCursor,
+  ]);
 
   // Reload messages when conversation changes
   // Using actualConversationId as dependency instead of reload to prevent infinite loops
@@ -1618,9 +1438,8 @@ export const useChat = (
     if (!actualConversationId) {
       setMessages([]);
       setHasMoreMessages(true);
-      setOldestMessageDate(null);
+      setNextMessagesCursor(null);
       loadedConversationIdRef.current = null;
-      lastLoadedOldestDateRef.current = null;
       return;
     }
 
@@ -1629,15 +1448,13 @@ export const useChat = (
       actualConversationId &&
       loadedConversationIdRef.current !== actualConversationId
     ) {
-      lastLoadedOldestDateRef.current = null;
-
       const cachedThread = getConversationThreadCache(actualConversationId);
       if (cachedThread) {
         loadedConversationIdRef.current = actualConversationId;
         setIsLoading(false);
         setMessages(cachedThread.messages);
         setHasMoreMessages(cachedThread.hasMoreMessages);
-        setOldestMessageDate(cachedThread.oldestMessageDate);
+        setNextMessagesCursor(cachedThread.nextCursor);
 
         const currentSender = senderRef.current;
         const currentSocket = socketRef.current;
@@ -1674,7 +1491,7 @@ export const useChat = (
 
       // Reset infinite scroll state when conversation changes
       setHasMoreMessages(true);
-      setOldestMessageDate(null);
+      setNextMessagesCursor(null);
       void reload({ forceFresh: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1700,7 +1517,6 @@ export const useChat = (
     retryMessage,
     sendCallMessage,
     sendTipMessage,
-    sendUnlockMessage,
     // Notification functions
     clearNotifications: notification.clearNotifications,
     getUnreadCount: notification.getUnreadCount,

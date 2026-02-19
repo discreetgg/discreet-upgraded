@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_MODEL="gpt-5-codex"
+DEFAULT_MAX_ITERATIONS=10
+DEFAULT_APPROVAL_POLICY="never"
+DEFAULT_SANDBOX_MODE="workspace-write"
+DEFAULT_SUMMARY_TAIL_BYTES=16000
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/codex-loop "task description" [options]
+  ./scripts/codex-loop --prompt-file path/to/task.md [options]
+
+Options:
+  --max-iterations <n>      Max loop iterations (default: 10)
+  --model <name>            Codex model (default: gpt-5-codex)
+  --config <key=value>      Forwarded to codex as --config (repeatable)
+  --approval-policy <mode>  Codex approval policy (default: never)
+  --sandbox <mode>          Sandbox mode (default: workspace-write)
+  --cd <path>               Workspace path for Codex (default: repo root)
+  --run-label <label>       Optional label in artifact folder name
+  --prompt-file <path>      Read initial task from file
+  --search                  Enable web search in Codex
+  --dry-run                 Print resolved config and exit
+  -h, --help                Show help
+
+Examples:
+  ./scripts/codex-loop "Fix feed media 429s and verify with ./scripts/ci check"
+  ./scripts/codex-loop --prompt-file docs/plans/active/task.md --max-iterations 6
+EOF
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+sanitize_label() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '-'
+}
+
+extract_loop_status() {
+  local last_message_file="$1"
+  if [[ ! -s "$last_message_file" ]]; then
+    echo ""
+    return
+  fi
+
+  local status_line
+  status_line="$(grep -Eo 'LOOP_STATUS:[[:space:]]*(DONE|CONTINUE|BLOCKED)' "$last_message_file" | tail -n1 || true)"
+  if [[ -z "$status_line" ]]; then
+    echo ""
+    return
+  fi
+
+  echo "$status_line" | sed -E 's/LOOP_STATUS:[[:space:]]*//'
+}
+
+max_iterations="$DEFAULT_MAX_ITERATIONS"
+model="$DEFAULT_MODEL"
+approval_policy="$DEFAULT_APPROVAL_POLICY"
+sandbox_mode="$DEFAULT_SANDBOX_MODE"
+codex_cd="$ROOT_DIR"
+run_label=""
+prompt_file=""
+task_prompt=""
+enable_search=0
+dry_run=0
+declare -a codex_config_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --max-iterations)
+      max_iterations="${2:-}"
+      shift 2
+      ;;
+    --model)
+      model="${2:-}"
+      shift 2
+      ;;
+    --config)
+      codex_config_args+=("${2:-}")
+      shift 2
+      ;;
+    --approval-policy)
+      approval_policy="${2:-}"
+      shift 2
+      ;;
+    --sandbox)
+      sandbox_mode="${2:-}"
+      shift 2
+      ;;
+    --cd)
+      codex_cd="${2:-}"
+      shift 2
+      ;;
+    --run-label)
+      run_label="${2:-}"
+      shift 2
+      ;;
+    --prompt-file)
+      prompt_file="${2:-}"
+      shift 2
+      ;;
+    --search)
+      enable_search=1
+      shift
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+    *)
+      if [[ -z "$task_prompt" ]]; then
+        task_prompt="$1"
+      else
+        task_prompt="$task_prompt $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "$prompt_file" ]]; then
+  if [[ ! -f "$prompt_file" ]]; then
+    echo "Prompt file does not exist: $prompt_file" >&2
+    exit 1
+  fi
+  task_prompt="$(cat "$prompt_file")"
+fi
+
+if [[ -z "$task_prompt" ]]; then
+  echo "Missing task description. Provide a quoted prompt or --prompt-file." >&2
+  usage
+  exit 1
+fi
+
+if ! [[ "$max_iterations" =~ ^[0-9]+$ ]] || [[ "$max_iterations" -lt 1 ]]; then
+  echo "--max-iterations must be a positive integer. Received: $max_iterations" >&2
+  exit 1
+fi
+
+require_cmd codex
+
+run_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+safe_label="$(sanitize_label "${run_label:-task}")"
+run_dir="$ROOT_DIR/artifacts/codex-loop/${safe_label}-${run_stamp}"
+mkdir -p "$run_dir"
+
+metadata_file="$run_dir/metadata.txt"
+cat >"$metadata_file" <<EOF
+started_at_utc=$run_stamp
+max_iterations=$max_iterations
+model=$model
+approval_policy=$approval_policy
+sandbox_mode=$sandbox_mode
+codex_cd=$codex_cd
+search_enabled=$enable_search
+config_count=${#codex_config_args[@]}
+EOF
+
+echo "$task_prompt" > "$run_dir/task.txt"
+
+if [[ "$dry_run" -eq 1 ]]; then
+  echo "[codex-loop] dry run"
+  cat "$metadata_file"
+  echo "run_dir=$run_dir"
+  exit 0
+fi
+
+echo "[codex-loop] run_dir=$run_dir"
+echo "[codex-loop] starting up to $max_iterations iteration(s)"
+
+previous_summary_file=""
+overall_status="MAX_ITERATIONS_REACHED"
+
+for iteration in $(seq 1 "$max_iterations"); do
+  iter_prefix="$(printf "iter-%02d" "$iteration")"
+  iter_prompt_file="$run_dir/${iter_prefix}-prompt.md"
+  iter_log_file="$run_dir/${iter_prefix}.log"
+  iter_last_message_file="$run_dir/${iter_prefix}-last-message.txt"
+
+  {
+    echo "You are running inside an automated iteration loop."
+    echo "Iteration: $iteration of $max_iterations"
+    echo
+    echo "Primary task:"
+    echo "$task_prompt"
+    echo
+    if [[ -n "$previous_summary_file" && -s "$previous_summary_file" ]]; then
+      echo "Previous iteration summary (tail):"
+      tail -c "$DEFAULT_SUMMARY_TAIL_BYTES" "$previous_summary_file" || true
+      echo
+    fi
+    cat <<'RULES'
+Execution rules:
+- Continue from the current repository state.
+- Make concrete progress toward fully completing the task.
+- Run relevant verification commands and report evidence.
+- End your final response with exactly one status line:
+  LOOP_STATUS: DONE
+  or
+  LOOP_STATUS: CONTINUE
+  or
+  LOOP_STATUS: BLOCKED
+RULES
+  } > "$iter_prompt_file"
+
+  cmd=(
+    codex
+    -a "$approval_policy"
+    exec
+    --sandbox "$sandbox_mode"
+    --model "$model"
+    --cd "$codex_cd"
+    --output-last-message "$iter_last_message_file"
+  )
+
+  for config_entry in "${codex_config_args[@]}"; do
+    cmd+=(--config "$config_entry")
+  done
+
+  if [[ "$enable_search" -eq 1 ]]; then
+    cmd+=(--search)
+  fi
+
+  cmd+=(-)
+
+  echo "[codex-loop] iteration $iteration/$max_iterations"
+  set +e
+  "${cmd[@]}" < "$iter_prompt_file" 2>&1 | tee "$iter_log_file"
+  cmd_exit="${PIPESTATUS[0]}"
+  set -e
+
+  if [[ "$cmd_exit" -ne 0 ]]; then
+    echo "[codex-loop] iteration $iteration command exited with code $cmd_exit" | tee -a "$iter_log_file"
+  fi
+
+  status="$(extract_loop_status "$iter_last_message_file")"
+  echo "[codex-loop] iteration $iteration status='${status:-UNKNOWN}'"
+
+  previous_summary_file="$iter_last_message_file"
+
+  if [[ "$status" == "DONE" ]]; then
+    overall_status="DONE"
+    break
+  fi
+  if [[ "$status" == "BLOCKED" ]]; then
+    overall_status="BLOCKED"
+    break
+  fi
+done
+
+echo "overall_status=$overall_status" >> "$metadata_file"
+echo "[codex-loop] finished with status: $overall_status"
+echo "[codex-loop] artifacts: $run_dir"
+
+case "$overall_status" in
+  DONE) exit 0 ;;
+  BLOCKED) exit 2 ;;
+  *) exit 3 ;;
+esac

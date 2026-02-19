@@ -4,6 +4,7 @@ import './globals.css';
 import { NuqsAdapter } from 'nuqs/adapters/next';
 import { Providers } from './provider';
 import { MediaProtection } from '@/components/media-protection';
+import { StaleScrollLockGuard } from '@/components/stale-scroll-lock-guard';
 import { getServerUser } from '@/lib/server-auth';
 import { generateBaseMetadata } from '@/lib/seo/metadata';
 import { generateWebsiteStructuredData, structuredDataToScript } from '@/lib/seo/structuredData';
@@ -56,6 +57,7 @@ export default async function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} antialiased`}
         >
           <MediaProtection />
+          <StaleScrollLockGuard />
           <Providers initialUser={initialUser}>{children}</Providers>
         </body>
       </html>

@@ -6,7 +6,7 @@ import { User } from './user.schema';
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -31,6 +31,6 @@ export class MenuMedia {
 }
 
 export const MenuMediaSchema = SchemaFactory.createForClass(MenuMedia);
-MenuMediaSchema.index({ menu: 1 });
+MenuMediaSchema.index({ media: 1 });
 MenuMediaSchema.index({ buyer: 1 });
 // MenuMediaSchema.index({ media: 1, menu: 1 }, { unique: true }); // Prevent duplicate links

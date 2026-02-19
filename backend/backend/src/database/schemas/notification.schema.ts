@@ -8,7 +8,7 @@ export type NotificationDocument = mongoose.HydratedDocument<Notification>;
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -49,3 +49,5 @@ export class Notification {
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
+NotificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
+NotificationSchema.index({ user: 1, createdAt: -1 });

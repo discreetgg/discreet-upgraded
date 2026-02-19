@@ -26,6 +26,29 @@ export enum MessageStatus {
   READ = 'read',
 }
 
+export enum PurchaseOriginSurface {
+  FEED = 'feed',
+  PROFILE = 'profile',
+  MENU = 'menu',
+  DM = 'dm',
+  UNKNOWN = 'unknown',
+}
+
+export enum MessagePurchaseType {
+  MENU = 'menu',
+  MEDIA = 'media',
+}
+
+export type MessagePurchaseContext = {
+  originSurface: PurchaseOriginSurface;
+  sourcePostId?: string;
+  sourceMenuId?: string;
+  sourceConversationId?: string;
+  sourceMessageId?: string;
+  sourceLabel?: string;
+  purchaseType?: MessagePurchaseType;
+};
+
 export enum CallStatus {
   INITIATED = 'initiated', // when the caller starts ringing
   IN_WAITROOM = 'in_waitroom',
@@ -85,6 +108,27 @@ export class Message {
   })
   paymentTx?: mongoose.Schema.Types.ObjectId;
 
+  @Prop({
+    type: {
+      originSurface: {
+        type: String,
+        enum: Object.values(PurchaseOriginSurface),
+        default: PurchaseOriginSurface.UNKNOWN,
+      },
+      sourcePostId: { type: String },
+      sourceMenuId: { type: String },
+      sourceConversationId: { type: String },
+      sourceMessageId: { type: String },
+      sourceLabel: { type: String },
+      purchaseType: {
+        type: String,
+        enum: Object.values(MessagePurchaseType),
+      },
+    },
+    _id: false,
+  })
+  purchaseContext?: MessagePurchaseContext;
+
   @Prop({ enum: MessageStatus, default: MessageStatus.SENT })
   status: MessageStatus;
 
@@ -131,4 +175,9 @@ export class Message {
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
-MessageSchema.index({ conversation: 1, createdAt: -1 });
+// Keyset pagination for large threads.
+MessageSchema.index({ conversation: 1, createdAt: -1, _id: -1 });
+// Optimizes shared-media vault scans over media-bearing message types.
+MessageSchema.index({ conversation: 1, type: 1, createdAt: -1, _id: -1 });
+// Speeds unread count aggregation by receiver across conversation list.
+MessageSchema.index({ reciever: 1, status: 1, conversation: 1 });

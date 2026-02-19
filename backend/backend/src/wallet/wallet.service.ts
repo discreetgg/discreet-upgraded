@@ -15,7 +15,7 @@ import {
 } from 'src/database/schemas/transaction.schema';
 import { User } from 'src/database/schemas/user.schema';
 import { Wallet } from 'src/database/schemas/wallet.schema';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class WalletService {
@@ -97,32 +97,35 @@ export class WalletService {
    */
   async topUp(userId: string, amount: string, reference?: string) {
     const formattedAmount = this.toCent(amount);
-    const txReference = reference || uuidv4();
+    const providedReference = reference?.trim();
+    const txReference = providedReference || randomUUID();
 
     const session = await this.connection.startSession();
     session.startTransaction();
 
     try {
-      // idempotency check (only meaningful if reference provided by gateway)
-      const existing = await this.txModel
-        .findOne({ reference: txReference })
-        .session(session);
-      if (existing) {
-        // If it exists and already completed, return duplicate indicator
-        if (existing.status === TransactionStatus.COMPLETED) {
-          await session.abortTransaction();
-          return {
-            status: 'duplicate',
-            reference: txReference,
-            newBalance: this.toDollar(
-              (await this.walletModel.findById(existing.wallet)).balance,
-            ),
-          };
+      // Idempotency check is only meaningful when reference comes from the payment gateway.
+      if (providedReference) {
+        const existing = await this.txModel
+          .findOne({ reference: providedReference })
+          .session(session);
+        if (existing) {
+          // If it exists and already completed, return duplicate indicator.
+          if (existing.status === TransactionStatus.COMPLETED) {
+            await session.abortTransaction();
+            return {
+              status: 'duplicate',
+              reference: providedReference,
+              newBalance: this.toDollar(
+                (await this.walletModel.findById(existing.wallet)).balance,
+              ),
+            };
+          }
+          // If pending/failed you might choose to continue or throw; here we throw conflict.
+          throw new ConflictException(
+            'Transaction with this reference already exists',
+          );
         }
-        // If pending/failed you might choose to continue or throw; here we throw conflict
-        throw new ConflictException(
-          'Transaction with this reference already exists',
-        );
       }
 
       const wallet = await this.walletModel
@@ -143,6 +146,7 @@ export class WalletService {
             amount: formattedAmount,
             balanceBefore,
             balanceAfter: wallet.balance,
+            reference: txReference,
           },
         ],
         { session },

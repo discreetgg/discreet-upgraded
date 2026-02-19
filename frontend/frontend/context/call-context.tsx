@@ -28,6 +28,12 @@ import {
   type CallEndSummaryData,
 } from '@/components/call-end-summary-dialog';
 
+const debugLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(...args);
+  }
+};
+
 type CallContextValue = {
   // Call state
   callState: 'idle' | 'ringing' | 'connecting' | 'connected' | 'ended';
@@ -160,12 +166,12 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
     toggleVideo,
   } = useCallHook({
     onIncomingCall: (data) => {
-      console.log('[CallContext] Incoming call:', data);
+      debugLog('[CallContext] Incoming call:', data);
       setReceiverId(data.from);
       toast.info(`Incoming ${data.callType} call from ${data.from}`);
     },
     onCallConnected: async () => {
-      console.log('[CallContext] Call connected');
+      debugLog('[CallContext] Call connected');
       callStartTimeRef.current = Date.now();
 
       // Start global call duration timer
@@ -191,7 +197,7 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
       toast.success('Call connected');
     },
     onCallEnded: async (reason) => {
-      console.log('[CallContext] Call ended:', reason);
+      debugLog('[CallContext] Call ended:', reason);
 
       // Calculate call duration
       const duration = callStartTimeRef.current
@@ -248,7 +254,7 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
           .catch((error: any) => {
             // Handle errors
             if (error?.response?.status === 400 || error?.status === 400) {
-              console.log(
+              debugLog(
                 '[CallContext] Call end API returned 400 - call may not have been fully established',
               );
               setCallEndSummaryError('Call details unavailable');
@@ -261,7 +267,7 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
             // Clear the pending ref once the call-end completes
             pendingCallEndRef.current = null;
             setCallEndSummaryLoading(false);
-            console.log('[CallContext] Call end API completed');
+            debugLog('[CallContext] Call end API completed');
           });
 
         // Store the promise so initiateCall can wait for it
@@ -280,19 +286,19 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
       toast.error(error);
     },
     onLocalStream: (stream) => {
-      console.log('[CallContext] Local stream received');
+      debugLog('[CallContext] Local stream received');
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
     },
     onRemoteStream: (stream) => {
-      console.log('[CallContext] Remote stream received');
+      debugLog('[CallContext] Remote stream received');
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = stream;
       }
     },
     onRinging: () => {
-      console.log('[CallContext] Remote device is ringing');
+      debugLog('[CallContext] Remote device is ringing');
     },
   });
 
@@ -416,14 +422,22 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     const emitCallSession = () => {
-      if (socket?.connected && currentCallIdRef.current) {
+      const authenticatedUserId = user?.discordId ?? null;
+      const activeCallerId = callerIdRef.current;
+      if (
+        socket?.connected &&
+        currentCallIdRef.current &&
+        authenticatedUserId &&
+        activeCallerId &&
+        authenticatedUserId === activeCallerId
+      ) {
         const sessionData = {
           callId: currentCallIdRef.current,
           callerId: callerIdRef.current,
           calleeId: calleeIdRef.current,
           callType: currentCallType || 'audio',
         };
-        console.log('📞 Emitting call:session:', sessionData);
+        debugLog('Emitting call:session', sessionData);
         socket.emit('call:session', sessionData);
       }
     };
@@ -437,7 +451,7 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
         billingIntervalRef.current = null;
       }
     };
-  }, [isConnected, socket, currentCallType]);
+  }, [isConnected, socket, currentCallType, user?.discordId]);
 
   // Check microphone permission
   const checkMicrophonePermission = useCallback(async (): Promise<boolean> => {
@@ -500,7 +514,7 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
     }) => {
       // Guard against duplicate invocations
       if (isInitiatingCallRef.current) {
-        console.log(
+        debugLog(
           '[CallContext] initiateCall already in progress, ignoring duplicate call',
         );
         return;
@@ -510,9 +524,9 @@ const CallContextProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         // Wait for any pending call-end operation to complete before starting a new call
         if (pendingCallEndRef.current) {
-          console.log('[CallContext] Waiting for previous call to end...');
+          debugLog('[CallContext] Waiting for previous call to end...');
           await pendingCallEndRef.current;
-          console.log(
+          debugLog(
             '[CallContext] Previous call ended, proceeding with new call',
           );
         }

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Button } from "./ui/button";
 import { LoadingPostsCardStack } from "./ui/loading-posts-card-stack";
-import Image from "next/image";
 import { useGlobal } from "@/context/global-context-provider";
 import { ProfilePostMediaDialog } from "./profile-post-media-dialog";
 import { cn, getBlurredImage } from "@/lib/utils";
+import { AuthenticatedMedia } from "./authenticated-media";
+import { Play } from "lucide-react";
 
 const MEDIA_TABS = ["all", "images", "videos"];
 const FALLBACK_IMAGE = "/logo.png";
@@ -18,49 +19,20 @@ export const ProfilePostsMediaContent = ({ media }: Props) => {
 	const { showExplicitContent } = useGlobal();
 
 	const [currTab, setCurrTab] = useState("all");
-	const [playingVideos, setPlayingVideos] = useState<{
-		[key: string]: boolean;
-	}>({});
-	const [videoDurations, setVideoDurations] = useState<{
-		[key: string]: number;
-	}>({});
-
-	const formatDuration = (seconds: number) => {
-		const minutes = Math.floor(seconds / 60);
-		const remainingSeconds = Math.floor(seconds % 60);
-		return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-	};
-
-	const handleLoadedMetadata = useCallback(
-		(videoId: string, event: React.SyntheticEvent<HTMLVideoElement>) => {
-			const video = event.target as HTMLVideoElement;
-			setVideoDurations((prev) => ({
-				...prev,
-				[videoId]: video.duration,
-			}));
-		},
-		[]
-	);
 
 	const IMAGE_COUNT = media.filter((media) => media.type === "image").length;
 	const VIDEO_COUNT = media.filter((media) => media.type === "video").length;
 
-	const filteredMedia =
-		currTab === "all"
-			? media
-			: currTab === "images"
-			? media.filter((media) => media.type === "image")
-			: media.filter((media) => media.type === "video");
-
-	const handleVideoPlay = (videoId: string, videoElement: HTMLVideoElement) => {
-		if (playingVideos[videoId]) {
-			videoElement.pause();
-			setPlayingVideos((prev) => ({ ...prev, [videoId]: false }));
-		} else {
-			videoElement.play();
-			setPlayingVideos((prev) => ({ ...prev, [videoId]: true }));
-		}
-	};
+	const filteredMedia = media
+		.map((entry, index) => ({
+			entry,
+			originalIndex: index,
+		}))
+		.filter(({ entry }) => {
+			if (currTab === "all") return true;
+			if (currTab === "images") return entry.type === "image";
+			return entry.type === "video";
+		});
 	const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 	const handleImageError = (src: string) => {
 		setFailedImages((prev) => new Set([...prev, src]));
@@ -97,60 +69,70 @@ export const ProfilePostsMediaContent = ({ media }: Props) => {
 			</div>
 			<div
 				className={cn(
-					"grid grid-cols-2 md:grid-cols-3  gap-1 lg:gap-2 min-h-[400px]"
+					"grid grid-cols-2 md:grid-cols-3 gap-1 lg:gap-2 min-h-[400px]"
 				)}
 			>
-				{filteredMedia.map((item, index) => (
+				{filteredMedia.map(({ entry: item, originalIndex }, index) => (
 					<ProfilePostMediaDialog
-						key={item.mediaUrl ?? index}
+						key={`${item.mediaUrl}-${originalIndex}`}
 						media={media}
-						activeMediaIndex={index}
+						activeMediaIndex={originalIndex}
 						showExplicitContent={showExplicitContent ?? false}
 					>
 						<div
 							className={cn(
-								"relative w-full h-[200px] aspect-square !overflow-hidden rounded-xl flex items-center justify-center bg-black"
+								"relative w-full h-[200px] aspect-square overflow-hidden rounded-xl border border-[#1E2227] flex items-center justify-center",
+								item.type === "video"
+									? "bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)]"
+									: "bg-[#0F1114]"
 							)}
 						>
 							{item.type === "image" ? (
-								<Image
+								<AuthenticatedMedia
+									type="image"
 									src={
 										showExplicitContent
 											? getImageSrc(item.mediaUrl)
 											: getBlurredImage(getImageSrc(item.mediaUrl))
 									}
 									alt={`Post media ${index + 1}`}
-									width={700}
-									height={700}
-									data-error={failedImages.has(item.mediaUrl)}
-									className="object-contain duration-150 size-full data-[error=true]:opacity-50"
-									onContextMenu={(e) => e.preventDefault()}
-									draggable={false}
-									onError={() => handleImageError(item.mediaUrl)}
-									onLoad={(result) => {
-										if (result.currentTarget.width === 0) {
-											handleImageError(item.mediaUrl);
-										}
-									}}
+									fill
+									className={cn(
+										"object-cover duration-150",
+										!showExplicitContent && "blur-2xl scale-110 brightness-50",
+										failedImages.has(item.mediaUrl) && "opacity-50"
+									)}
+									sizes="(max-width: 768px) 50vw, 33vw"
+									onMediaError={() => handleImageError(item.mediaUrl)}
 								/>
 							) : item.type === "video" ? (
-								<video
-									controls
-									className="w-full h-full object-contain"
-									preload="metadata"
-									onError={() => handleImageError(item.mediaUrl)}
-									onLoad={(result) => {
-										if (result.currentTarget.width === 0) {
-											handleImageError(item.mediaUrl);
-										}
-									}}
-								>
-									<source src={item.mediaUrl} type="video/mp4" />
-									<track kind="captions" label="English" />
-								</video>
+								<>
+									<AuthenticatedMedia
+										type="video"
+										src={item.mediaUrl}
+										alt={`Post media ${index + 1}`}
+										className={cn(
+											"w-full h-full object-cover",
+											!showExplicitContent && "blur-2xl scale-110 brightness-50"
+										)}
+										videoProps={{
+											muted: true,
+											playsInline: true,
+											preload: "metadata",
+										}}
+										onMediaError={() => handleImageError(item.mediaUrl)}
+									/>
+									{showExplicitContent && (
+										<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+											<div className="rounded-full bg-black/60 p-3 text-white">
+												<Play className="size-6 fill-current" />
+											</div>
+										</div>
+									)}
+								</>
 							) : null}
 							{failedImages.has(item.mediaUrl) && (
-								<div className="absolute  left-1/2 -translate-x-1/2 rounded-full text-accent-gray px-3 py-1 text-xl font-bold  w-full uppercase text-center">
+								<div className="absolute left-1/2 -translate-x-1/2 rounded-full text-accent-gray px-3 py-1 text-xl font-bold w-full uppercase text-center">
 									unable to load {item.type}
 								</div>
 							)}

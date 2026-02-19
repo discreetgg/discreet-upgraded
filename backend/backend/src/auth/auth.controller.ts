@@ -40,8 +40,7 @@ export class AuthController {
   }
 
   private getAllowedOAuthCallbackHosts(): string[] {
-    const configured = process.env.OAUTH_ALLOWED_REDIRECT_HOSTS
-      ?.split(',')
+    const configured = process.env.OAUTH_ALLOWED_REDIRECT_HOSTS?.split(',')
       .map((host) => host.trim().toLowerCase())
       .filter(Boolean);
 
@@ -192,7 +191,9 @@ export class AuthController {
   ) {
     const oauthUrl = process.env.DISCORD_OAUTH2_URL;
     if (!oauthUrl) {
-      return res.status(500).json({ message: 'Discord OAuth URL not configured' });
+      return res
+        .status(500)
+        .json({ message: 'Discord OAuth URL not configured' });
     }
 
     const isProduction = process.env.NODE_ENV === 'production';
@@ -355,8 +356,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create user PIN' })
   @HttpCode(201)
-  async createPin(@Body() dto: CreatePinDto) {
-    return this.authService.createPin(dto.discordId, dto.pin);
+  async createPin(@Body() dto: CreatePinDto, @Req() req: any) {
+    return this.authService.createPin(req.user.sub, dto.pin);
   }
 
   @Post('change-pin')
@@ -364,10 +365,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Change user PIN' })
   @HttpCode(200)
   async changePin(@Body() dto: ChangePinDto, @Req() req: any) {
-    const userId = req.user.sub;
-    console.log(userId);
-    //TODO: check if userId is same as discord users
-    return this.authService.changePin(dto.discordId, dto.oldPin, dto.newPin);
+    return this.authService.changePin(req.user.sub, dto.oldPin, dto.newPin);
   }
 
   @Post('remove-pin')
@@ -375,54 +373,52 @@ export class AuthController {
   @ApiOperation({ summary: 'Remove or disable user PIN' })
   @HttpCode(200)
   async removePin(@Body() dto: VerifyPinDto, @Req() req: any) {
-    const userId = req.user.sub;
-    console.log(userId);
-    return this.authService.removePin(userId, dto.pin);
+    return this.authService.removePin(req.user.sub, dto.pin);
   }
 
   @Post('2fa/generate')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Generate OTP secret for user' })
   @ApiResponse({ status: 200, description: 'OTP generated successfully' })
-  async generateOTP(@Body() dto: GenerateOtpDto) {
-    return this.authService.generateOTP(dto.discordId);
+  async generateOTP(@Body() dto: GenerateOtpDto, @Req() req: any) {
+    return this.authService.generateOTP(req.user.sub);
   }
 
   @Post('2fa/verify')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Verify OTP token and enable 2FA' })
   @ApiResponse({ status: 200, description: 'OTP verified successfully' })
-  async verifyOTP(@Body() dto: VerifyOtpDto) {
-    return this.authService.verifyOTP(dto.discordId, dto.token);
+  async verifyOTP(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.authService.verifyOTP(req.user.sub, dto.token);
   }
 
   @Post('2fa/validate')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Validate OTP token (for login/session auth)' })
   @ApiResponse({ status: 200, description: 'OTP validated successfully' })
-  async validateOTP(@Body() dto: ValidateOtpDto) {
-    return this.authService.validateOTP(dto.discordId, dto.token);
+  async validateOTP(@Body() dto: ValidateOtpDto, @Req() req: any) {
+    return this.authService.validateOTP(req.user.sub, dto.token);
   }
 
   @Post('2fa/disable')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Disable OTP for user' })
   @ApiResponse({ status: 200, description: 'OTP disabled successfully' })
-  async disableOTP(@Body() dto: DisableOtpDto) {
-    return this.authService.disableOTP(dto.discordId);
+  async disableOTP(@Body() dto: DisableOtpDto, @Req() req: any) {
+    return this.authService.disableOTP(req.user.sub);
   }
 
   @Post('2fa/generate-backup-codes')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Generate 2FA backup codes' })
-  async generateBackupCodes(@Body() dto: GenerateOtpDto) {
-    return this.authService.generateBackupCodes(dto.discordId);
+  async generateBackupCodes(@Body() dto: GenerateOtpDto, @Req() req: any) {
+    return this.authService.generateBackupCodes(req.user.sub);
   }
 
   @Post('2fa/verify-backup-code')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Verify a backup code to bypass 2FA' })
-  async verifyBackupCode(@Body() dto: VerifyOtpDto) {
-    return this.authService.verifyBackupCode(dto.discordId, dto.token);
+  async verifyBackupCode(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.authService.verifyBackupCode(req.user.sub, dto.token);
   }
 }

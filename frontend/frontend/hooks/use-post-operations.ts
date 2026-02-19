@@ -158,6 +158,7 @@ export const usePostOperations = ({
         await queryClient.invalidateQueries({ queryKey: ['profile-liked-posts'] });
         await queryClient.invalidateQueries({ queryKey: ['liked-posts'] });
         await queryClient.invalidateQueries({ queryKey: ['bookmarks'] });
+        await queryClient.invalidateQueries({ queryKey: ['menu_item'] });
         
         // Also remove the specific post from cache if it exists
         queryClient.removeQueries({ queryKey: ['post', id] });
@@ -168,6 +169,7 @@ export const usePostOperations = ({
         await queryClient.refetchQueries({ queryKey: ['creatorPosts'] });
         await queryClient.refetchQueries({ queryKey: ['profile-liked-posts'] });
         await queryClient.refetchQueries({ queryKey: ['liked-posts'] });
+        await queryClient.refetchQueries({ queryKey: ['menu_item'] });
 
         if (onPostDeleted) {
           onPostDeleted();

@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as cookieParser from 'cookie-parser';
 import * as dotenv from 'dotenv';
 import { json, urlencoded } from 'express';
+import helmet from 'helmet';
 
 dotenv.config();
 
@@ -16,15 +17,6 @@ async function bootstrap() {
   //   origin: '*',
   //   credentials: true,
   // });
-
-  // Store current request path globally (only during CORS check)
-  let currentPath = '';
-
-  // Tiny middleware that runs BEFORE CORS and captures the path
-  app.use((req, res, next) => {
-    currentPath = req.originalUrl || req.url;
-    next();
-  });
 
   const allowedOrigins = [
     'https://discreet-mocha.vercel.app',
@@ -41,16 +33,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      console.log(currentPath);
       if (!origin) return callback(null, true); // allow Postman/curl
-
-      // WEBHOOK BYPASS: Allow ANY origin (or no origin) for /webhooks/check
-      if (currentPath?.includes('/webhooks/ondato')) {
-        console.log(
-          `CORS bypassed for webhook → ${currentPath} | Origin: ${origin || 'server-to-server'}`,
-        );
-        return callback(null, true); // This allows everything
-      }
 
       const allowed =
         allowedOrigins.includes(origin) ||
@@ -65,9 +48,15 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Increase request size limit to 100 GB
-  app.use(json({ limit: '100gb' }));
-  app.use(urlencoded({ limit: '100gb', extended: true }));
+  // Keep JSON/form payload limits conservative; media uploads go through Multer endpoints.
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ limit: '10mb', extended: true }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.use(cookieParser());
   app.setGlobalPrefix('api');
 

@@ -338,14 +338,37 @@ export function getEmojiInlineStyle(text: string): React.CSSProperties {
   return {};
 }
 
+const MAX_MEDIA_URL_CACHE_SIZE = 500;
+const mediaUrlCache = new Map<string, string>();
+
 export const getProxiedMediaUrl = (
   mediaId?: string,
   originalUrl?: string,
 ): string => {
-  if (mediaId) {
-    return `https://api.discreet.fans/api/media/${mediaId}`;
+  const normalizedUrl = originalUrl?.trim();
+  if (normalizedUrl) {
+    if (mediaId) {
+      if (
+        mediaUrlCache.size >= MAX_MEDIA_URL_CACHE_SIZE &&
+        !mediaUrlCache.has(mediaId)
+      ) {
+        const oldestKey = mediaUrlCache.keys().next().value as
+          | string
+          | undefined;
+        if (oldestKey) {
+          mediaUrlCache.delete(oldestKey);
+        }
+      }
+      mediaUrlCache.set(mediaId, normalizedUrl);
+    }
+    return normalizedUrl;
   }
-  return originalUrl || '';
+
+  if (mediaId) {
+    return mediaUrlCache.get(mediaId) ?? '';
+  }
+
+  return '';
 };
 
 export const getUserFromID = async (id: string): Promise<UserType> => {

@@ -154,8 +154,12 @@ export function AnimatedNumberAdvanced({
 						exit="exit"
 						variants={animationVariants}
 						transition={{
-							...animationVariants.transition,
 							delay: index * staggerDelay,
+							duration,
+							ease:
+								(animationType === "flip" ? "easeInOut" : "easeOut") as
+									| "easeInOut"
+									| "easeOut",
 						}}
 						style={{
 							perspective: 1000,

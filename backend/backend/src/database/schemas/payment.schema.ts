@@ -25,7 +25,7 @@ export enum PaymentStatus {
   timestamps: true,
   toJSON: {
     transform: (doc, ret) => {
-      ret.id = ret._id.toString();
+      (ret as any).id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
@@ -63,11 +63,11 @@ export class Payment {
   })
   debitTx?: mongoose.Types.ObjectId | Transaction;
 
-  // @Prop({
-  //   type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }],
-  //   default: [],
-  // })
-  // batchDebitTx?: mongoose.Types.ObjectId[];
+  @Prop({
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Transaction' }],
+    default: [],
+  })
+  batchDebitTx?: mongoose.Types.ObjectId[];
 
   // @Prop({
   //   type: mongoose.Schema.Types.ObjectId,
@@ -85,3 +85,8 @@ export class Payment {
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);
+PaymentSchema.index({ payer: 1, createdAt: -1 });
+PaymentSchema.index({ receiver: 1, createdAt: -1 });
+PaymentSchema.index({ type: 1, status: 1, createdAt: -1 });
+PaymentSchema.index({ status: 1, createdAt: -1 });
+PaymentSchema.index({ 'meta.callId': 1 });

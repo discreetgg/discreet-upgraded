@@ -6,6 +6,7 @@ import {
   UploadedFiles,
   UseInterceptors,
   BadRequestException,
+  ForbiddenException,
   Get,
   Param,
   Delete,
@@ -26,15 +27,22 @@ import {
 import { CreateCategoryDto } from './dto/creator-menu-category';
 import { Category } from 'src/database/schemas/category.schema';
 import { JwtAuthGuard } from 'src/auth/guards/auth.guard';
+import { MenuPromoService } from './menu-promo.service';
+import { UpdateMenuPromoDto } from './dto/update-menu-promo.dto';
+import { Request } from 'express';
 
 @Controller('menu')
 export class MenuController {
-  constructor(private readonly menuService: MenuService) {}
+  constructor(
+    private readonly menuService: MenuService,
+    private readonly menuPromoService: MenuPromoService,
+  ) {}
   // ─────────────────────────────────────────────────────────────
   // CATEGORY
   // ─────────────────────────────────────────────────────────────
 
   @Post('categories')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Create a new category' })
   @ApiBody({ type: CreateCategoryDto })
   @ApiResponse({
@@ -43,11 +51,16 @@ export class MenuController {
     type: Category,
   })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async createCategory(@Body() dto: CreateCategoryDto): Promise<Category> {
+  async createCategory(
+    @Body() dto: CreateCategoryDto,
+    @Req() req: any,
+  ): Promise<Category> {
+    dto.owner = req.user.sub;
     return this.menuService.createCategory(dto);
   }
 
   @Get('categories/:discordId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Fetch all categories for a user by discordId' })
   @ApiParam({ name: 'discordId', description: 'Discord ID of the user' })
   @ApiResponse({
@@ -58,11 +71,16 @@ export class MenuController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async fetchUserCategories(
     @Param('discordId') discordId: string,
+    @Req() req: any,
   ): Promise<Category[]> {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot fetch categories for another user');
+    }
     return this.menuService.fetchUserCategory(discordId);
   }
 
   @Delete('categories/:discordId/:categoryId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Delete a category for a user' })
   @ApiParam({ name: 'discordId', description: 'Discord ID of the user' })
   @ApiParam({ name: 'categoryId', description: 'ID of the category to delete' })
@@ -71,7 +89,11 @@ export class MenuController {
   async deleteCategory(
     @Param('discordId') discordId: string,
     @Param('categoryId') categoryId: string,
+    @Req() req: any,
   ): Promise<{ message: string }> {
+    if (discordId !== req.user.sub) {
+      throw new ForbiddenException('Cannot delete categories for another user');
+    }
     return this.menuService.deleteCategory(discordId, categoryId);
   }
 
@@ -117,32 +139,9 @@ export class MenuController {
     },
   })
   @ApiResponse({ status: 201, description: 'Menu created successfully.' })
-  async createMenu(
-    @Req() req: any,
-    @Body() dto: any,
-    @Body('mediaMeta') mediaMetaRaw: string,
-    @UploadedFiles() files?: Express.Multer.File[],
-  ) {
-    console.log(dto);
-    // Parse mediaMeta safely
-    let mediaMeta: MediaMetaDto[] = [];
-    try {
-      if (mediaMetaRaw && typeof mediaMetaRaw === 'string') {
-        mediaMeta = JSON.parse(mediaMetaRaw);
-      } else if (Array.isArray(mediaMetaRaw)) {
-        mediaMeta = mediaMetaRaw as MediaMetaDto[];
-      }
-    } catch {
-      throw new BadRequestException(
-        'Invalid mediaMeta format. Must be valid JSON.',
-      );
-    }
-
-    return this.menuService.createMenu(
-      req.user?.sub,
-      dto,
-      files ?? [],
-      mediaMeta ?? [],
+  async createMenu() {
+    throw new BadRequestException(
+      'Direct menu creation is disabled. Publish an unlockable feed post to create a menu listing.',
     );
   }
 
@@ -222,6 +221,20 @@ export class MenuController {
       files ?? [],
       mediaMeta ?? [],
     );
+  }
+
+  @Patch(':id/promo')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Enable or update a limited-time promo on a menu' })
+  @ApiParam({ name: 'id', type: String, description: 'menu ID' })
+  @ApiBody({ type: UpdateMenuPromoDto })
+  @ApiResponse({ status: 200, description: 'Promo updated successfully.' })
+  async updateMenuPromo(
+    @Param('id') id: string,
+    @Req() req: Request & { user?: { sub?: string } },
+    @Body() dto: UpdateMenuPromoDto,
+  ) {
+    return this.menuPromoService.updateMenuPromo(req.user?.sub, id, dto);
   }
 
   @Get('category/:categoryId')

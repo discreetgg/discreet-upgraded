@@ -1,17 +1,42 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-	typescript: {
-		ignoreBuildErrors: true,
-	},
 	images: {
 		remotePatterns: [
 			{
 				protocol: "https",
-				hostname: "**",
+				hostname: "api.discreet.fans",
+			},
+			{
+				protocol: "https",
+				hostname: "discreet.gg",
+			},
+			{
+				protocol: "https",
+				hostname: "**.discreet.gg",
+			},
+			{
+				protocol: "https",
+				hostname: "**.discreet.fans",
+			},
+			{
+				protocol: "https",
+				hostname: "res.cloudinary.com",
+			},
+			{
+				protocol: "https",
+				hostname: "cdn.discordapp.com",
+			},
+			{
+				protocol: "https",
+				hostname: "media.discordapp.net",
 			},
 			{
 				protocol: "http",
-				hostname: "**",
+				hostname: "localhost",
+			},
+			{
+				protocol: "http",
+				hostname: "127.0.0.1",
 			},
 		],
 		// Optimize images
@@ -24,8 +49,6 @@ const nextConfig = {
 	},
 	// Enable compression
 	compress: true,
-	// Optimize production builds
-	swcMinify: true,
 	// Experimental optimizations
 	experimental: {
 		optimizePackageImports: [

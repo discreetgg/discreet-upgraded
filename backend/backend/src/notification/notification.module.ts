@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { DiscordBotModule } from 'src/discord-bot/discord-bot.module';
+import { JwtModule } from '@nestjs/jwt';
 import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -12,6 +13,7 @@ import { User, UserSchema } from 'src/database/schemas/user.schema';
 
 @Module({
   imports: [
+    JwtModule,
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Notification.name, schema: NotificationSchema },

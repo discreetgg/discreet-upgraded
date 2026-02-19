@@ -28,6 +28,11 @@ import { NotificationModule } from 'src/notification/notification.module';
 import { UserModule } from 'src/user/user.module';
 import { Category, CategorySchema } from 'src/database/schemas/category.schema';
 import { Payment, PaymentSchema } from 'src/database/schemas/payment.schema';
+import { Menu, MenuSchema } from 'src/database/schemas/menu.schema';
+import {
+  MenuMedia,
+  MenuMediaSchema,
+} from 'src/database/schemas/menu-media.schema';
 
 @Module({
   imports: [
@@ -45,6 +50,8 @@ import { Payment, PaymentSchema } from 'src/database/schemas/payment.schema';
       { name: PostCategory.name, schema: PostCategorySchema },
       { name: Category.name, schema: CategorySchema },
       { name: Payment.name, schema: PaymentSchema },
+      { name: Menu.name, schema: MenuSchema },
+      { name: MenuMedia.name, schema: MenuMediaSchema },
     ]),
     FileUploaderModule,
     NotificationModule,

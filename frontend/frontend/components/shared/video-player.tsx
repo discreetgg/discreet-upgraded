@@ -17,6 +17,7 @@ interface VideoPlayProps {
   className?: string;
   onError?: () => void;
   caption?: string;
+  fit?: 'contain' | 'cover';
 }
 
 export const VideoPlayer = ({
@@ -24,6 +25,7 @@ export const VideoPlayer = ({
   className = '',
   onError,
   caption,
+  fit = 'contain',
 }: VideoPlayProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressContainerRef = useRef<HTMLDivElement>(null);
@@ -40,6 +42,7 @@ export const VideoPlayer = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isVertical, setIsVertical] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const rafIdRef = useRef<number | null>(null);
 
@@ -63,6 +66,21 @@ export const VideoPlayer = ({
       rafIdRef.current = null;
     }
   }, [src]);
+
+  useEffect(() => {
+    const updateMobileState = () => {
+      const isCoarsePointer =
+        window.matchMedia?.('(pointer: coarse)').matches ?? false;
+      setIsMobile(window.innerWidth < 768 || isCoarsePointer);
+    };
+
+    updateMobileState();
+    window.addEventListener('resize', updateMobileState);
+
+    return () => {
+      window.removeEventListener('resize', updateMobileState);
+    };
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -144,6 +162,10 @@ export const VideoPlayer = ({
         videoRef.current.play().catch(() => onError?.()); // Handle play errors (e.g., user gesture required)
       }
       setIsPlaying(!isPlaying);
+
+      if (isMobile) {
+        setShowControls(false);
+      }
     }
   };
 
@@ -157,6 +179,50 @@ export const VideoPlayer = ({
       if (progressFilledRef.current) {
         progressFilledRef.current.style.width = `${(time / duration) * 100}%`; // Immediate sync
       }
+    }
+  };
+
+  const seekToClientX = (clientX: number, element: HTMLDivElement) => {
+    if (!videoRef.current || duration <= 0) {
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const offsetX = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const nextPercent = (offsetX / rect.width) * 100;
+    const nextTime = (nextPercent / 100) * duration;
+
+    videoRef.current.currentTime = nextTime;
+    setCurrentTime(nextTime);
+    setProgressPercent(nextPercent);
+  };
+
+  const handleMobileProgressPointerDown = (
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    seekToClientX(e.clientX, e.currentTarget);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleMobileProgressPointerMove = (
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
+    if (!(e.buttons === 1 || e.pressure > 0)) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    seekToClientX(e.clientX, e.currentTarget);
+  };
+
+  const handleMobileProgressPointerUp = (
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
+    e.stopPropagation();
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
   };
 
@@ -203,18 +269,31 @@ export const VideoPlayer = ({
   const computedVideoClass = useMemo(
     () =>
       cn(
-        'mx-auto rounded-lg object-contain w-auto',
-        isVertical ? 'max-h-[600px]' : 'max-h-[90vh]',
+        'mx-auto rounded-lg',
+        fit === 'cover'
+          ? 'h-full w-full max-h-none object-cover'
+          : [
+              'object-contain w-auto',
+              isVertical ? 'max-h-[600px]' : 'max-h-[90vh]',
+            ],
         className
       ),
-    [isVertical, className]
+    [fit, isVertical, className]
   );
 
   return (
     <div
-      className="relative select-none"
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+      className="relative h-full w-full select-none"
+      onMouseEnter={() => {
+        if (!isMobile) {
+          setShowControls(true);
+        }
+      }}
+      onMouseLeave={() => {
+        if (!isMobile) {
+          setShowControls(false);
+        }
+      }}
       onDragStart={(e) => e.preventDefault()}
     >
       <video
@@ -223,6 +302,8 @@ export const VideoPlayer = ({
         src={src}
         className={computedVideoClass}
         onError={onError}
+        playsInline
+        preload="metadata"
         onContextMenu={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
         controlsList="nodownload"
@@ -242,7 +323,11 @@ export const VideoPlayer = ({
         }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
-        onVolumeChange={() => setVolume(videoRef.current?.volume || 1)}
+        onVolumeChange={() => {
+          const nextVolume = videoRef.current?.volume || 0;
+          setVolume(nextVolume);
+          setIsMuted(Boolean(videoRef.current?.muted) || nextVolume === 0);
+        }}
         onWaiting={() => setIsLoading(true)}
         onCanPlay={() => setIsLoading(false)}
       >
@@ -260,7 +345,7 @@ export const VideoPlayer = ({
         </div>
       )}
       <AnimatePresence>
-        {!isPlaying && !isLoading && !showControls && (
+        {!isPlaying && !isLoading && (!showControls || isMobile) && (
           <m.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -276,8 +361,43 @@ export const VideoPlayer = ({
           </m.button>
         )}
       </AnimatePresence>
+
+      {isMobile && !isLoading && duration > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 px-3 pb-2">
+          <div
+            className="pointer-events-auto relative h-[2px] flex-1 rounded-full bg-white/30"
+            onPointerDown={handleMobileProgressPointerDown}
+            onPointerMove={handleMobileProgressPointerMove}
+            onPointerUp={handleMobileProgressPointerUp}
+            onPointerCancel={handleMobileProgressPointerUp}
+            onClick={(e) => e.stopPropagation()}
+            role="slider"
+            aria-valuemin={0}
+            aria-valuemax={duration}
+            aria-valuenow={currentTime}
+            aria-label="Seek video"
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-accent-color"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleMute();
+            }}
+            aria-label={isMuted ? 'Unmute' : 'Mute'}
+            className="pointer-events-auto inline-flex size-7 items-center justify-center rounded-full bg-black/55 text-white/90"
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          </button>
+        </div>
+      )}
+
       <AnimatePresence>
-        {showControls && !isLoading && (
+        {showControls && !isLoading && !isMobile && (
           <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

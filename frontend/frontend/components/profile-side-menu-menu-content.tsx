@@ -1,7 +1,4 @@
 import ProfileSideAdCards from "./shared/profile-side-cards";
-import { Icon } from "./ui/icons";
-import { AddMenuItem } from "./add-menu-item";
-import { Button } from "./ui/button";
 import { useMenuItems } from "@/hooks/queries/use-menu-items";
 import { UserType } from "@/types/global";
 import { useGlobal } from "@/context/global-context-provider";
@@ -18,15 +15,9 @@ export const ProfileSideMenuMenuContent = ({ user }: { user: UserType }) => {
 					{isCurrentUser ? "My" : user.displayName} Menu
 				</span>
 				{isCurrentUser && (
-					<AddMenuItem>
-						<Button
-							disabled={isLoading}
-							className="flex gap-0.5 text-[#8A8C95] font-medium p-0"
-							size="ghost"
-						>
-							Add <Icon.add className="shrink-0 !size-6" />
-						</Button>
-					</AddMenuItem>
+					<span className="text-[11px] text-[#8A8C95]">
+						Add items by publishing unlockable feed posts
+					</span>
 				)}
 			</div>
 			<ProfileSideAdCards menuItems={menuItems ?? []} isLoading={isLoading} />

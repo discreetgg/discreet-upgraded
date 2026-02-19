@@ -156,12 +156,12 @@ export const PublicProfileHeaderSection = ({
 											My Menu
 										</button>
 									</SheetTrigger>
-									<SheetContent
-										side="right"
-										onTouchStart={handleSheetTouchStart}
-										onTouchEnd={handleSheetTouchEnd}
-										className="bg-dark-charcoal/90 backdrop-blur-2xl border-charcoal w-full max-w-[380px] px-4 pt-4 outline-none"
-									>
+										<SheetContent
+											side="right"
+											onTouchStart={handleSheetTouchStart}
+											onTouchEnd={handleSheetTouchEnd}
+											className="bg-dark-charcoal/90 backdrop-blur-2xl border-charcoal inset-0 h-dvh w-screen max-w-none border-l-0 overflow-x-hidden px-4 pt-4 outline-none"
+										>
 										<SheetHeader className="p-0 flex-row items-center justify-between border-b border-charcoal pb-3">
 											<SheetTitle className="text-left uppercase text-[#D4D4D8]">
 												Profile Menu

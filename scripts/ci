@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-check}"
+
+case "$MODE" in
+  check)
+    "$ROOT_DIR/scripts/check/docs.sh"
+    "$ROOT_DIR/scripts/check/architecture.sh"
+    "$ROOT_DIR/scripts/check/invariants.sh"
+    "$ROOT_DIR/scripts/check/backend.sh"
+    "$ROOT_DIR/scripts/check/frontend.sh"
+    ;;
+  ui)
+    "$ROOT_DIR/scripts/ui/run-journeys.sh"
+    ;;
+  obs)
+    "$ROOT_DIR/scripts/obs/check-budgets.sh"
+    ;;
+  full)
+    "$ROOT_DIR/scripts/ci" check
+    "$ROOT_DIR/scripts/ci" ui
+    "$ROOT_DIR/scripts/ci" obs
+    ;;
+  *)
+    echo "Usage: ./scripts/ci {check|ui|obs|full}" >&2
+    exit 1
+    ;;
+esac
