@@ -1,7 +1,6 @@
 "use client";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import { MobileNav } from "@/components/mobile-nav";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type React from "react";
 import { usePrefetchPages } from "@/hooks/use-prefetch-pages";
@@ -20,7 +19,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 			<SidebarInset className="md:py-6 py-2 pb-24 lg:pb-6">
 				{children}
 			</SidebarInset>
-			<MobileNav />
 			<FundWalletDialog />
 		</SidebarProvider>
 	);

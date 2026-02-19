@@ -560,7 +560,21 @@ const MessageItemComponent = ({
                 mediaArray.length > 0 && (
                   <div className="mt-2">
                     {!shouldRenderHeavyMedia ? (
-                      <div className="h-[180px] w-full rounded-xl bg-[#1A1C1F] animate-pulse" />
+                      isBundleMessage ? (
+                        <div className="overflow-hidden rounded-2xl border border-[#2A2233] bg-[linear-gradient(180deg,#140916_0%,#080A12_100%)]">
+                          <div className="relative aspect-[4/5] bg-[linear-gradient(180deg,#1A1224_0%,#0C111A_100%)] animate-pulse" />
+                          <div className="space-y-2 border-t border-white/10 bg-[linear-gradient(180deg,rgba(12,15,24,0.9)_0%,rgba(9,12,19,0.95)_100%)] px-3 py-3">
+                            <div className="flex items-center gap-2">
+                              <div className="h-10 w-10 rounded-[10px] bg-white/10 animate-pulse" />
+                              <div className="h-10 w-10 rounded-[10px] bg-white/10 animate-pulse" />
+                              <div className="h-10 w-10 rounded-[10px] bg-white/10 animate-pulse" />
+                            </div>
+                            <div className="h-9 w-full rounded-md bg-white/10 animate-pulse" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-[180px] w-full rounded-xl bg-[#1A1C1F] animate-pulse" />
+                      )
                     ) : isBundleMessage ? (
                       <MessageMediaBundleCard
                         message={message}

@@ -1,12 +1,11 @@
 "use client";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import { MobileNav } from "@/components/mobile-nav";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TabLoadingSkeleton } from "@/components/tab-loading-skeleton";
 import { useAuth } from "@/context/auth-context-provider";
 import WalletContextProvider from "@/context/wallet-context-provider";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { FundWalletDialog } from "@/components/fund-wallet-dialog";
 
@@ -16,9 +15,13 @@ import { Suspense } from "react";
 export default function Layout({ children }: { children: React.ReactNode }) {
 	const { isAuthenticated, loading } = useAuth();
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
 
+	const isNewChatPage =
+		pathname === "/messages" && searchParams.get("chat") === "new";
 	const isMessagePage =
-		pathname.startsWith("/messages/") && pathname !== "/messages";
+		(pathname.startsWith("/messages/") && pathname !== "/messages") ||
+		isNewChatPage;
 	const showRouteSkeleton = loading;
 	const skeletonVariant = isMessagePage ? "list" : "posts";
 
@@ -45,7 +48,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 						</Suspense>
 					)}
 				</SidebarInset>
-				<MobileNav />
 				{isAuthenticated && <FundWalletDialog />}
 			</WalletContextProvider>
 		</SidebarProvider>

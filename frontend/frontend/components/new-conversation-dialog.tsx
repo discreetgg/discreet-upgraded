@@ -66,6 +66,25 @@ export const NewConversationDialog = () => {
     try {
       setReceiver(user);
       setCreating(user.discordId);
+      const newChatParams = new URLSearchParams({
+        chat: 'new',
+        receiver: user.discordId,
+      });
+      if (user.displayName) {
+        newChatParams.set('displayName', user.displayName);
+      }
+      if (user.username) {
+        newChatParams.set('username', user.username);
+      }
+      if (user.discordAvatar) {
+        newChatParams.set('discordAvatar', user.discordAvatar);
+      }
+      if (user.profileImage?.url) {
+        newChatParams.set('profileImage', user.profileImage.url);
+      }
+      if (user.role) {
+        newChatParams.set('role', user.role);
+      }
 
       // Check if a conversation already exists with this user
       const existingConversation = conversations?.find((conv) =>
@@ -82,7 +101,7 @@ export const NewConversationDialog = () => {
       } else {
         // Start a new temporary conversation
         setOpen(false);
-        router.push('/messages?chat=new');
+        router.push(`/messages?${newChatParams.toString()}`);
         toast.success(
           `Opening new chat with ${user.displayName || user.username}`
         );
