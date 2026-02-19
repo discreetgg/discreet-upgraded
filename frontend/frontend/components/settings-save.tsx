@@ -50,9 +50,11 @@ export const SettingsSave = ({ className }: { className?: string }) => {
 			if (profileSettingForm && user) {
 				const formValues = profileSettingForm.getValues();
 				// Normalize and compare profile form values with user data
-				const normalizedUsername = formValues.username.replace(/^@/, "").trim();
-				const normalizedDisplayName = formValues.displayName.trim();
-				const normalizedBio = formValues.bio.trim();
+				const normalizedUsername = (formValues.username ?? "")
+					.replace(/^@/, "")
+					.trim();
+				const normalizedDisplayName = (formValues.displayName ?? "").trim();
+				const normalizedBio = (formValues.bio ?? "").trim();
 
 				const userUsername = user.username || "";
 				const userDisplayName = user.displayName || "";
@@ -94,9 +96,14 @@ export const SettingsSave = ({ className }: { className?: string }) => {
 	const onEditProfileSubmit = async (
 		data: z.infer<typeof EditProfileFormSchema>
 	) => {
+		const payload = {
+			displayName: data.displayName.trim(),
+			bio: data.bio.trim(),
+		};
+
 		setIsLoading(true);
 		await updateUserService({
-			payload: data,
+			payload,
 			discordId: user?.discordId ?? "",
 		})
 			.then((response) => {
@@ -108,7 +115,7 @@ export const SettingsSave = ({ className }: { className?: string }) => {
 					setUser(updatedUser);
 					// Reset form with new values from server response
 					profileSettingForm?.reset({
-						username: `${updatedUser.username}` || "",
+						username: updatedUser.username ? `@${updatedUser.username}` : "@",
 						displayName: updatedUser.displayName || "",
 						bio: updatedUser.bio || "",
 					});

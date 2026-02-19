@@ -55,7 +55,7 @@ export const SettingsProfileContent = () => {
 	const form = useForm<z.infer<typeof EditProfileFormSchema>>({
 		resolver: zodResolver(EditProfileFormSchema),
 		defaultValues: {
-			username: `@${user?.username}` || "@",
+			username: user?.username ? `@${user.username}` : "@",
 			displayName: user?.displayName || "",
 			bio: (isSeller && user?.bio) || "",
 		},

@@ -193,13 +193,48 @@ export class UserService {
 
   async updateUser(discordId: string, updateUserDto: UpdateUserDto) {
     try {
+      const safeUpdate: Partial<UpdateUserDto> = {};
+
+      if (typeof updateUserDto.displayName === 'string') {
+        safeUpdate.displayName = updateUserDto.displayName.trim();
+      }
+      if (typeof updateUserDto.bio === 'string') {
+        safeUpdate.bio = updateUserDto.bio.trim();
+      }
+      if (updateUserDto.discordNotification !== undefined) {
+        safeUpdate.discordNotification = updateUserDto.discordNotification;
+      }
+      if (updateUserDto.emailNotification !== undefined) {
+        safeUpdate.emailNotification = updateUserDto.emailNotification;
+      }
+      if (updateUserDto.inAppNotification !== undefined) {
+        safeUpdate.inAppNotification = updateUserDto.inAppNotification;
+      }
+
+      const setPayload: Record<string, unknown> = { ...safeUpdate };
+      if (Object.prototype.hasOwnProperty.call(safeUpdate, 'displayName')) {
+        setPayload.isUsingDiscordName =
+          (safeUpdate.displayName ?? '').length === 0;
+      }
+
+      if (Object.keys(setPayload).length === 0) {
+        const existingUser = await this.userModel
+          .findOne({ discordId })
+          .select('-__v -hashedPin -_2FAData')
+          .lean();
+
+        if (!existingUser) return null;
+
+        return {
+          message: 'No user fields updated',
+          user: existingUser,
+        };
+      }
+
       const user = await this.userModel
         .findOneAndUpdate(
           { discordId },
-          {
-            $set: updateUserDto,
-            isUsingDiscordName: updateUserDto.displayName ? false : true,
-          },
+          { $set: setPayload },
           { new: true, runValidators: true }, // ensure DTO validation runs
         )
         .select('-__v -hashedPin -_2FAData')

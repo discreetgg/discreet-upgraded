@@ -1,0 +1,24 @@
+Yes. Root cause is this exact chain:
+
+Profile form sets username value with a leading @
+settings-profile-content.tsx (line 59)
+
+On save, the full form object is sent as payload (including that username)
+settings-save.tsx (line 101)
+
+The replace(/^@/, "") is only used for “has changes” comparison, not for submit payload
+settings-save.tsx (line 53)
+
+Backend does not whitelist/strip unknown body fields (ValidationPipe has transform but no whitelist)
+main.ts (line 64)
+
+Backend writes request DTO directly with $set
+user.service.ts (line 200)
+
+So if Save was clicked, username could be persisted as @username.
+
+If you want, I can patch this now at the root (frontend + backend hardening + one-time cleanup for usernames already saved with @).
+
+
+
+
