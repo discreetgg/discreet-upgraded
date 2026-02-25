@@ -182,10 +182,11 @@ export function MobileNav() {
           items[bookmarkIndex] = earningsItem;
         }
       }
+
+      return items.slice(0, 4);
     }
 
-    // Return items: for sellers (Home, Messages, Earnings), for others (Home, Messages, Bookmarks)
-    // Wallet is filtered out in render, so we need to slice to 4 to include Bookmarks/Earnings (which is at index 3 after Home, Messages, Wallet)
+    // Wallet is rendered separately in mobile nav.
     return items.slice(0, 4);
   };
 
@@ -298,7 +299,9 @@ export function MobileNav() {
                   type="button"
                   className={cn(
                     'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-all duration-300 min-w-[64px] text-[#8A8C95] hover:text-[#D4D4D8] active:scale-95',
-                    pathname === '/profile' || pathname === '/settings'
+                    pathname === '/profile' ||
+                      pathname === '/settings' ||
+                      pathname === '/library'
                       ? 'text-white'
                       : ''
                   )}
@@ -307,7 +310,9 @@ export function MobileNav() {
                   <div
                     className={cn(
                       'p-1.5 rounded-lg transition-all duration-300',
-                      pathname === '/profile' || pathname === '/settings'
+                      pathname === '/profile' ||
+                        pathname === '/settings' ||
+                        pathname === '/library'
                         ? 'bg-[#FF007F]/10 shadow-sm'
                         : 'hover:bg-[#1E2227]/50'
                     )}
@@ -323,7 +328,9 @@ export function MobileNav() {
                   <span
                     className={cn(
                       'text-[10px] font-medium transition-colors duration-300 truncate max-w-[64px]',
-                      pathname === '/profile' || pathname === '/settings'
+                      pathname === '/profile' ||
+                        pathname === '/settings' ||
+                        pathname === '/library'
                         ? 'text-[#FF007F]'
                         : 'text-[#8A8C95]'
                     )}
@@ -345,6 +352,17 @@ export function MobileNav() {
                   </DropdownMenuItem>
                 </Link>
                 <DropdownMenuSeparator className="my-0" />
+                {user?.role === 'buyer' && (
+                  <>
+                    <Link href="/library">
+                      <DropdownMenuItem className="flex items-center gap-2 text-[15px] text-[#D4D4D8] m-0 rounded-none p-4">
+                        <Icon.gallery className="size-4" />
+                        Library
+                      </DropdownMenuItem>
+                    </Link>
+                    <DropdownMenuSeparator className="my-0" />
+                  </>
+                )}
                 <Link href="/notifications">
                   <DropdownMenuItem className="flex items-center justify-between gap-2 text-[15px] text-[#D4D4D8] m-0 rounded-none p-4">
                     <div className="flex items-center gap-2">

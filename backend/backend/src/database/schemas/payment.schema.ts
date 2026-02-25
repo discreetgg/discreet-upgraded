@@ -86,6 +86,14 @@ export class Payment {
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);
 PaymentSchema.index({ payer: 1, createdAt: -1 });
+PaymentSchema.index({ payer: 1, type: 1, status: 1, createdAt: -1 });
+PaymentSchema.index({
+  payer: 1,
+  receiver: 1,
+  type: 1,
+  status: 1,
+  createdAt: -1,
+});
 PaymentSchema.index({ receiver: 1, createdAt: -1 });
 PaymentSchema.index({ type: 1, status: 1, createdAt: -1 });
 PaymentSchema.index({ status: 1, createdAt: -1 });

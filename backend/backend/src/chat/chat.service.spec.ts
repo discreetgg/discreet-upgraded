@@ -8,6 +8,7 @@ describe('ChatService - media entitlement projection', () => {
   const mediaModel = {};
   const inMessageMediaModel = {};
   const userModel = {};
+  const paymentModel = {};
   const chatNoteModel = {};
   const fileUploaderService = {};
   const walletService = {};
@@ -25,6 +26,7 @@ describe('ChatService - media entitlement projection', () => {
       mediaModel as any,
       inMessageMediaModel as any,
       userModel as any,
+      paymentModel as any,
       chatNoteModel as any,
       fileUploaderService as any,
       walletService as any,

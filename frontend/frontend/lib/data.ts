@@ -822,7 +822,6 @@ const getBaseURL = () => {
 
 export const baseURL = getBaseURL();
 
-
 export const addItemsTags = [
   {
     id: '1',

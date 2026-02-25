@@ -36,6 +36,7 @@ import { NoteDto } from './dto/note.dto';
 import { GetConversationDto } from './dto/get-conversation.dto';
 import { GetConversationListDto } from './dto/get-conversation-list.dto';
 import { GetConversationMessagesDto } from './dto/get-conversation-messages.dto';
+import { GetBuyerLibraryDto } from './dto/get-buyer-library.dto';
 
 @Controller('chat')
 export class ChatController {
@@ -153,6 +154,30 @@ export class ChatController {
       req.user.userId,
       query.limit,
       query.cursor,
+    );
+  }
+
+  @Get('library/purchased-media')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get buyer purchased media library across all conversations',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 40 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  @ApiQuery({ name: 'sellerUsername', required: false, type: String })
+  @ApiResponse({
+    status: 200,
+    description: 'Buyer purchased media library payload',
+  })
+  async getBuyerPurchasedMediaLibrary(
+    @Req() req: { user: { userId: string } },
+    @Query() query: GetBuyerLibraryDto,
+  ): Promise<any> {
+    return this.chatService.fetchBuyerPurchasedMediaLibrary(
+      req.user.userId,
+      query.limit,
+      query.cursor,
+      query.sellerUsername,
     );
   }
 

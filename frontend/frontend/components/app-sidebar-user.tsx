@@ -61,6 +61,17 @@ export const AppSidebarUser = () => {
               </DropdownMenuItem>
             </Link>
             <DropdownMenuSeparator className='my-0' />
+            {user?.role === 'buyer' && (
+              <>
+                <Link href='/library'>
+                  <DropdownMenuItem className='flex items-center gap-2 text-[15px] text-[#D4D4D8] m-0 rounded-none p-4'>
+                    <Icon.gallery />
+                    Library
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator className='my-0' />
+              </>
+            )}
             <Link href='/settings'>
               <DropdownMenuItem className='flex items-center gap-2 text-[15px] text-[#D4D4D8] m-0 rounded-none p-4'>
                 <Icon.settings />
