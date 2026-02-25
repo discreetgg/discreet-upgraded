@@ -10,26 +10,32 @@ import {
 
 class InAppNotificationDto {
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   enabled?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   newFollower?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   newComment?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   newLike?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   newSubscriber?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   tip?: boolean;
 }
@@ -38,14 +44,17 @@ class DiscordNotificationDto extends InAppNotificationDto {}
 
 class EmailNotificationDto {
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   enabled?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   newSubscriber?: boolean;
 
   @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
   tip?: boolean;
 }
@@ -82,6 +91,8 @@ export class UpdateUserDto {
     example: 'New Display Name',
     description: 'Display name of the user',
   })
+  @IsOptional()
+  @IsString()
   displayName?: string;
 
   @ApiPropertyOptional({ example: 'This is my bio', description: 'User bio' })

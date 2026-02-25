@@ -23,7 +23,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migrate:update-user-field": "ts-node src/user/scripts/update-user-fields.ts"
+    "migrate:update-user-field": "ts-node src/user/scripts/update-user-fields.ts",
+    "migrate:normalize-at-usernames": "ts-node src/user/scripts/normalize-at-usernames.ts",
+    "migrate:normalize-at-usernames:apply": "ts-node src/user/scripts/normalize-at-usernames.ts --apply"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.0",

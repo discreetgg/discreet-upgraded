@@ -24,6 +24,7 @@ export const PostAuthor = ({
   usernameClassName,
   isAuthenticated,
   isPreview,
+  maxDisplayNameLength,
 }: {
   author: AuthorType | null;
   date?: string;
@@ -33,6 +34,7 @@ export const PostAuthor = ({
   showUserName?: boolean;
   isAuthenticated?: boolean;
   isPreview?: boolean;
+  maxDisplayNameLength?: number;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const { data: user, isLoading } = useUser(author?.username ?? '', {
@@ -60,6 +62,13 @@ export const PostAuthor = ({
   };
 
   const isLoggedInUser = currentUser?.discordId === author?.discordId;
+  const displayName = author?.displayName ?? '';
+  const cappedDisplayName =
+    typeof maxDisplayNameLength === 'number' &&
+    maxDisplayNameLength > 0 &&
+    displayName.length > maxDisplayNameLength
+      ? displayName.slice(0, maxDisplayNameLength)
+      : displayName;
 
   const ShowFollowButton = isAuthenticated ? FollowButton : AuthPromptDialog;
 
@@ -79,7 +88,7 @@ export const PostAuthor = ({
           />
           <div className={cn('', usernameClassName)}>
             <p className="text-[15px] font-bold leading-[100%] hover:underline">
-              {author?.displayName}
+              {cappedDisplayName}
             </p>
             <div className="flex items-center gap-1">
               {showUserName && (
@@ -111,7 +120,7 @@ export const PostAuthor = ({
           />
           <div className={cn('', usernameClassName)}>
             <p className="text-[15px] font-bold leading-[100%] hover:underline">
-              {author?.displayName}
+              {cappedDisplayName}
             </p>
             <div className="flex items-center gap-1">
               {showUserName && (

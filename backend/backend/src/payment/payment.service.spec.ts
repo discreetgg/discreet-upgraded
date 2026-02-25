@@ -5,6 +5,7 @@ import {
   PaymentType,
 } from 'src/database/schemas/payment.schema';
 import { CollectionType } from 'src/database/schemas/menu.schema';
+import { MessageType } from 'src/database/schemas/message.schema';
 
 const makeWalletService = () => ({
   getWallet: jest.fn(),
@@ -88,6 +89,10 @@ describe('PaymentService - media purchase isolation', () => {
       _id: messageId,
       price: '12.50',
       isPayable: true,
+      type: MessageType.IN_MESSAGE_MEDIA,
+      sender: sellerId,
+      reciever: buyerId,
+      conversation: new mongoose.Types.ObjectId(),
       toObject: jest.fn(() => ({ _id: messageId.toString(), paid: false })),
     };
     const existingPayment = {
@@ -149,6 +154,10 @@ describe('PaymentService - media purchase isolation', () => {
       _id: messageId,
       price: '15',
       isPayable: true,
+      type: MessageType.IN_MESSAGE_MEDIA,
+      sender: sellerId,
+      reciever: buyerId,
+      conversation: new mongoose.Types.ObjectId(),
       toObject: jest.fn(() => ({ _id: messageId.toString(), paid: false })),
     };
 

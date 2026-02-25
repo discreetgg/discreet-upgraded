@@ -347,10 +347,11 @@ export const getProxiedMediaUrl = (
 ): string => {
   const normalizedUrl = originalUrl?.trim();
   if (normalizedUrl) {
-    if (mediaId) {
+    if (mediaId?.trim()) {
+      const normalizedMediaId = mediaId.trim();
       if (
         mediaUrlCache.size >= MAX_MEDIA_URL_CACHE_SIZE &&
-        !mediaUrlCache.has(mediaId)
+        !mediaUrlCache.has(normalizedMediaId)
       ) {
         const oldestKey = mediaUrlCache.keys().next().value as
           | string
@@ -359,13 +360,17 @@ export const getProxiedMediaUrl = (
           mediaUrlCache.delete(oldestKey);
         }
       }
-      mediaUrlCache.set(mediaId, normalizedUrl);
+      mediaUrlCache.set(normalizedMediaId, normalizedUrl);
     }
     return normalizedUrl;
   }
 
-  if (mediaId) {
-    return mediaUrlCache.get(mediaId) ?? '';
+  if (mediaId?.trim()) {
+    const cachedUrl = mediaUrlCache.get(mediaId.trim());
+    if (cachedUrl) {
+      return cachedUrl;
+    }
+    return `/api/media/${encodeURIComponent(mediaId.trim())}`;
   }
 
   return '';

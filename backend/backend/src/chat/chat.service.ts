@@ -26,7 +26,7 @@ import {
 } from './dto/create-message.dto';
 import { FileUploaderService } from 'src/file-uploader/file-uploader.service';
 import { Media } from 'src/database/schemas/media.schema';
-import { User } from 'src/database/schemas/user.schema';
+import { Role, User } from 'src/database/schemas/user.schema';
 import { EndCallDto, StartCallDto } from './dto/call.dto';
 import { WalletService } from 'src/wallet/wallet.service';
 import { PaymentService } from 'src/payment/payment.service';
@@ -34,6 +34,8 @@ import { NoteDto } from './dto/note.dto';
 import { ChatNote } from 'src/database/schemas/chat-note.schema';
 import { InMessageMedia } from 'src/database/schemas/in-message-media.schema';
 import { MediaMetaDto } from 'src/menu/dto/create-menu.dto';
+import { Payment } from 'src/database/schemas/payment.schema';
+import { fetchBuyerPurchasedMediaLibrary } from './chat.buyer-library';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50;
 const MAX_MESSAGE_PAGE_SIZE = 100;
@@ -79,6 +81,7 @@ export class ChatService {
     @InjectModel(InMessageMedia.name)
     private readonly inMessageMediaModel: Model<InMessageMedia>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
     @InjectModel(ChatNote.name) private readonly chatNoteModel: Model<ChatNote>,
     private readonly fileUploaderService: FileUploaderService,
     private readonly walletService: WalletService,
@@ -951,6 +954,50 @@ export class ChatService {
     };
   }
 
+  async fetchBuyerPurchasedMediaLibrary(
+    requesterUserId: string,
+    limit = DEFAULT_SHARED_MEDIA_PAGE_SIZE,
+    cursor?: string,
+    sellerUsername?: string,
+  ): Promise<ConversationMessagePage> {
+    const requester = await this.userModel
+      .findById(requesterUserId)
+      .select('role')
+      .lean();
+    if (!requester) {
+      throw new ForbiddenException('User not found');
+    }
+    if (requester.role && requester.role !== Role.BUYER) {
+      throw new ForbiddenException(
+        'Buyer library is only available for buyers',
+      );
+    }
+
+    return fetchBuyerPurchasedMediaLibrary(
+      {
+        messageModel: this.messageModel,
+        paymentModel: this.paymentModel,
+        userModel: this.userModel,
+        normalizeLimit: this.normalizeLimit.bind(this),
+        decodeKeysetCursor: this.decodeKeysetCursor.bind(this),
+        encodeKeysetCursor: this.encodeKeysetCursor.bind(this),
+        escapeRegex: this.escapeRegex.bind(this),
+        readObjectId: this.readObjectId.bind(this),
+        applyMediaPurchaseEntitlements:
+          this.applyMediaPurchaseEntitlements.bind(this),
+        sanitizeMessageForClient: this.sanitizeMessageForClient.bind(this),
+        defaultLimit: DEFAULT_SHARED_MEDIA_PAGE_SIZE,
+        maxLimit: MAX_SHARED_MEDIA_PAGE_SIZE,
+      },
+      {
+        requesterUserId,
+        limit,
+        cursor,
+        sellerUsername,
+      },
+    );
+  }
+
   async markConversationAsRead(
     conversationId: string,
     requesterUserId: string,
@@ -1601,157 +1648,3 @@ export class ChatService {
     console.log('Migration complete');
   }
 }
-
-////  1. Block-Aware fetchConversation()
-// async fetchConversation(
-//   userId: string,
-//   conversationId: string,
-//   limit = 50,
-//   from?: Date,
-//   to?: Date,
-// ) {
-//   // Fetch conversation
-//   const conversation = await this.conversationModel
-//     .findById(conversationId)
-//     .select('participants')
-//     .lean();
-
-//   if (!conversation) throw new NotFoundException('Conversation not found');
-
-//   // Resolve the other user
-//   const otherUserId = conversation.participants.find(
-//     (p) => p.toString() !== userId,
-//   );
-
-//   // BLOCK CHECK
-//   const isBlocked = await this.blockModel.exists({
-//     $or: [
-//       { blocker: userId, blocked: otherUserId },
-//       { blocker: otherUserId, blocked: userId },
-//     ],
-//   });
-
-//   if (isBlocked) {
-//     throw new ForbiddenException('You cannot access this conversation');
-//   }
-
-//   // Build query
-//   const query: any = { conversation: conversationId };
-
-//   if (from || to) {
-//     query.createdAt = {};
-//     if (from) query.createdAt.$gte = from;
-//     if (to) query.createdAt.$lte = to;
-//   }
-
-//   return this.messageModel
-//     .find(query)
-//     .sort({ createdAt: -1 })
-//     .limit(limit)
-//     .populate(
-//       'sender',
-//       'id discordId username displayName discordAvatar role profileImage',
-//     )
-//     .populate(
-//       'reciever',
-//       'id discordId username displayName discordAvatar role profileImage',
-//     )
-//     .populate('media')
-//     .populate('replyTo')
-//     .lean();
-// }
-
-// // 2. Block-Aware getUsersConversationsUsingIds()
-// async getUsersConversationsUsingIds(discordIds: string[]) {
-//   const [user1, user2] = await Promise.all([
-//     this.userModel.findOne({ discordId: discordIds[0] }).lean(),
-//     this.userModel.findOne({ discordId: discordIds[1] }).lean(),
-//   ]);
-
-//   if (!user1) throw new BadRequestException(`User ${discordIds[0]} does not exist`);
-//   if (!user2) throw new BadRequestException(`User ${discordIds[1]} does not exist`);
-
-//   // BLOCK CHECK
-//   const isBlocked = await this.blockModel.exists({
-//     $or: [
-//       { blocker: user1._id, blocked: user2._id },
-//       { blocker: user2._id, blocked: user1._id },
-//     ],
-//   });
-
-//   if (isBlocked) {
-//     throw new ForbiddenException('You cannot open a chat with this user');
-//   }
-
-//   return this.conversationModel
-//     .findOne({
-//       participants: { $all: [user1._id, user2._id] },
-//     })
-//     .populate(
-//       'participants',
-//       'id discordId username displayName discordAvatar role profileImage',
-//     )
-//     .populate({
-//       path: 'lastMessage',
-//       select:
-//         'id conversation sender reciever type text media status replyTo createdAt updatedAt',
-//       populate: [
-//         {
-//           path: 'sender',
-//           select:
-//             'id discordId username displayName discordAvatar role profileImage',
-//         },
-//         {
-//           path: 'reciever',
-//           select:
-//             'id discordId username displayName discordAvatar role profileImage',
-//         },
-//         {
-//           path: 'media',
-//           select: '_id url public_id type chat owner uploadedAt',
-//         },
-//       ],
-//     })
-//     .lean();
-// }
-
-// // 3. Block-Aware getUserConversations() (Chat List)
-// async getUserConversations(userId: string) {
-//   const { blockedUsers, blockedByUsers } =
-//     await this.getBlockRelations(userId);
-
-//   const excluded = [...blockedUsers, ...blockedByUsers];
-
-//   return this.conversationModel
-//     .find({
-//       participants: userId,
-//       participants: { $nin: excluded }, // <-- filter here
-//     })
-//     .populate(
-//       'participants',
-//       'id discordId username displayName discordAvatar role profileImage',
-//     )
-//     .populate({
-//       path: 'lastMessage',
-//       select:
-//         'id conversation sender reciever type text media status replyTo createdAt updatedAt',
-//       populate: [
-//         {
-//           path: 'sender',
-//           select:
-//             'id discordId username displayName discordAvatar role profileImage',
-//         },
-//         {
-//           path: 'reciever',
-//           select:
-//             'id discordId username displayName discordAvatar role profileImage',
-//         },
-//         {
-//           path: 'media',
-//           select: '_id url public_id type chat owner uploadedAt',
-//         },
-//       ],
-//     })
-//     .sort({ updatedAt: -1 })
-//     .lean();
-// }

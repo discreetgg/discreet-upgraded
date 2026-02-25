@@ -11,6 +11,8 @@ import {
   Post,
   Query,
   Req,
+  UsePipes,
+  ValidationPipe,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -243,6 +245,7 @@ export class UserController {
   @ApiBody({ type: UpdateUserDto })
   @ApiOkResponse({ description: 'User updated.' })
   @ApiNotFoundResponse({ description: 'User not found.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async updateUser(
     @Req() req: any,
     @Param('id') id: string,

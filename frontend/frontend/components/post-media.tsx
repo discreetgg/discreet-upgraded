@@ -119,7 +119,7 @@ export const PostMedia = ({
   ) => (
     <div
       key={item._id ?? index}
-      className={`relative overflow-hidden rounded-[10px] bg-[linear-gradient(180deg,#190D1A_0%,#0C0A12_100%)] ${className}`}
+      className={`relative overflow-hidden rounded-[10px] bg-[#12141A] ring-1 ring-white/8 ${className}`}
       style={tileStyle}
     >
       {item.type === 'image' ? (
@@ -190,7 +190,7 @@ export const PostMedia = ({
       )}
 
       {showOverflowOverlay && overflowCount > 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#090C12]/70 text-xl font-semibold text-[#F8F8F8]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#090A0D]/70 text-xl font-semibold text-[#F8F8F8]">
           +{overflowCount}
         </div>
       )}
@@ -212,25 +212,31 @@ export const PostMedia = ({
         unlockOverlay?.onUnlock?.();
       }}
       disabled={!unlockOverlay?.onUnlock}
-      className={`relative overflow-hidden rounded-[10px] border border-[#242934] bg-[linear-gradient(135deg,#171D28_0%,#0D121B_100%)] text-left ${className} ${
+      className={`relative overflow-hidden rounded-[10px] bg-[linear-gradient(135deg,#1B1E25_0%,#101217_100%)] text-left ring-1 ring-white/12 ${className} ${
         unlockOverlay?.onUnlock ? 'cursor-pointer' : 'cursor-default'
       }`}
       style={tileStyle}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%)]" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="rounded-full border border-[#2A2F3A] bg-[#0A0E14]/80 p-2 text-[#7D8392]">
+        <div className="rounded-full bg-black/45 p-2 text-[#FFC4E2] ring-1 ring-white/15">
           <Icon.lock className="h-3.5 w-3.5" />
         </div>
       </div>
       {showUnlockAction && unlockOverlay?.priceLabel && (
         <>
           {unlockOverlay?.compositionLabel && (
-            <div className="absolute inset-x-2 bottom-9 rounded-md border border-[#2F3440] bg-[#0F1420]/90 px-2 py-1 text-center text-[10px] font-medium text-[#BFC8D9]">
+            <div className="absolute left-2 top-2 rounded-full bg-[#23141D]/88 px-2 py-0.5 text-[10px] font-semibold text-[#FFD5EA]">
               {unlockOverlay.compositionLabel}
             </div>
           )}
-          <div className="absolute inset-x-2 bottom-2 rounded-md border border-[#2F3440] bg-[#141925]/95 px-2 py-1 text-center text-[11px] font-medium text-[#E6EAF2]">
+          <div
+            className={`absolute inset-x-2 bottom-2 rounded-md px-2 py-1 text-center text-[11px] font-semibold ${
+              unlockOverlay?.isUnlocked
+                ? 'bg-[#1E2128]/95 text-[#E7EAF1]'
+                : 'bg-[#2A1421]/92 text-[#FFD7EC] ring-1 ring-[#FF007F]/45'
+            }`}
+          >
             {unlockOverlay?.isUnlocked
               ? 'Open in DMs'
               : `Unlock ${unlockOverlay.priceLabel}`}
@@ -238,7 +244,7 @@ export const PostMedia = ({
         </>
       )}
       {showOverflowOverlay && overflowCount > 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#090C12]/70 text-xl font-semibold text-[#F8F8F8]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#090A0D]/70 text-xl font-semibold text-[#F8F8F8]">
           +{overflowCount}
         </div>
       )}
@@ -319,7 +325,7 @@ export const PostMedia = ({
   const renderFocusedPreview = () => {
     if (!activePreview) {
       return (
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,#1A1221_0%,#0B111B_100%)]">
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,#1A1420_0%,#111216_100%)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.16),transparent_45%)]" />
         </div>
       );
@@ -395,8 +401,8 @@ export const PostMedia = ({
         }}
         className={`relative h-10 w-10 shrink-0 overflow-hidden rounded-[10px] border transition-colors ${
           isActive
-            ? 'border-[#FF4DA6] bg-[#1A1223]'
-            : 'border-white/20 bg-[#111926]/75'
+            ? 'border-[#FF007F]/70 bg-[#24141D]'
+            : 'border-white/15 bg-[#16181E]/78 hover:border-white/25'
         }`}
       >
         {item.type === 'image' ? (
@@ -415,7 +421,7 @@ export const PostMedia = ({
             onError={() => setFailedImages((prev) => new Set([...prev, item.url]))}
           />
         ) : (
-          <div className="absolute inset-0 bg-[linear-gradient(160deg,#20152B_0%,#111926_100%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(160deg,#24141D_0%,#171920_100%)]" />
         )}
 
         {item.type === 'video' && (
@@ -430,95 +436,98 @@ export const PostMedia = ({
   if (hasUnlockableBundle) {
     return (
       <div
-        className={`relative overflow-hidden bg-[linear-gradient(180deg,#140916_0%,#080A12_100%)] ${
-          embeddedInPostBody ? '' : 'rounded-2xl border border-[#2A2233]'
-        }`}
+        className={`relative overflow-hidden ${embeddedInPostBody ? '' : 'rounded-2xl'}`}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div
-          className="relative aspect-[4/5] md:aspect-[3/4]"
-          style={{
-            aspectRatio: activePreview
-              ? Math.max(
-                  LOCKED_HERO_ASPECT_RATIO,
-                  Math.min(getPreviewAspect(safeActivePreviewIndex), 0.92)
-                )
-              : LOCKED_HERO_ASPECT_RATIO,
-          }}
-        >
-          {renderFocusedPreview()}
-
+        <div className="bg-[#0F1014]">
           <div
-            className={`pointer-events-none absolute inset-0 bg-gradient-to-t ${
-              isBundleUnlocked
-                ? 'from-[#04050A]/46 via-[#070912]/22 to-transparent'
-                : 'from-[#04050A]/88 via-[#070912]/52 to-transparent'
-            }`}
-          />
-        </div>
-        <div className="space-y-2 border-t border-white/10 bg-[linear-gradient(180deg,rgba(12,15,24,0.9)_0%,rgba(9,12,19,0.95)_100%)] px-3 py-3">
-          <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-            {Array.from({ length: visiblePreviewPieces }, (_, index) =>
-              renderPreviewPieceChip(index)
-            )}
-            {Array.from({ length: visibleLockedPieces }, (_, index) => (
-              <button
-                type="button"
-                key={`locked-piece-${index}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  unlockOverlay?.onUnlock?.();
-                }}
-                disabled={!unlockOverlay?.onUnlock}
-                className={`relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border text-white ${
-                  isBundleUnlocked
-                    ? 'border-[#3A4B69] bg-[linear-gradient(160deg,rgba(120,176,255,0.2),rgba(81,119,183,0.12))]'
-                    : 'border-white/20 bg-[linear-gradient(160deg,rgba(255,255,255,0.14),rgba(255,255,255,0.04))]'
-                }`}
-              >
-                <div
-                  className={`absolute inset-0 rounded-[10px] ${
-                    isBundleUnlocked ? 'bg-[#071426]/10' : 'bg-black/25'
-                  }`}
-                />
-                {isBundleUnlocked ? (
-                  <Icon.unlock className="relative h-3.5 w-3.5" />
-                ) : (
-                  <Icon.lock className="relative h-3.5 w-3.5" />
-                )}
-              </button>
-            ))}
-            {hiddenLockedPieces > 0 && (
-              <div className="inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-[10px] border border-white/20 bg-[#111926]/80 px-2 text-xs font-semibold text-[#F1F5FF]">
-                +{hiddenLockedPieces}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            disabled={!unlockOverlay?.onUnlock}
-            onClick={(event) => {
-              event.stopPropagation();
-              unlockOverlay?.onUnlock?.();
+            className="relative overflow-hidden rounded-t-xl aspect-[4/5] md:aspect-[3/4]"
+            style={{
+              aspectRatio: activePreview
+                ? Math.max(
+                    LOCKED_HERO_ASPECT_RATIO,
+                    Math.min(getPreviewAspect(safeActivePreviewIndex), 0.92)
+                  )
+                : LOCKED_HERO_ASPECT_RATIO,
             }}
-            className={`w-full rounded-md border px-3 py-2 text-sm font-semibold transition-[filter] disabled:cursor-not-allowed disabled:opacity-70 ${
-              isBundleUnlocked
-                ? 'border-[#3A4B69] bg-[linear-gradient(90deg,rgba(21,34,57,0.95)_0%,rgba(29,45,72,0.95)_100%)] text-[#D8E8FF]'
-                : 'border-[#FF4DA6]/70 bg-[linear-gradient(90deg,rgba(68,10,43,0.96)_0%,rgba(132,22,89,0.96)_100%)] text-[#FFE3F2] hover:brightness-110'
-            }`}
           >
-            <span className="inline-flex items-center gap-2">
+            {renderFocusedPreview()}
+
+            <div
+              className={`pointer-events-none absolute inset-0 bg-gradient-to-t ${
+                isBundleUnlocked
+                  ? 'from-[#050507]/56 via-[#0D0D11]/22 to-transparent'
+                  : 'from-[#050507]/80 via-[#0D0D11]/38 to-transparent'
+              }`}
+            />
+            <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/52 px-2.5 py-1 text-[11px] font-semibold text-[#ECEEF4] ring-1 ring-white/20">
               {isBundleUnlocked ? (
-                <Icon.unlock className="h-3.5 w-3.5" />
+                <Icon.unlock className="h-3.5 w-3.5 text-[#FF7ABF]" />
               ) : (
-                <Icon.lock className="h-3.5 w-3.5" />
+                <Icon.lock className="h-3.5 w-3.5 text-[#FF62B2]" />
               )}
-              {isBundleUnlocked
-                ? 'Open in messages'
-                : `Unlock ${unlockOverlay?.priceLabel}`}
-            </span>
-          </button>
+              {unlockOverlay?.compositionLabel || `${lockedCount} locked`}
+            </div>
+          </div>
+          <div className="space-y-2 rounded-b-xl bg-[#12141A] px-2 pb-2 pt-2 sm:px-3 sm:pb-3 ring-1 ring-white/8">
+            <div className="flex items-center gap-2 overflow-x-auto py-0.5">
+              {Array.from({ length: visiblePreviewPieces }, (_, index) =>
+                renderPreviewPieceChip(index)
+              )}
+              {Array.from({ length: visibleLockedPieces }, (_, index) => (
+                <button
+                  type="button"
+                  key={`locked-piece-${index}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    unlockOverlay?.onUnlock?.();
+                  }}
+                  disabled={!unlockOverlay?.onUnlock}
+                  className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-white ring-1 ${
+                    isBundleUnlocked
+                      ? 'bg-[#2A1421] ring-[#FF007F]/55'
+                      : 'bg-[#191B21] ring-white/18'
+                  }`}
+                >
+                  {isBundleUnlocked ? (
+                    <Icon.unlock className="h-3.5 w-3.5" />
+                  ) : (
+                    <Icon.lock className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              ))}
+              {hiddenLockedPieces > 0 && (
+                <div className="inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#191B21] px-2 text-xs font-semibold text-[#ECEEF4] ring-1 ring-white/20">
+                  +{hiddenLockedPieces}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={!unlockOverlay?.onUnlock}
+              onClick={(event) => {
+                event.stopPropagation();
+                unlockOverlay?.onUnlock?.();
+              }}
+              className={`w-full rounded-lg px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                isBundleUnlocked
+                  ? 'bg-[#1E2128] text-[#E6E8EE] hover:bg-[#262A33]'
+                  : 'bg-[#2A1421] text-[#FFD7EC] ring-1 ring-[#FF007F]/55 hover:bg-[#351A2B]'
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                {isBundleUnlocked ? (
+                  <Icon.unlock className="h-3.5 w-3.5" />
+                ) : (
+                  <Icon.lock className="h-3.5 w-3.5" />
+                )}
+                {isBundleUnlocked
+                  ? 'Open in messages'
+                  : `Unlock ${unlockOverlay?.priceLabel}`}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -579,36 +588,25 @@ export const PostMedia = ({
 
       {shouldShowLockedOverlay && (
         <div className="pointer-events-none absolute inset-0 z-20">
-          <div className="absolute inset-0 bg-gradient-to-t from-[#04050A]/80 via-[#070A14]/45 to-transparent" />
-
-          <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/55 px-2.5 py-1 text-[11px] font-medium text-[#F4F7FF]">
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050507]/72 via-[#0D0D11]/25 to-transparent" />
+          <div className="absolute left-3 top-3 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-[#F2F3F7] ring-1 ring-white/20">
             <span className="inline-flex items-center gap-1.5">
-              <Icon.lock className="h-3.5 w-3.5 text-[#FF5AB3]" />
+              <Icon.lock className="h-3.5 w-3.5 text-[#FF62B2]" />
               {unlockOverlay?.compositionLabel || 'Locked content'}
             </span>
           </div>
-
-          <div className="pointer-events-auto absolute inset-x-3 bottom-3 rounded-xl border border-white/15 bg-[#0B1220]/88 px-3 py-2 backdrop-blur-sm">
-            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[#D6DEEF]">
-              <span className="truncate">
-                Unlock full drop
-              </span>
-              <span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#F3F6FF]">
-                {unlockOverlay?.compositionLabel || `${lockedCount} items`}
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={!unlockOverlay?.onUnlock}
-              onClick={(event) => {
-                event.stopPropagation();
-                unlockOverlay?.onUnlock?.();
-              }}
-              className="w-full rounded-md border border-[#FF4DA6]/60 bg-[#FF007F]/18 px-3 py-1.5 text-sm font-semibold text-[#FFD5EA] transition-colors hover:bg-[#FF007F]/28 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              Unlock {unlockOverlay?.priceLabel}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={!unlockOverlay?.onUnlock}
+            onClick={(event) => {
+              event.stopPropagation();
+              unlockOverlay?.onUnlock?.();
+            }}
+            className="pointer-events-auto absolute inset-x-3 bottom-3 inline-flex items-center justify-center gap-2 rounded-lg bg-[#2A1421] px-3 py-2 text-sm font-semibold text-[#FFD7EC] ring-1 ring-[#FF007F]/60 transition-colors hover:bg-[#351A2B] disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            <Icon.lock className="h-3.5 w-3.5" />
+            Unlock {unlockOverlay?.priceLabel}
+          </button>
         </div>
       )}
     </div>

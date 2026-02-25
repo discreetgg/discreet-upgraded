@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -1000,11 +1001,23 @@ export class PaymentService {
     if (!sellerWallet)
       throw new BadRequestException('Seller does not have an active wallet');
     if (!messageAsset) throw new NotFoundException('Message does not exist');
+    if (!buyer || !seller) throw new NotFoundException('User does not exist');
     if (!messageAsset.price || +messageAsset.price == 0) {
       throw new BadRequestException('this message Asset has no price');
     }
     if (!messageAsset.isPayable) {
       throw new BadRequestException('This message asset is not payable');
+    }
+    if (messageAsset.type !== MessageType.IN_MESSAGE_MEDIA) {
+      throw new BadRequestException('Invalid message asset type');
+    }
+    if (
+      messageAsset.sender?.toString() !== seller._id.toString() ||
+      messageAsset.reciever?.toString() !== buyer._id.toString()
+    ) {
+      throw new ForbiddenException(
+        'Message asset does not match the provided buyer/seller',
+      );
     }
     if (buyer._id.equals(seller._id)) {
       throw new BadRequestException('You cannot pay for your own asset');

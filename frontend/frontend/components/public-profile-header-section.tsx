@@ -54,6 +54,25 @@ export const PublicProfileHeaderSection = ({
 	const handleOpenMessage = async () => {
 		if (isOpeningMessage) return;
 		setIsOpeningMessage(true);
+		const newChatParams = new URLSearchParams({
+			chat: "new",
+			receiver: user.discordId,
+		});
+		if (user.displayName) {
+			newChatParams.set("displayName", user.displayName);
+		}
+		if (user.username) {
+			newChatParams.set("username", user.username);
+		}
+		if (user.discordAvatar) {
+			newChatParams.set("discordAvatar", user.discordAvatar);
+		}
+		if (user.profileImage?.url) {
+			newChatParams.set("profileImage", user.profileImage.url);
+		}
+		if (user.role) {
+			newChatParams.set("role", user.role);
+		}
 
 		setReceiver(user);
 		const existingConversation = conversations?.find((conversation) =>
@@ -92,7 +111,7 @@ export const PublicProfileHeaderSection = ({
 			console.error("Failed to resolve conversation", error);
 		}
 
-		router.push("/messages?chat=new");
+		router.push(`/messages?${newChatParams.toString()}`);
 		setIsOpeningMessage(false);
 	};
 

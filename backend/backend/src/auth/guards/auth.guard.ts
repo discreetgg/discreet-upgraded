@@ -12,12 +12,19 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    //
-    // console.log(process.env.NODE_ENV == 'production');
-    const token = request.cookies?.auth_token;
-    // console.log('token:', token);
+    const cookieToken =
+      typeof request.cookies?.auth_token === 'string'
+        ? request.cookies.auth_token
+        : '';
+    const authorizationHeader =
+      typeof request.headers?.authorization === 'string'
+        ? request.headers.authorization
+        : '';
+    const bearerToken = authorizationHeader.startsWith('Bearer ')
+      ? authorizationHeader.slice('Bearer '.length).trim()
+      : '';
+    const token = cookieToken || bearerToken;
     if (!token) {
-      // return false;
       throw new UnauthorizedException('No token provided');
     }
 
@@ -25,12 +32,9 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwtService.verify(token, {
         secret: process.env.JWT_SECRET,
       });
-
-      // console.log('this is payload ', payload);
       request.user = payload;
       return true;
     } catch {
-      // return false;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }
